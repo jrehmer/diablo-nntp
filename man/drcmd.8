@@ -1,4 +1,4 @@
-.\" $Revision: 1.2 $
+.\" $Revision: 1.3 $
 .TH DRCMD 8
 .SH NAME
 drcmd \- Diablo program to manage a running dreaderd server
@@ -6,43 +6,100 @@ drcmd \- Diablo program to manage a running dreaderd server
 .SH SYNOPSIS
 .B drcmd
 [
-version/status/exit/pause/go
+.B \-C
+.I diablo.config
+]
+[
+.I command
+[
+.I argument ...
+]
 ]
 
 .SH DESCRIPTION
-.IR DrCmd 
-issues a command to the parent dreaderd server.  the following
-commands are available:
+.IR DrCmd
+sends a command to the parent dreaderd server through its control socket
+in path_run and prints the reply.  The words after the options are sent
+as one command line.  Without a command,
+.I drcmd
+reads one command line from standard input.
+.PP
+The exit status is 0 when dreaderd ended its reply with a line holding a
+single dot, 1 otherwise (no reply).
+.PP
+The following commands are available:
+.PP
+.B status
+\- prints one line: "Connect=\fIn\fP Failed=\fIn\fP Dns=\fIpending\fP/\fIworkers\fP
+Act=\fIactive\fP/\fImax\fP": connections accepted and refused since the
+start, DNS lookups pending and DNS workers, and active connections against
+the maximum (readerforks times readerthreads).
+.PP
+.B version
+\- prints the dreaderd version.
+.PP
+.B help
+\- lists the commands.
+.PP
+.B stats
+\- prints server statistics.
+.B rawstats
+prints the same without pretty printing.
+.B vstats
+prints statistics per virtual server.
+.PP
+.B config
+[
+.I directive
+[
+.I value
+]
+]
+\- without arguments, prints the current reader settings of diablo.config;
+with a directive, prints that one; with a directive and a value, changes it
+in the running server.  Options shown with a '*' cannot be changed while
+the server is running.
+.PP
+.B pause
+\- increments a pause counter.  While it is above zero, new connections
+are refused with "400 ... Server is temporarily unavailable, please try
+later".  Connections already open are not affected.
+.PP
+.B go
+\- asks dreaderd to decrement its pause counter.  When the counter reaches
+zero, dreaderd will reenable incoming connections.  Dreaderd will not allow
+the counter to go negative.
 .PP
 .B exit
 \- asks dreaderd to stop accepting connections, kill its children, and exit.
 The command will not return until dreaderd has completed all operations and
 then exited.
 .PP
-.B pause
-\- asks dreaderd to stop accepting new connections. New connections are
-refused with a 502 error.
+.B aexit
+\- like
+.BR exit ,
+but returns at once instead of waiting for dreaderd to exit.
 .PP
-.B go
-\- asks dreaderd to decrement its pause counter.  When the counter reaches
-zero, dreaderd will reenable incoming connections.  Dreaderd will not allow
-the counter to go negative.
+.B banlist
+and
+.B banconfig
+\- print the current ban lists and ban settings.  Only when dreaderd was
+built with READER_BAN_LISTS in lib/vendor.h (off by default).
+
+.SH OPTIONS
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default, to find the control
+socket (path_run).
 
 .SH "SEE ALSO"
-diablo(8), 
+dreaderd(8),
 dicmd(8),
-didump(8),
-diload(8),
-dnewslink(8),
-doutq(8),
-dexpire(8),
+diablo(8),
 dexpireover(8),
-diconvhist(8),
-dilookup(8),
-dspoolout(8),
+dreadover(8),
 dkp(8),
 dpath(8),
 diablo-kp(5),
 diablo-files(5)
 .PP
-

@@ -1,4 +1,4 @@
-.\" $Revision: 1.6 $
+.\" $Revision: 1.7 $
 .TH DICMD 8
 .SH NAME
 dicmd \- Diablo program to manage a running diablo server
@@ -6,13 +6,44 @@ dicmd \- Diablo program to manage a running diablo server
 .SH SYNOPSIS
 .B dicmd
 [
-version/flush/exit/pause/go
+.B \-C
+.I diablo.config
+]
+[
+.I command
+[
+.I argument ...
+]
 ]
 
 .SH DESCRIPTION
-.IR DiCmd 
-issues a command to the parent diablo server.  the following
-commands are available:
+.IR DiCmd
+sends a command to the parent diablo server through its control socket
+in path_run and prints the reply.  The words after the options are sent
+as one command line.  Without a command,
+.I dicmd
+reads command lines from standard input and sends each one.
+.PP
+The exit status is 0 when diablo ended its reply with a line holding a
+single dot, 1 otherwise (no reply, or a command such as
+.B feednotify
+that sends no dot).
+.PP
+The following commands are available:
+.PP
+.B status
+\- prints one line: "211 Paused=\fIn\fP Exiting=\fIn\fP Forks=\fIn\fP
+NFds=\fIn\fP MaxFds=\fIn\fP".
+.PP
+.B version
+\- prints the diablo version.
+.PP
+.B info
+\- prints the highest descriptor in use, whether the internal and
+external spam filters are enabled, and whether read-only mode is on.
+.PP
+.B help
+\- lists the most common commands.
 .PP
 .B flush
 \- commits any buffered outbound data to their associated outbound queue
@@ -20,18 +51,15 @@ file.  Normally you rename the queue file(s), then run a flush to 'close'
 diablo's reference to the file and force it to create a new file.  Unlike
 INN, you can flush the queue files without renaming them first.  The queue
 files are not truncated, as diablo always opens them for append.  This is
-useful for precautionary purposes.
-.PP
-.B exit
-\- asks diablo to kill its children, flush its queue file(s), and exit.
-The command will not return until diablo has completed all operations and
-then exited.
+useful for precautionary purposes.  The incoming, path and article logs are
+closed and reopened as well.
 .PP
 .B pause
 \- asks diablo to kill its children and increment a pause counter.  You
-must match each pause with a 
+must match each pause with a
 .B go
-later on.  This also has the effect of closing all diablo server references 
+later on.  The reply comes once all children have exited.  This also has
+the effect of closing all diablo server references
 to the history file for the duration of the pause, allowing programs such
 as the weekly history cleaning run to freely operate on the history file.
 Diablo refuses connections with a 502 error when paused.
@@ -40,6 +68,61 @@ Diablo refuses connections with a 502 error when paused.
 \- asks diablo to decrement its pause counter.  When the counter reaches
 zero, diablo will reenable incoming connections.  Diablo will not allow
 the counter to go negative.
+.B go
+also ends read-only mode.
+.PP
+.B readonly
+\- puts diablo into read-only mode: the children are told to stop
+accepting articles (IHAVE, CHECK and TAKETHIS are answered with 480), and
+new connections are refused with 502 unless their dnewsfeeds label has
+.BR readonly ,
+in which case they are read-only connections as well.  The reply comes
+once all children have switched.  End it with
+.BR go .
+.PP
+.B exit
+\- asks diablo to kill its children, flush its queue file(s), and exit.
+The command will not return until diablo has completed all operations and
+then exited.
+.PP
+.B aexit
+\- like
+.BR exit ,
+but returns at once instead of waiting for diablo to exit.
+.PP
+.B stats
+\- prints server statistics.
+.B rawstats
+prints the same without pretty printing.
+.PP
+.B spaminfo
+\- dumps the internal spam filter cache.
+.PP
+.B dumpfeed
+[
+.I label
+]
+\- prints diablo's in-memory copy of the outgoing feed definitions from
+dnewsfeeds, for all labels or the one given.
+.PP
+.B config
+[
+.I directive
+[
+.I value
+]
+]
+\- without arguments, prints the current feeder settings of diablo.config;
+with a directive, prints that one; with a directive and a value, changes it
+in the running server.  Options shown with a '*' cannot be changed while
+the server is running.
+.PP
+.B debug
+[
+.I label
+]
+\- turns on debug logging for one feed label, or turns it off without an
+argument.
 .PP
 .B dumphist
 \- asks the parent diablo process to call the configured dumphist program
@@ -47,17 +130,34 @@ in a blocking manner.  New connections are not accepted and articles are not
 written to history for the duration of the program run.  This is intended to
 help those with memory filesystems for history make periodic history file
 snapshots without a lot of extra pausing and scripting.
+.PP
+.B feednotify
+.BI on: label
+|
+.BI off: label
+and
+.B listnotify
+[
+.I label
+]
+\- turn the notification pipe for a feed label on or off, and list which
+labels have one.  They are used by dnewslink and are not normally typed by
+hand.
+
+.SH OPTIONS
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default, to find the control
+socket (path_run).
 
 .SH "SEE ALSO"
-diablo(8), 
-dicmd(8),
+diablo(8),
+drcmd(8),
 didump(8),
-diload(8),
 dnewslink(8),
 doutq(8),
 dexpire(8),
 dexpireover(8),
-diconvhist(8),
 dilookup(8),
 dspoolout(8),
 dkp(8),
@@ -65,4 +165,3 @@ dpath(8),
 diablo-kp(5),
 diablo-files(5)
 .PP
-
