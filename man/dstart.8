@@ -1,0 +1,48 @@
+.TH DSTART 8
+.SH NAME
+dstart \- open the news port and start diablo or dreaderd as news
+.SH SYNOPSIS
+.B dstart
+.B diablo
+|
+.B dreaderd
+[
+.I options
+]
+.SH DESCRIPTION
+.I dstart
+opens the listening socket (by default the nntp port on all IPv4
+addresses), switches to the user and group news, and runs diablo or
+dreaderd from path_home/dbin with the open socket passed as
+.BI \-b fd
+and the remaining options.
+.PP
+It reads these options itself and also passes them on:
+.TP
+.BI \-B " host" [: port ]
+Bind to this host (and port).
+.TP
+.BI \-P " " [ host :] port
+Bind to this port (and host).
+.TP
+.BI \-R " size" " \fR,\fP \-T " size
+Set the receive and send buffer sizes of the socket.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config.
+.PP
+Only one IPv4 address can be bound; start dreaderd as root to listen on
+several addresses or on IPv6.
+.I diablo-ctl
+(adm/diablo-ctl) is the usual way to start the daemons.
+.SH SECURITY
+Don't install
+.I dstart
+setuid root.  It honours
+.B \-C
+and DIABLO_CONFIG_PATH, which decide the program it runs, so a setuid
+.I dstart
+lets any local user run programs as news.  Run it as root instead.
+.SH "SEE ALSO"
+diablo(8),
+dreaderd(8)

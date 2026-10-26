@@ -1,0 +1,41 @@
+.TH DIDATE 8
+.SH NAME
+didate \- convert dates and Diablo time values
+.SH SYNOPSIS
+.B didate
+.I datestr
+.br
+.B didate
+.B \-c
+.I unixtime
+.br
+.B didate
+.B \-g
+.I histime
+.SH DESCRIPTION
+.I didate
+prints a date in
+.IR ctime (3)
+form.  Given a date string, it parses it the way diablo parses dates
+(for example a Date: header or "26 Oct 2026 12:00:00 GMT") and prints
+the result, or "Illegal format".
+.SH OPTIONS
+.TP
+.BI \-c " unixtime"
+Print the date of a Unix time (seconds since 1970), decimal or 0x hex.
+.TP
+.BI \-g " histime"
+Print the date of a history time value (minutes since 1970, the gm=
+field shown by
+.IR dilookup (8)),
+decimal or 0x hex.
+.SH EXAMPLES
+.nf
+didate "Mon, 26 Oct 2026 12:00:00 GMT"
+didate -c 1793039519
+didate -g 29883850
+.fi
+.SH "SEE ALSO"
+dilookup(8),
+didump(8),
+diablo-files(5)

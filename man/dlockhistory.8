@@ -1,0 +1,51 @@
+.TH DLOCKHISTORY 8
+.SH NAME
+dlockhistory \- keep the Diablo history hash table locked in memory
+.SH SYNOPSIS
+.B dlockhistory
+[
+.B \-a
+]
+[
+.B \-f
+]
+[
+.B \-V
+]
+.I historyfile
+.SH DESCRIPTION
+.I dlockhistory
+maps the hash table of a history file (normally /news/dhistory) and locks
+it into memory with
+.IR mlock (2),
+so that history lookups don't wait for the disk.  It keeps running and
+checks every 5 seconds whether the history file was replaced (a new inode,
+for example after
+.IR dhisexpire (8)),
+and then maps and locks the new file.
+.PP
+.IR mlock (2)
+usually needs root, so
+.I dlockhistory
+refuses to run as another user unless
+.B \-f
+is given.  Running it as root is a risk; make sure you need it.
+.SH OPTIONS
+.TP
+.B \-a
+Lock the whole history file, not only the hash table.
+.TP
+.B \-f
+Don't check for root.
+.TP
+.B \-V
+Print the version and exit.
+.SH BUGS
+.B \-s
+.I sleeptime
+(the time between checks) is listed in the usage message but crashes the
+program, because the option is not declared to take an argument.
+.SH "SEE ALSO"
+diablo(8),
+dhisexpire(8),
+dilookup(8)
