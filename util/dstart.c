@@ -180,17 +180,24 @@ main(int ac, char **av)
             exit(1);
         }
         gid = gr->gr_gid;
-        if (setgroups(1, &gid) < 0) {
-            perror("dstart: setgroups(news)");
-            exit(1);
-        }
-        if (setgid(gr->gr_gid) < 0) {
-            perror("dstart: setgid(news)");
-            exit(1);
-        }
-        if (setuid(pw->pw_uid) < 0) {
-            perror("dstart: setuid(news)");
-            exit(1);
+        /*
+         * Only root can change identity.  A non-root start keeps running
+         * as the invoking user, as it always has; a failure while root
+         * must not leave the daemon running with root privileges.
+         */
+        if (geteuid() == 0) {
+            if (setgroups(1, &gid) < 0) {
+                perror("dstart: setgroups(news)");
+                exit(1);
+            }
+            if (setgid(gr->gr_gid) < 0) {
+                perror("dstart: setgid(news)");
+                exit(1);
+            }
+            if (setuid(pw->pw_uid) < 0) {
+                perror("dstart: setuid(news)");
+                exit(1);
+            }
         }
     }
 

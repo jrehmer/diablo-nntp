@@ -799,20 +799,27 @@ DiabloServer(int lfd)
 	}
 	gid = gr->gr_gid;
 	ChownGeneralLog(pw->pw_uid, gr->gr_gid);
-	if (setgroups(1, &gid) < 0) {
-	    syslog(LOG_CRIT, "Unable to set supplementary groups to news: %s",
-	           strerror(errno));
-	    exit(1);
-	}
-	if (setgid(gr->gr_gid) < 0) {
-	    syslog(LOG_CRIT, "Unable to set group ID to news: %s",
-	           strerror(errno));
-	    exit(1);
-	}
-	if (setuid(pw->pw_uid) < 0) {
-	    syslog(LOG_CRIT, "Unable to set user ID to news: %s",
-	           strerror(errno));
-	    exit(1);
+	/*
+	 * Only root can change identity.  A non-root start keeps running
+	 * as the invoking user, as it always has; a failure while root
+	 * must not leave the daemon running with root privileges.
+	 */
+	if (geteuid() == 0) {
+	    if (setgroups(1, &gid) < 0) {
+		syslog(LOG_CRIT, "Unable to set supplementary groups to news: %s",
+		       strerror(errno));
+		exit(1);
+	    }
+	    if (setgid(gr->gr_gid) < 0) {
+		syslog(LOG_CRIT, "Unable to set group ID to news: %s",
+		       strerror(errno));
+		exit(1);
+	    }
+	    if (setuid(pw->pw_uid) < 0) {
+		syslog(LOG_CRIT, "Unable to set user ID to news: %s",
+		       strerror(errno));
+		exit(1);
+	    }
 	}
     }
 
