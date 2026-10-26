@@ -104,7 +104,7 @@ sets the common path name.  The path is prepended to the Path: header only
 if it does not already exist in the Path: header.  Usually both -p and -c
 options are used.  The newspathname is placed in front of the commonname
 in this case (assuming it does not exist elsewhere in the path), as in
-'newspathname!commonname!...'. Multiple -c options can be specified and
+\&'newspathname!commonname!...'. Multiple -c options can be specified and
 wil be added (along with -p) in the order specified on the command-line.
 .PP
 .B \-d[n]
@@ -161,7 +161,7 @@ Set the TCP receive buffer size.
 .PP
 
 This option enables the internal spamfilter and will override the
-'internalfilter' option in diablo.config. NOTE: There must also be
+\&'internalfilter' option in diablo.config. NOTE: There must also be
 an ISPAM entry in dnewsfeeds before any articles will reach the
 filter even if it is enabled here. The ISPAM entry determines which
 articles are sent to the internal filter.  There are two internal
@@ -184,7 +184,7 @@ in an hour before extra articles from that host are
 rejected.
 .PP
 .B en - set the expire time (in seconds) for the previous
-'B' or 'N' option. Default is 3600 (1 hour).  
+\&'B' or 'N' option. Default is 3600 (1 hour).  
 .PP
 .B sn
 - set the number of entries in the filter hash table to
