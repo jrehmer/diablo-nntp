@@ -1,0 +1,85 @@
+.TH DHISBENCH 8
+.SH NAME
+dhisbench \- benchmark Diablo history adds and lookups
+.SH SYNOPSIS
+.B dhisbench
+.B \-f
+.I historyfile
+[
+.B \-af
+.I forks
+]
+[
+.B \-ac
+.I count
+]
+[
+.B \-lf
+.I forks
+]
+[
+.B \-lc
+.I count
+]
+[
+.BR \-F [ l | s ]
+]
+[
+.B \-h
+.I hsize
+]
+[
+.B \-m
+.I statsfile
+]
+[
+.B \-C
+.I diablo.config
+]
+.SH DESCRIPTION
+.I dhisbench
+measures history performance: it starts processes that add made-up
+entries to a history file and processes that look entries up, and prints
+the number of operations and the time they took.  At least one of
+.B \-af
+or
+.B \-lf
+is required.
+.SH WARNING
+Always give a scratch file with
+.BR \-f .
+Without it,
+.I dhisbench
+uses the configured dhistory, and the add processes write made-up
+entries (1000 per process by default) into the live history.
+.SH OPTIONS
+.TP
+.BI \-f " historyfile"
+The history file to use.
+.TP
+.BI \-af " forks" " \fR,\fP \-ac " count
+Number of add processes, and entries each adds.
+.TP
+.BI \-lf " forks" " \fR,\fP \-lc " count
+Number of lookup processes, and lookups each does.
+.TP
+.B \-F
+Fast adds: no locking and no duplicate check.  \fB\-Fl\fP: no locking
+only; \fB\-Fs\fP: no duplicate check only.
+.TP
+.BI \-h " hsize"
+Hash table size for a new file (power of 2, 256k to 128m).
+.TP
+.BI \-m " statsfile"
+File for the shared statistics (default path_run/dhisbench.map).
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.SH EXAMPLES
+.nf
+dhisbench -f /var/tmp/dhistory.bench -af 4 -ac 100000 -lf 4
+.fi
+.SH "SEE ALSO"
+dilookup(8),
+diload(8),
+diablo-files(5)

@@ -1,0 +1,48 @@
+.TH DICONVHIST 8
+.SH NAME
+diconvhist \- add Message-IDs from an INN history file to Diablo's dhistory
+.SH SYNOPSIS
+.B diconvhist
+[
+.B \-f
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-V
+]
+.I innhistory
+|
+.B \-
+.SH DESCRIPTION
+.I diconvhist
+reads an INN history file (or standard input for '-') and adds each
+Message-ID it doesn't already know to Diablo's dhistory as an expired
+entry.  diablo then refuses those articles when peers offer them again,
+which avoids refetching what the old INN server already had during a
+switch from INN to Diablo.  It can run while diablo is running.
+.PP
+It prints the lines scanned, the entries added, the duplicates and the
+ignored lines every 1000 lines and at the end.
+.SH OPTIONS
+.TP
+.B \-f
+Fast mode: after 10 Message-IDs in a row that are already in dhistory,
+skip the next 100 lines without looking them up.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.TP
+.B \-V
+Print the version and exit.
+.SH BUGS
+Only lines that begin with a Message-ID in angle brackets are used.  INN
+2.x writes the history in hashed form ("[hash]"), so its history file
+gives no entries; it works with the older text format only.
+.SH "SEE ALSO"
+diablo(8),
+diload(8),
+didump(8),
+diablo-files(5)

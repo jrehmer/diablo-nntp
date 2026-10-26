@@ -1,0 +1,36 @@
+.TH PLOCK 8
+.SH NAME
+plock \- run a command while holding a lock on a file
+.SH SYNOPSIS
+.B plock
+[
+.B \-r
+]
+[
+.B \-t
+]
+.I lockfile
+.I command
+[
+.I argument ...
+]
+.SH DESCRIPTION
+.I plock
+locks
+.I lockfile
+(creating it, mode 0600, if needed), runs the command with
+.IR sh (1),
+waits for it and releases the lock.  It is used in Diablo's adm scripts
+to keep two runs of the same job from overlapping.  The arguments are
+joined with spaces and passed to sh -c.
+.SH OPTIONS
+.TP
+.B \-r
+Take a shared lock instead of an exclusive one.
+.TP
+.B \-t
+Don't wait: if the lock is held, print "lock already held, exiting" and
+exit.
+.SH "SEE ALSO"
+showlocks(8),
+sh(1)

@@ -1,0 +1,18 @@
+.TH SHOWLOCKS 8
+.SH NAME
+showlocks \- show the record locks other processes hold on files
+.SH SYNOPSIS
+.B showlocks
+.I file ...
+.SH DESCRIPTION
+For each file,
+.I showlocks
+prints the
+.IR fcntl (2)
+record locks held by other processes, one line each with the start,
+length, type (read or write) and process ID.  It helps to find which
+Diablo process holds a lock on dhistory, dactive.kp or another database
+file.
+.SH "SEE ALSO"
+plock(8),
+dkp(8)

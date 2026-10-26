@@ -1,0 +1,75 @@
+.TH DILOAD 8
+.SH NAME
+diload \- load history entries in didump format into a history file
+.SH SYNOPSIS
+.B diload
+[
+.B \-f
+]
+[
+.B \-u
+]
+[
+.B \-h
+.I hsize
+]
+[
+.B \-v
+]
+[
+.BR \-d [\fIn\fP]
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-V
+]
+.I historyfile
+.SH DESCRIPTION
+.I diload
+reads history entries in the format written by
+.IR didump (8)
+("DUMP \fIhash\fP.\fIiter\fP gm=... ex=... boff=... bsize=... flags=")
+from standard input and adds them to
+.IR historyfile ,
+creating it if needed.  A line holding a single dot ends the input.
+Entries already in the file are not added twice.  Together with didump
+it is used to rebuild, move or resize a history file:
+.PP
+.nf
+didump /news/dhistory | diload -h 8m /news/dhistory.new
+.fi
+.PP
+At the end it prints how many entries were loaded out of how many read.
+.SH OPTIONS
+.TP
+.B \-f
+Fast mode: no locking and no duplicate checks.  Only for a new file;
+an existing file is refused unless \fB\-u\fP is given too.
+.TP
+.B \-u
+With \fB\-f\fP, allow an existing file and check for duplicates.  Not
+recommended.
+.TP
+.BI \-h " hsize"
+Hash table size (entries) for a new file, a power of 2, with an optional
+k or m suffix.  Default: hsize in diablo.config.
+.TP
+.B \-v
+Show progress.
+.TP
+.BR \-d [\fIn\fP]
+Set the debug level.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.TP
+.B \-V
+Print the version and exit.
+.SH "SEE ALSO"
+didump(8),
+dhisexpire(8),
+diloadfromspool(8),
+diablo-files(5)
