@@ -60,6 +60,58 @@ OverData *MakeOverHFile(OverInfo *ov, artno_t artNo, int create);
 void FreeOverInfo(OverInfo *ov);
 void FreeOverData(OverData *od);
 
+/* Overview records are fixed-size on disk.  Never publish a partial record. */
+static int
+OverWriteAt(int fd, const void *buf, size_t len, off_t pos)
+{
+    const char *ptr = buf;
+
+    while (len) {
+        ssize_t n = pwrite(fd, ptr, len, pos);
+
+        if (n > 0) {
+            ptr += n;
+            pos += n;
+            len -= (size_t)n;
+        } else if (n < 0 && errno == EINTR) {
+            continue;
+        } else {
+            if (n == 0)
+                errno = EIO;
+            return(-1);
+        }
+    }
+    return(0);
+}
+
+/* writev() is allowed to complete only part of an overview header. */
+static int
+OverWriteV(int fd, const struct iovec *iov, int count)
+{
+    int i;
+
+    for (i = 0; i < count; ++i) {
+        const char *ptr = iov[i].iov_base;
+        size_t left = iov[i].iov_len;
+
+        while (left) {
+            ssize_t n = write(fd, ptr, left);
+
+            if (n > 0) {
+                ptr += n;
+                left -= (size_t)n;
+            } else if (n < 0 && errno == EINTR) {
+                continue;
+            } else {
+                if (n == 0)
+                    errno = EIO;
+                return(-1);
+            }
+        }
+    }
+    return(0);
+}
+
 OverInfo *OvHash[OVHSIZE];
 int	  NumOverInfo;
 
@@ -657,9 +709,10 @@ WriteOverview(Connection *conn, ArtNumAss *an, const char *group, const char *xr
 	    ; /* EMPTY */
 	} else if (
 	    DOpts.ReaderXOverMode == 2 ||
-	    (FilePreAllocSpace(ov->ov_HCache->od_HFd, pos,
-	     prealloc_oh, iovLen) == 0 &&
-	     writev(ov->ov_HCache->od_HFd, iov, iovLen) == actLen)
+	    (pos >= 0 &&
+	     FilePreAllocSpace(ov->ov_HCache->od_HFd, pos,
+	     prealloc_oh, actLen) == 0 &&
+	     OverWriteV(ov->ov_HCache->od_HFd, iov, iovLen) == 0)
 	) {
 	    /*
 	     * Our write of the overview data succeeded or we were asked not
@@ -683,15 +736,35 @@ WriteOverview(Connection *conn, ArtNumAss *an, const char *group, const char *xr
 	    ovart.oa_TimeRcvd = (int)time(NULL);
 	    ovart.oa_ArtSize = (conn->co_ByteCounter > 0.0 ? conn->co_ByteCounter : conn->co_BytesHeader);
 
-	    lseek(ov->ov_OFd, ovpos, 0);
-	    FilePreAllocSpace(ov->ov_OFd, ovpos, prealloc_ov, sizeof(ovart));
-	    write(ov->ov_OFd, &ovart, sizeof(ovart));
-	    hflock(ov->ov_OFd, 0, XLOCK_UN);
-	    LogCmd(conn, '+', logbuf);
-	    if (DRIncomingLogPat != NULL)
-		LogIncoming("%s + %s%s", conn->co_Auth.dr_Host, "", logbuf);
+	    if (ovpos < 0 ||
+		FilePreAllocSpace(ov->ov_OFd, ovpos, prealloc_ov,
+		    sizeof(ovart)) != 0 ||
+		OverWriteAt(ov->ov_OFd, &ovart, sizeof(ovart), ovpos) < 0) {
+		int error = errno;
+
+		/* The data append is not visible without a valid index entry. */
+		if (DOpts.ReaderXOverMode != 2 && ftruncate(ov->ov_HCache->od_HFd, pos) < 0)
+		    logit(LOG_ERR, "error rolling back overview data for %s: %s",
+			group, strerror(errno));
+		hflock(ov->ov_OFd, 0, XLOCK_UN);
+		logit(LOG_ERR, "error writing overview index for %s: %s",
+		    group, strerror(error));
+		LogCmd(conn, '-', logbuf);
+		if (DRIncomingLogPat != NULL)
+		    LogIncoming("%s - %s%s", conn->co_Auth.dr_Host, "", logbuf);
+		MBLogPrintf(conn, &conn->co_TMBuf, "400 Error writing data\r\n");
+		NNTerminate(conn);
+		err = 1;
+	    } else {
+		hflock(ov->ov_OFd, 0, XLOCK_UN);
+		LogCmd(conn, '+', logbuf);
+		if (DRIncomingLogPat != NULL)
+		    LogIncoming("%s + %s%s", conn->co_Auth.dr_Host, "", logbuf);
+	    }
 	} else {
-	    ftruncate(ov->ov_HCache->od_HFd, pos);
+	    if (pos >= 0 && ftruncate(ov->ov_HCache->od_HFd, pos) < 0)
+		logit(LOG_ERR, "error rolling back overview data for %s: %s",
+		    group, strerror(errno));
 	    logit(LOG_ERR, "error writing overview data file for %s", group);
 	    LogCmd(conn, '-', logbuf);
 	    if (DRIncomingLogPat != NULL)
@@ -870,11 +943,16 @@ again:
 		    if (save.oe_InitArts == 0)
 			save.oe_InitArts = DEFARTSINGROUP;
 
-		    ftruncate(ov->ov_OFd, 0);
+		    if (ftruncate(ov->ov_OFd, 0) < 0) {
+			logit(LOG_ERR, "error truncating overview index for %s: %s",
+			    group, strerror(errno));
+			hflock(ov->ov_OFd, 0, XLOCK_UN);
+			FreeOverInfo(ov);
+			return(NULL);
+		    }
 		    st.st_size = sizeof(oh) + sizeof(OverArt) * save.oe_InitArts;
 		    FileAllocSpace(ov->ov_OFd, 0, st.st_size);
 		    fsync(ov->ov_OFd);
-		    lseek(ov->ov_OFd, 0L, 0);
 		    bzero(&oh, sizeof(oh));
 		    oh.oh_Version = OH_VERSION;
 		    oh.oh_ByteOrder = OH_BYTEORDER;
@@ -882,8 +960,14 @@ again:
 		    oh.oh_MaxArts = save.oe_InitArts;
 		    strncpy(oh.oh_Gname, group, sizeof(oh.oh_Gname) - 1);
 		    oh.oh_DataEntries = save.oe_DataSize;
-		    write(ov->ov_OFd, &oh, sizeof(oh));
-		    fsync(ov->ov_OFd);
+		    if (OverWriteAt(ov->ov_OFd, &oh, sizeof(oh), 0) < 0 ||
+			fsync(ov->ov_OFd) < 0) {
+			logit(LOG_ERR, "error initializing overview index for %s: %s",
+			    group, strerror(errno));
+			hflock(ov->ov_OFd, 0, XLOCK_UN);
+			FreeOverInfo(ov);
+			return(NULL);
+		    }
 		}
 		hflock(ov->ov_OFd, 0, XLOCK_UN);
 	    }
@@ -1344,9 +1428,11 @@ CancelOverArt(OverInfo *ov, artno_t artNo)
 	    OverArt copy = *oa;
 
 	    copy.oa_ArtNo = -1;		/* CANCELED! */
-	    lseek(ov->ov_OFd, ovpos, 0);
-	    write(ov->ov_OFd, &copy, sizeof(copy));
-	    r = 1;
+	    if (OverWriteAt(ov->ov_OFd, &copy, sizeof(copy), ovpos) == 0)
+		r = 1;
+	    else
+		logit(LOG_ERR, "error canceling overview record for %s: %s",
+		    ov->ov_Group, strerror(errno));
 	}
 	hflock(ov->ov_OFd, 0, XLOCK_UN);
     }

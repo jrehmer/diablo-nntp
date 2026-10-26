@@ -180,9 +180,18 @@ main(int ac, char **av)
             exit(1);
         }
         gid = gr->gr_gid;
-        setgroups(1, &gid);
-        setgid(gr->gr_gid);
-        setuid(pw->pw_uid);
+        if (setgroups(1, &gid) < 0) {
+            perror("dstart: setgroups(news)");
+            exit(1);
+        }
+        if (setgid(gr->gr_gid) < 0) {
+            perror("dstart: setgid(news)");
+            exit(1);
+        }
+        if (setuid(pw->pw_uid) < 0) {
+            perror("dstart: setuid(news)");
+            exit(1);
+        }
     }
 
     if (strcmp(av[1], "diablo") == 0)

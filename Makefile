@@ -29,7 +29,7 @@ include build-version.mk
 CPPFLAGS += -I. -DVERS=\"$(VERS)\" -DSUBREV=\"$(SUBREV)\"
 CPPFLAGS += -DDEBUG_ZALLOC -DDEBUG_MBUF
 
-CFLAGS ?= -O2 -g -Wall -Wstrict-prototypes -fcommon
+CFLAGS ?= -O2 -g -Wall -Wstrict-prototypes -fno-common
 CFLAGS += -MMD -MP
 
 LDFLAGS += -Lobj

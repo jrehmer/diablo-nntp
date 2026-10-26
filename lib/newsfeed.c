@@ -208,7 +208,7 @@ FeedWrite(int logIt,
     int bytes = 0;
     char linebuf[4096];
     int linesiz, siz;
-    char *ptr;
+    const char *ptr;
     unsigned char md5hash[16];
 
     HM_MD5MessageID((mid_t)msgid, md5hash);
@@ -224,7 +224,7 @@ FeedWrite(int logIt,
     if (offsize && ((ptr = strchr(offsize, ',')))) {
 	ptr++;
     } else {
-	*ptr = '?';
+	ptr = "?";
     }
 
     siz = strlen(msgid) + strlen(ptr) + strlen(artType) + 4;
@@ -245,8 +245,8 @@ FeedWrite(int logIt,
     }
 
     {
-	char *p;
-	if ((p = strchr(offsize, ',')) != NULL)
+	const char *p;
+	if (offsize != NULL && (p = strchr(offsize, ',')) != NULL)
 	    bytes = strtol(p + 1, NULL, 0);
     }
 
@@ -1722,6 +1722,19 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 			    }
 			    err = 0;
 			}
+		    } else if (strcmp(s1, "connlife") == 0) {
+			if (nf && s2 != NULL) {
+			    char *end;
+			    long value;
+
+			    errno = 0;
+			    value = strtol(s2, &end, 10);
+			    if (errno == 0 && end != s2 && *end == '\0' &&
+				value >= 0 && value <= INT_MAX) {
+				nf->nf_LinkInfo.li_ConnLife = (int)value;
+				err = 0;
+			    }
+			}
 		    } else if (strcmp(s1, "notify") == 0) {
 			if (nf) {
 			    nf->nf_LinkInfo.li_Notify = enabled(s2);
@@ -2126,6 +2139,7 @@ setLinkGLOBAL(NewslinkInfo *nf)
     nf->li_DelayFeed = 0;
     nf->li_DelayInFeed = 0;
     nf->li_RealTime = 0;
+    nf->li_ConnLife = 0;
     nf->li_Notify = 0;
     nf->li_MaxQueueFile = 0;
     nf->li_HeadFeed = 0;
@@ -2162,6 +2176,7 @@ setLinkStart(NewslinkInfo *nf)
     nf->li_DelayFeed = -1;
     nf->li_DelayInFeed = -1;
     nf->li_RealTime = -1;
+    nf->li_ConnLife = -1;
     nf->li_Notify = -1;
     nf->li_MaxQueueFile = -1;
     nf->li_HeadFeed = -1;
@@ -2203,6 +2218,8 @@ setLinkDefaults(NewslinkInfo *nf, NewslinkInfo *gl)
 	nf->li_DelayInFeed = gl->li_DelayInFeed;
     if (nf->li_RealTime < 0 && gl->li_RealTime >= 0)
 	nf->li_RealTime = gl->li_RealTime;
+    if (nf->li_ConnLife < 0 && gl->li_ConnLife >= 0)
+	nf->li_ConnLife = gl->li_ConnLife;
     if (nf->li_Notify < 0 && gl->li_Notify >= 0)
 	nf->li_Notify = gl->li_Notify;
     if (nf->li_MaxQueueFile < 0 && gl->li_MaxQueueFile >= 0)
@@ -2677,6 +2694,7 @@ DumpFeedInfo(FILE *fo, char *label)
     fprintf(fo, "  DelayFeed      : %d\n", nf->nf_LinkInfo.li_DelayFeed);
     fprintf(fo, "  DelayInFeed    : %d\n", nf->nf_LinkInfo.li_DelayInFeed);
     fprintf(fo, "  RealTime       : %d\n", nf->nf_LinkInfo.li_RealTime);
+    fprintf(fo, "  ConnLife       : %d\n", nf->nf_LinkInfo.li_ConnLife);
     fprintf(fo, "  Notify         : %d\n", nf->nf_LinkInfo.li_Notify);
     fprintf(fo, "  MaxQueueFile   : %d\n", nf->nf_LinkInfo.li_MaxQueueFile);
     fprintf(fo, "  PreserveBytes  : %d\n", nf->nf_LinkInfo.li_PreserveBytes);

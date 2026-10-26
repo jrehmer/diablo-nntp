@@ -66,6 +66,8 @@ AddThread(const char *id, int fd, pid_t pid, int type, int slot, int pri)
     desc->d_Type = type;
     desc->d_FdPend = -1;
     desc->d_Pri = pri;
+    if (type == THREAD_DNS)
+	desc->d_DnsRes = zalloc(&TMemPool, sizeof(DnsRes));
     desc->d_LocalSpool = NULL ;
 #ifdef	DREADER_CLIENT_TIMING
     desc->d_utime = 0;
@@ -250,6 +252,8 @@ DelThread(ForkDesc *desc)
 	    MaxFds = fd + 1;
 	}
     }
+    if (desc->d_DnsRes != NULL)
+	zfree(&TMemPool, desc->d_DnsRes, sizeof(DnsRes));
     zfreeStr(&TMemPool, &desc->d_Id);
     zfree(&TMemPool, desc, sizeof(ForkDesc));
 }

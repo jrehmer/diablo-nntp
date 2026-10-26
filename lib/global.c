@@ -71,6 +71,10 @@ Prototype const char *ShutdownCleanup;
 Prototype volatile int DebugOpt;
 Prototype  MemPool *SysMemPool;
 
+/* Shared definitions for declarations in lib/defs.h. */
+struct DiabloOpts DiabloOpts;
+IPList *IPHash;
+
 const char *NewsHome	= "/news";
 
 const char *SpoolHomePat = "%s/spool/news";

@@ -61,6 +61,48 @@ int		HBlkGood;
 char		HistoryFileName[PATH_MAX];
 int		DoingReOpen = 0;
 
+/*
+ * Write an entire buffer at a fixed offset.  A successful short write is
+ * not an error, and EINTR can occur before any bytes have been written.
+ * pwrite() also leaves the descriptor's shared seek position unchanged.
+ */
+static int
+HistoryWriteAt(int fd, const void *buf, size_t len, off_t offset)
+{
+    const char *ptr = buf;
+
+    while (len) {
+        size_t chunk = (len > 1024 * 1024) ? 1024 * 1024 : len;
+        ssize_t n = pwrite(fd, ptr, chunk, offset);
+
+        if (n > 0) {
+            ptr += n;
+            offset += n;
+            len -= (size_t)n;
+        } else if (n < 0 && errno == EINTR) {
+            continue;
+        } else {
+            if (n == 0)
+                errno = EIO;
+            return(-1);
+        }
+    }
+    return(0);
+}
+
+/* An incomplete history write cannot safely be treated as success. */
+static void
+HistoryFatalIO(const char *operation)
+{
+    int error = errno;
+
+    logit(LOG_ERR, "dhistory %s failed for %s: %s",
+        operation, HistoryFileName, strerror(error));
+    fprintf(stderr, "dhistory %s failed for %s: %s\n",
+        operation, HistoryFileName, strerror(error));
+    exit(1);
+}
+
 int
 HistoryOpen(const char *fileName, int hflags)
 {
@@ -144,6 +186,9 @@ HistoryOpen(const char *fileName, int hflags)
 	    uint32 b;
 	    char *z = calloc(8192, 1);
 
+	    if (z == NULL)
+		HistoryFatalIO("allocation of initialization buffer");
+
 	    /*
 	     * check for old version of history file
 	     */
@@ -167,8 +212,8 @@ HistoryOpen(const char *fileName, int hflags)
 
 	    logit(LOG_INFO, "Creating history file");
 
-	    lseek(fd, 0L, 0);
-	    ftruncate(fd, 0);
+	    if (ftruncate(fd, 0) < 0)
+		HistoryFatalIO("initial truncate");
 	    bzero(&HHead, sizeof(HHead));
 
 	    HHead.hashSize = NewHSize;
@@ -176,7 +221,8 @@ HistoryOpen(const char *fileName, int hflags)
 	    HHead.henSize  = sizeof(History);
 	    HHead.headSize = sizeof(HHead);
 
-	    write(fd, &HHead, sizeof(HHead));
+	    if (HistoryWriteAt(fd, &HHead, sizeof(HHead), 0) < 0)
+		HistoryFatalIO("initial header write");
 
 	    /*
 	     * write out the hash table
@@ -189,7 +235,8 @@ HistoryOpen(const char *fileName, int hflags)
 	    while (n < b) {
 		uint32 r = (b - n > 8192) ? 8192 : b - n;
 
-		write(fd, z, r);
+		if (HistoryWriteAt(fd, z, r, sizeof(HHead) + (off_t)n) < 0)
+		    HistoryFatalIO("initial hash table write");
 		n += r;
 	    }
 	    /*
@@ -197,18 +244,21 @@ HistoryOpen(const char *fileName, int hflags)
 	     */
 	    if (HHead.version > 1) {
 		History h = { 0 };
-		write(fd, &h, sizeof(h));
+		if (HistoryWriteAt(fd, &h, sizeof(h),
+		    sizeof(HHead) + (off_t)b) < 0)
+		    HistoryFatalIO("dummy record write");
 	    }
 
-	    fsync(fd);
+	    /* Commit the initialized contents before making the magic valid. */
+	    if (fsync(fd) < 0)
+		HistoryFatalIO("initial sync");
 
-	    /*
-	     * rewrite header with magic number
-	     */
-
-	    lseek(fd, 0L, 0);
+	    /* Mark the database valid only after its contents are complete. */
 	    HHead.hmagic = HMAGIC;
-	    write(fd, &HHead, sizeof(HHead));
+	    if (HistoryWriteAt(fd, &HHead, sizeof(HHead), 0) < 0)
+		HistoryFatalIO("final header write");
+	    if (fsync(fd) < 0)
+		HistoryFatalIO("final header sync");
 
 	    free(z);
 	    logit(LOG_INFO, "History file creation complete");
@@ -325,8 +375,10 @@ HistoryClose(void)
 
     if (HFd >= 0 && !(HFlags & HGF_READONLY)) {
 	if (HFlags & HGF_FAST) {
-	    lseek(HFd, HHead.headSize, 0);
-	    if (write(HFd, HAry, HSize * sizeof(HistIndex)) != HSize * sizeof(HistIndex)) {
+	    if (HistoryWriteAt(HFd, HAry,
+		(size_t)HSize * sizeof(HistIndex), HHead.headSize) < 0) {
+		logit(LOG_ERR, "dhistory fast-mode index write failed: %s",
+		    strerror(errno));
 		r = RCTRYAGAIN;
 	    } else {
 		free(HAry);
@@ -589,8 +641,11 @@ HistoryAdd(const char *msgid, History *h)
     pindex = HHead.headSize + hi * sizeof(HistIndex);
     chainlock = (off_t)pindex;
 
-    if ((HFlags & HGF_FAST) == 0)	/* lock hash chain */
-	hflock(HFd, chainlock, XLOCK_EX);
+    if ((HFlags & HGF_FAST) == 0 &&
+        hflock(HFd, chainlock, XLOCK_EX) < 0) {
+	logit(LOG_ERR, "Unable to lock dhistory chain: %s", strerror(errno));
+	return(RCTRYAGAIN);
+    }
 
     /*
      * make sure message-id is not already in hash table
@@ -604,14 +659,14 @@ HistoryAdd(const char *msgid, History *h)
 
 	    if (HHead.version > 1)
 		off = (off_t)HEntryOff + (off_t)index * sizeof(History);
-	    else 
+	    else
 		off = index;
 	    lseek(HFd, off, 0);
 	    if (read(HFd, &ht, sizeof(ht)) != sizeof(ht)) {
 		if ((LoggedDHistCorrupt & 2) == 0 || DebugOpt) {
 		    LoggedDHistCorrupt |= 2;
 		    logit(LOG_ERR, "dhistory file corrupted @ %u (%s)",
-						index, strerror(errno));
+					index, strerror(errno));
 		    sleep(1);
 		}
 		break;
@@ -632,53 +687,69 @@ HistoryAdd(const char *msgid, History *h)
 	}
     }
 
-    while (r == RCOK) {
+    if (r == RCOK) {
 	off_t writePos;
-	int n = 0;
+	HistIndex oldIndex = HAry[hi];
 
-	h->next = HAry[hi];
+	h->next = oldIndex;
 
-	if ((HFlags & HGF_FAST) == 0)	/* append/scan lock */
-	    hflock(HFd, 4, XLOCK_EX);
-
-	if ((writePos = lseek(HFd, 0L, 2)) == -1) {
+	if ((HFlags & HGF_FAST) == 0 &&
+	    hflock(HFd, 4, XLOCK_EX) < 0) {
+	    logit(LOG_ERR, "Unable to lock dhistory append: %s",
+		strerror(errno));
 	    r = RCTRYAGAIN;
-	    break;
-	}
-
-	n = write(HFd, h, sizeof(History));
-
-	if (n != sizeof(History)) {
-	    logit(LOG_ERR, "Error writing to history: %s", strerror(errno));
-	    lseek(HFd, writePos, 0);
-	    ftruncate(HFd, writePos);
-	}
-
-	if ((HFlags & HGF_FAST) == 0)	/* append/scan lock */
-	    hflock(HFd, 4, XLOCK_UN);
-
-	if (HHead.version > 1)
-	    index = (HistIndex)((writePos - HEntryOff) / sizeof(History));
-	else
-	    index = (HistIndex)writePos;
-	if (n == sizeof(History)) {
-	    if ((HFlags & HGF_FAST) == 0) {
-		lseek(HFd, HHead.headSize + hi * sizeof(HistIndex), 0);
-		if (write(HFd, &index, sizeof(index)) != sizeof(index)) {
-		    logit(LOG_ERR, "Error writing to history: %s", strerror(errno));
-		    r = RCTRYAGAIN;
-		}
-	    } else {
-		HAry[hi] = index;
-	    }
 	} else {
-	    r = RCTRYAGAIN;
+	    writePos = lseek(HFd, 0L, SEEK_END);
+	    if (writePos < 0) {
+		logit(LOG_ERR, "Unable to seek dhistory end: %s",
+		    strerror(errno));
+		r = RCTRYAGAIN;
+	    } else if (HistoryWriteAt(HFd, h, sizeof(*h), writePos) < 0) {
+		int error = errno;
+
+		/* Do not leave a partial, unindexed record on disk. */
+		if (ftruncate(HFd, writePos) < 0)
+		    HistoryFatalIO("rollback of incomplete record");
+		logit(LOG_ERR, "Unable to append dhistory record: %s",
+		    strerror(error));
+		r = RCTRYAGAIN;
+	    }
+
+	    if ((HFlags & HGF_FAST) == 0 &&
+		hflock(HFd, 4, XLOCK_UN) < 0)
+		HistoryFatalIO("append unlock");
+
+	    if (r == RCOK) {
+		if (HHead.version > 1)
+		    index = (HistIndex)((writePos - HEntryOff) / sizeof(History));
+		else
+		    index = (HistIndex)writePos;
+
+		if ((HFlags & HGF_FAST) == 0) {
+		    off_t indexPos = HHead.headSize +
+			(off_t)hi * sizeof(HistIndex);
+
+		    if (HistoryWriteAt(HFd, &index, sizeof(index), indexPos) < 0) {
+			int error = errno;
+
+			/* Restore the previous chain head on partial writes. */
+			if (HistoryWriteAt(HFd, &oldIndex,
+			    sizeof(oldIndex), indexPos) < 0)
+			    HistoryFatalIO("restoring hash chain head");
+			logit(LOG_ERR, "Unable to update dhistory chain: %s",
+			    strerror(error));
+			r = RCTRYAGAIN;
+		    }
+		} else {
+		    HAry[hi] = index;
+		}
+	    }
 	}
-	break;
     }
 
-    if ((HFlags & HGF_FAST) == 0)	/* unlock hash chain */
-	hflock(HFd, chainlock, XLOCK_UN);
+    if ((HFlags & HGF_FAST) == 0 &&
+        hflock(HFd, chainlock, XLOCK_UN) < 0)
+	HistoryFatalIO("hash chain unlock");
 
     return(r);
 }
@@ -688,27 +759,32 @@ HistoryStore(History *h)
 {
     HistIndex index;
     History th;
+    off_t offset;
 
     index = HistoryPosLookupByHash(h->hv, &th);
     if (index == (HistIndex)-1)
 	return(0);
     if (HHead.version > 1)
-	lseek(HFd, (off_t)HEntryOff + (off_t)index * sizeof(History), 0);
+	offset = (off_t)HEntryOff + (off_t)index * sizeof(History);
     else
-	lseek(HFd, index, 0);
-    write(HFd, h, sizeof(History));
+	offset = index;
+    if (HistoryWriteAt(HFd, h, sizeof(*h), offset) < 0)
+	HistoryFatalIO("record update");
     return(1);
 }
 
 void
 HistoryStoreExp(History *h, HistIndex index)
 {
+    off_t offset;
+
     if (HHead.version > 1)
-	lseek(HFd, (off_t)HEntryOff + (off_t)index * sizeof(History) +
-						offsetof(History, exp), 0);
+	offset = (off_t)HEntryOff + (off_t)index * sizeof(History) +
+	    offsetof(History, exp);
     else
-	lseek(HFd, index + offsetof(History, exp), 0);
-    write(HFd, &h->exp, sizeof(h->exp));
+	offset = (off_t)index + offsetof(History, exp);
+    if (HistoryWriteAt(HFd, &h->exp, sizeof(h->exp), offset) < 0)
+	HistoryFatalIO("expiration update");
 }
 
 /*

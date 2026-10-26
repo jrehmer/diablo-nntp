@@ -185,6 +185,33 @@ AppendDefaultRealm(DnsReq *dreq, DnsRes *dres, const char *realm)
 /* -------------------------------------------------------------------*/
 
 /*
+ * Send the complete fixed-size response on the blocking worker socket.
+ * A short write must not allow a subsequent response to become misaligned.
+ */
+static int
+WriteDnsResponse(int fd, const DnsRes *dres)
+{
+    const char *p = (const char *)dres;
+    size_t left = sizeof(*dres);
+
+    while (left > 0) {
+	ssize_t n = write(fd, p, left);
+
+	if (n > 0) {
+	    p += n;
+	    left -= (size_t)n;
+	} else if (n < 0 && errno == EINTR) {
+	    continue;
+	} else {
+	    if (n == 0)
+		errno = EIO;
+	    return(-1);
+	}
+    }
+    return(0);
+}
+
+/*
  * This is the process that loops handling DNS and authentication requests
  *
  * It listens in a UNIX SOCKET for a dreq structure and responds with a
@@ -290,7 +317,11 @@ DnsTask(int fd, const char *id)
 		    DnsTest(&dreq, &dres, NULL, NULL, ipname);
 	    }
 	}
-	write(fd, &dres, sizeof(dres));
+	if (WriteDnsResponse(fd, &dres) < 0) {
+	    logit(LOG_ERR, "DNS subprocess response write failed: %s",
+		  strerror(errno));
+	    break;
+	}
 	stprintf("dns idle");
     }
     logit(LOG_NOTICE, "DNS process exiting n=%d/%d", n, sizeof(dreq));

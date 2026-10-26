@@ -62,7 +62,6 @@
 #define INF_DEBUG       199     /* Debug output */
 
 #define MAXCLINE	8192
-#define MAXFILEDES	32
 
 #define OUR_DELAY	1
 #define THEIR_DELAY	2
@@ -272,6 +271,10 @@ char LastErrBuf[256];
 int CBFIndex;
 int BatchSeq = -1;
 int NumBatches = 1;
+int ConnLife = 0;
+int RotatedBatch = 0;
+int IdleRetire = 0;
+time_t ProcessStarted = 0;
 int HeaderSize = 0;
 int NotifyFd = -1;
 int NotifyLockFd = -1;
@@ -295,6 +298,8 @@ int WouldHaveRefiled;
 int HasStatusLine;
 
 void sigTerm(int sigNo);
+static time_t monotonicSeconds(void);
+static void closeOutboundSession(int cfd);
 
 void
 Usage(char *progname)
@@ -311,6 +316,7 @@ Usage(char *progname)
 	    "-D              - detect delete-out-from-under\n"
 	    "-d[#]           - debug option\n"
 	    "-H              - (header only) incl Bytes: hdr, pass body only for control msgs\n"
+	    "-K #            - persistent realtime connection lifetime (seconds)\n"
 	    "-h host         - specify remote host\n"
 	    "-i              - disable streaming & streaming check\n"
 	    "-L              - generate Lines: header\n"
@@ -342,6 +348,9 @@ main(int ac, char **av)
 {
     int i;
     int eNoBat = 0;
+    int retainedCfd = -1;
+    int retire = 0;
+    const char *configOverride = NULL;
 
     TimeNow = time(NULL);
     OpenLog("newslink", (DebugOpt > 0? LOG_PERROR: 0) | LOG_NDELAY | LOG_PID);
@@ -364,8 +373,7 @@ main(int ac, char **av)
 	    BatchFileCtl = (*ptr) ? ptr : av[++i];
 	    break;
 	case 'C':
-	    if (*ptr == 0)
-		++i;
+	    configOverride = (*ptr) ? ptr : av[++i];
 	    break;
 	case 'c':
 	    CloseReopenAfter = strtol(((*ptr) ? ptr : av[++i]), NULL, 0);
@@ -392,6 +400,9 @@ main(int ac, char **av)
 	    break;
 	case 'I':
 	    NoCheckOpt = 1;
+	    break;
+	case 'K':
+	    ConnLife = strtol(((*ptr) ? ptr : av[++i]), NULL, 0);
 	    break;
 	case 'L':
 	    GenLinesHeader = 1;
@@ -475,6 +486,13 @@ main(int ac, char **av)
     LogAfterCount += LogAfter;
     CloseReopenCount += CloseReopenAfter;
 
+    if (ConnLife < 0 || (ConnLife > 0 && !RealTimeOpt)) {
+	Usage(av[0]);
+    }
+    /* Persistence uses a time limit, not -c's article-count reconnect. */
+    if (ConnLife > 0)
+	CloseReopenCount = -1;
+
     if (BatchFileCtl == NULL || HostName == NULL || i > ac) {
 	Usage(av[0]);
     }
@@ -518,7 +536,10 @@ main(int ac, char **av)
 	exit(0);
     }
 
-    while (--NumBatches >= 0) {
+    /* Legacy realtime feeds still honor the historical -N batch limit.
+     * -K opts in to time-based process lifetime and socket reuse instead.
+     */
+    while (ConnLife > 0 || --NumBatches >= 0) {
 	time_t ddTime;
 	time_t ddCount = 0;
 	time_t cdflushTime;
@@ -526,6 +547,8 @@ main(int ac, char **av)
 	int cfd = -1;
 
 	HeaderSize = 0;
+	RotatedBatch = 0;
+	IdleRetire = 0;
 
 	Stats->SentStats.ConnectTotal = 0;
 	Stats->SentStats.OfferedTotal = 0;
@@ -589,6 +612,11 @@ main(int ac, char **av)
 		    eNoBat = 1;
 		    dl_logit("no batchfile");
 		}
+		/* Without -N's bounded iterations, do not spin on an
+		 * unavailable realtime queue.  dspoolout can restart us.
+		 */
+		if (ConnLife > 0)
+		    break;
 		continue;
 	    }
 
@@ -624,6 +652,8 @@ main(int ac, char **av)
 		}
 		if (st.st_nlink == 0) {
 		    close(fd);
+		    if (ConnLife > 0)
+			break;
 		    continue;
 		}
 		eNoBat = 0;
@@ -646,7 +676,15 @@ main(int ac, char **av)
 	 * Connect to remote, send news
 	 */
 
-	if ((cfd = connectTo(HostName, NULL, Port)) >= 0) {
+	if (retainedCfd >= 0) {
+	    cfd = retainedCfd;
+	    retainedCfd = -1;
+	} else {
+	    cfd = connectTo(HostName, NULL, Port);
+	    if (cfd >= 0 && ConnLife > 0 && ProcessStarted == 0)
+		ProcessStarted = monotonicSeconds();
+	}
+	if (cfd >= 0) {
 	    char buf[1024];
 	    char relPath[1024];
 	    char msgId[1024];
@@ -1004,6 +1042,8 @@ main(int ac, char **av)
 			    credtime(OUR_DELAY);
 			    (void)RefilePendingStreams(NULL); /* retry */
 			    if ((cfd = connectTo(HostName, NULL, Port)) >= 0) {
+			if (ConnLife > 0 && ProcessStarted == 0)
+			    ProcessStarted = monotonicSeconds();
 				connectCount = 0;
 				if (CloseReopenCount > 0)
 				    CloseReopenCount = Stats->SentStats.OfferedTotal +
@@ -1205,24 +1245,27 @@ main(int ac, char **av)
 	     */
 
 	    if (cfd >= 0) {
-		char *ptr;
-
-		commandResponse(cfd, &ptr, "quit\r\n");
-		flushCompressBuffer(cfd);
-		flushCommandBuffer(cfd);
-		close(cfd);
-		clearCommandBuffer();
-		KillFd = -1;
-		/* normal quit, do not set cfd to -1 	     */
-		/* this allows us to go on to the next batch */
-
-#ifdef	USE_ZLIB
-		if (CompressOn > 0) {
-		    int r;
-		    if ((r = deflateEnd(&Z_Strm)) != Z_OK)
-			logit(LOG_ERR, "deflateEnd error: %s", Z_Strm.msg);
+		/* Queue handoff is safe only after readline confirmed rotation,
+		 * every streaming response was collected, and no queue entry
+		 * needs to be refiled.  Keep protocol/compression state intact.
+		 */
+		if (ConnLife > 0 && RotatedBatch && !TermFlag &&
+		    NumBatches != 0 && StreamPend == 0 && StreamRetry == 0 &&
+		    WouldHaveRefiled == 0 && !WritesLosing) {
+		    if (monotonicSeconds() - ProcessStarted >= ConnLife) {
+			retire = 1;
+			dl_logit("connlife expired; retiring after queue rotation");
+		    } else {
+			retainedCfd = cfd;
+		    }
 		}
-#endif
+		if (IdleRetire) {
+		    retire = 1;
+		    dl_logit("connlife expired; retiring with empty queue");
+		}
+		if (retainedCfd < 0)
+		    closeOutboundSession(cfd);
+		/* Preserve the original nonnegative cfd for outer-loop flow. */
 	    }
 
 	    logStats("final");
@@ -1233,16 +1276,98 @@ main(int ac, char **av)
 	    readreset(fd);
 	    close(fd);
 	}
-	if (cfd < 0 || TermFlag)
+	if (cfd < 0 || TermFlag || retire || NumBatches == 0)
 	    break;
     } /* while, on NumBatches */
+
+    /* A saved socket must not survive an aborted next-queue open/lock. */
+    if (retainedCfd >= 0)
+	closeOutboundSession(retainedCfd);
 
     if (Logfd != NULL) fclose(Logfd);
     if (NotifyOpt != NULL) {
 	RegisterNotify(NotifyOpt, 0);
 	CloseNotify(&NotifyFd, &NotifyLockFd, NotifyOpt);
     }
+
+    /* A clean, time-based retirement should not leave a realtime feed
+     * unattended until the next cron invocation of dspoolout.  The queue
+     * lock and connection have already been released.  Ask dspoolout to
+     * launch just this label's realtime worker, rereading dnewsfeeds and
+     * using its normal nonblocking queue-lock check.  Its -J mode does
+     * not rotate queues or launch batch workers; cron remains the fallback
+     * if fork/exec fails.  Never respawn on signals or failed connections.
+     */
+    if (retire && ConnLife > 0 && RealTimeOpt && !TermFlag &&
+	BatchSeq < 0 && !PipeOpt) {
+	pid_t pid = fork();
+	if (pid == 0) {
+	    char binPath[1024];
+	    long fdLimit = sysconf(_SC_OPEN_MAX);
+	    long inheritedFd;
+	    int n;
+
+	    /* P2 re-execs dspoolout from this long-lived worker.  Without
+	     * closing inherited files, each replacement carries forward all
+	     * article-cache, queue, log and socket descriptors, causing fd
+	     * numbers to grow on every connlife cycle.  Keep stdio, which
+	     * dspoolout uses for its configured cron-style output log.
+	     */
+	    if (fdLimit < 0)
+		fdLimit = 1024;
+	    for (inheritedFd = 3; inheritedFd < fdLimit; ++inheritedFd)
+		close((int)inheritedFd);
+
+	    n = snprintf(binPath, sizeof(binPath),
+		"%s/dbin/dspoolout", NewsHome);
+	    if (n > 0 && (size_t)n < sizeof(binPath)) {
+		if (configOverride != NULL)
+		    execl(binPath, "dspoolout", "-C", configOverride,
+			"-J", BatchFileCtl, (char *)NULL);
+		else
+		    execl(binPath, "dspoolout", "-J", BatchFileCtl, (char *)NULL);
+	    } else {
+		errno = ENAMETOOLONG;
+	    }
+	    dl_logit("connlife replacement failed: %s", strerror(errno));
+	    _exit(127);
+	}
+	if (pid < 0)
+	    dl_logit("connlife replacement fork failed: %s", strerror(errno));
+    }
     exit(0);
+}
+
+/* Connection age is deliberately independent of queue rotation count. */
+static time_t
+monotonicSeconds(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+	return(ts.tv_sec);
+    return(time(NULL));
+}
+
+static void
+closeOutboundSession(int cfd)
+{
+    char *ptr;
+
+    commandResponse(cfd, &ptr, "quit\r\n");
+    flushCompressBuffer(cfd);
+    flushCommandBuffer(cfd);
+    close(cfd);
+    clearCommandBuffer();
+    KillFd = -1;
+#ifdef USE_ZLIB
+    if (CompressOn > 0) {
+	int r = deflateEnd(&Z_Strm);
+	if (r != Z_OK)
+	    logit(LOG_ERR, "deflateEnd error: %s", Z_Strm.msg);
+	CompressOn = 0;
+    }
+#endif
 }
 
 void
@@ -2940,21 +3065,26 @@ typedef struct {
     int	 rb_Len;
 } RBlock;
 
-RBlock *RBlockAry[MAXFILEDES];
+/* Only one queue file is read at a time.  The old array indexed by
+ * descriptor number rejected valid queue fds >= 32 once the article
+ * cache and logging had consumed the lower descriptor numbers.
+ */
+static RBlock *QueueReadBlock;
+static int QueueReadFd = -1;
 MemPool	*BMemPool;
 
 void
 readreset(int fd)
 {
-    RBlock *rbs;
-
-    if (fd < 0 || fd >= MAXFILEDES) {
+    if (fd < 0) {
 	dl_logit("readreset: bad fd: %d", fd);
 	return;
     }
-    if ((rbs = RBlockAry[fd]) != NULL) {
-	zfree(&BMemPool, rbs, sizeof(RBlock));
-	RBlockAry[fd] = NULL;
+    if (QueueReadFd == fd) {
+	if (QueueReadBlock != NULL)
+	    zfree(&BMemPool, QueueReadBlock, sizeof(RBlock));
+	QueueReadBlock = NULL;
+	QueueReadFd = -1;
     }
 }
 
@@ -3007,17 +3137,33 @@ int
 readline(int fd, char *buf, int size, time_t t)
 {
     RBlock *rbs;
-    int statCounter = 0;
     int loopCounter = 0;
     static int usleeptime = 100000;
 
-    if (fd < 0 || fd >= MAXFILEDES) {
+    /* A scheduled empty-queue retirement must not consume a new entry
+     * that races with shutdown; the next worker must read it instead.
+     */
+    if (IdleRetire)
+	return(-1);
+
+    if (fd < 0) {
 	dl_logit("readline: bad fd: %d", fd);
 	return(-1);
     }
-    if ((rbs = RBlockAry[fd]) == NULL) {
-	rbs = zalloc(&BMemPool, sizeof(RBlock));
-	RBlockAry[fd] = rbs;
+    if (QueueReadFd != fd) {
+	/* A new input queue must never reuse buffered bytes from a prior
+	 * queue, regardless of its operating-system descriptor number.
+	 */
+	if (QueueReadBlock != NULL)
+	    zfree(&BMemPool, QueueReadBlock, sizeof(RBlock));
+	QueueReadBlock = NULL;
+	QueueReadFd = fd;
+    }
+    if (QueueReadBlock == NULL)
+	QueueReadBlock = zalloc(&BMemPool, sizeof(RBlock));
+    if ((rbs = QueueReadBlock) == NULL) {
+	dl_logit("readline: unable to allocate queue buffer");
+	return(-1);
     }
     
     /*
@@ -3102,9 +3248,12 @@ readline(int fd, char *buf, int size, time_t t)
 	     * realtime batch is available.  
 	     */
 	    {
-		if (statCounter == 0 &&
-				stat(CurrentBatchFile,&st) == 0 &&
+		/* Check every EOF pass: the sleep can reach one second, so
+		 * checking only every 50 passes delays rotation by up to 50s.
+		 */
+		if (stat(CurrentBatchFile,&st) == 0 &&
 				st.st_ino != CurSt.st_ino) {
+		    RotatedBatch = 1;
 		    /*
 		     * do not attempt to remove the batchfile if we would have
 		     * had to refile some of our entries.
@@ -3113,6 +3262,17 @@ readline(int fd, char *buf, int size, time_t t)
 			AttemptRemoveRenamedFile(&CurSt, BatchFileCtl);
 		    break;
 		}
+	    }
+
+	    /* A genuinely empty active queue can be handed to a replacement
+	     * safely without rotation: this worker has delivered no records
+	     * from it.  This also bounds idle process lifetime.
+	     */
+	    if (ConnLife > 0 && ProcessStarted > 0 &&
+		monotonicSeconds() - ProcessStarted >= ConnLife &&
+		fstat(fd, &st) == 0 && st.st_size == 0) {
+		IdleRetire = 1;
+		break;
 	    }
 
 	    /*
@@ -3150,7 +3310,6 @@ readline(int fd, char *buf, int size, time_t t)
 			LastNotify = 0;
 		    }
 		}
-		statCounter = (statCounter + 1) % 5;
 	    } else if (RealTimeOpt < 0) {
 #if USE_POLL && defined(POLLEXTEND) && USE_POLLEXTEND
 	        struct pollfd pfd = { 0 };
@@ -3162,22 +3321,18 @@ readline(int fd, char *buf, int size, time_t t)
 		errno = 0;
 		if ((r = poll(&pfd, 1, 100)) < 0)
 		    dl_logit("poll() failed: %s", strerror(errno));
-		statCounter = (statCounter + 1) % 50;
 		TimeCounter += 10;
 #else
 #if HAS_USLEEP
 		usleep(usleeptime);
-		statCounter = (statCounter + 1) % 50;
 		TimeCounter += usleeptime / 10000 + 10;
 #else
 		sleep(1);		/* 1s  */
-		statCounter = (statCounter + 1) % 5;
 		TimeCounter += 100;
 #endif
 #endif
 	    } else {
 		sleep(RealTimeOpt);
-		statCounter = (statCounter + 1) % 5;
 		TimeCounter += 100;
 	    }
 	    usleeptime = usleeptime + usleeptime / 2;

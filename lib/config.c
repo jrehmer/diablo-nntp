@@ -1061,7 +1061,7 @@ SetGroupHashMethod(const char *opt, GroupHashType *pmethod)
 	pmethod->gh_dirlvl = 1;
 	pmethod->gh_dirinfo[0] = 0;
     } else if (strncasecmp(opt, "md5", 3) == 0) {
-	char *p;
+	const char *p;
 	int v;
 	pmethod->gh_type = HASHGRP_32MD5;
 	pmethod->gh_sigbytes = 22;
@@ -1133,7 +1133,7 @@ int
 SetCacheDirs(const char *opt, CacheDirType *cachedir)
 {
     int v;
-    char *p;
+    const char *p;
 
     cachedir->dt_dirlvl = 0;
     v = atoi(opt);

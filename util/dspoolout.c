@@ -42,6 +42,7 @@ int VerboseOpt;
 int ForReal = 1;
 int Quiet;
 int ForceRealTime = 0;
+int RestartRealTime = 0; /* internal real-time-only launch on connlife expiry */
 int  TxBufSize = 0;
 int  RxBufSize = 0;
 int  TOS = 0;
@@ -97,6 +98,14 @@ main(int ac, char **av)
 		    if (*ptr == 0)
 			++i;
 		    break;
+		case 'J':
+		    /* Internal request from a gracefully retiring dnewslink.
+		     * Launch only a replacement realtime worker, without
+		     * rotating queues or flushing all feeder descriptors.
+		     */
+		    RestartRealTime = 1;
+		    ForceRealTime = 1;
+		    break;
 		case 'd':
 		    DebugOpt = 1;
 		    if (*ptr)
@@ -146,6 +155,10 @@ main(int ac, char **av)
 	    }
 	}
     }
+    if (RestartRealTime && (qFile == NULL || oldFormat)) {
+	fprintf(stderr, "dspoolout: -J requires a dnewsfeeds label\n");
+	return(1);
+    }
     if (DebugOpt && qFile != NULL)
 	printf("Processing label: %s\n", qFile);
 
@@ -185,7 +198,7 @@ processDnewsfeeds(const char *qFile)
      * blank lines and lines beginning with '#' excepted.
      */
 
-    for (pass = 1; pass <= 2; ++pass) {
+    for (pass = (RestartRealTime ? 2 : 1); pass <= 2; ++pass) {
 	LabelList *ll;
         NewslinkInfo *li;
 	int count = 0;
@@ -236,6 +249,8 @@ processDnewsfeeds(const char *qFile)
 	    flags = flags | (li->li_PreserveBytes ? SF_PRESBYTES : 0);
 	    flags = flags | (li->li_ArticleStat ? SF_ARTSTAT : 0);
 	    flags = flags | (li->li_NoBatch ? SF_NOBATCH : 0);
+	    if (RestartRealTime)
+		flags |= SF_NOBATCH; /* normal cron handles batch backlog */
 
 	    if (flags & SF_NOTIFY && !(flags & SF_REALTIME))
 		flags &= ~SF_NOTIFY;
@@ -249,7 +264,7 @@ processDnewsfeeds(const char *qFile)
 		sfAry = realloc(sfAry, sfCount * sizeof(int));
 		memset(sfAry+count, 0, (sfCount - count) * sizeof(int));
 	    }
-	    if (pass == 2) {
+	    if (pass == 2 && !RestartRealTime) {
 		flags = (flags & ~SF_REALTIME) | 
 			(sfAry[count] & SF_REALTIME);
 	    }
@@ -520,6 +535,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
     char maxStreamStr[32];
     char compressStr[32];
     char delayStr[32];
+    char connlifeStr[32];
 
     if (VerboseOpt)
 	printf("spool_file(%s, %d, %s, %d)\n",
@@ -534,6 +550,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
     sprintf(maxStreamStr, "-nop");
     sprintf(compressStr, "-nop");
     sprintf(delayStr, "-nop");
+    sprintf(connlifeStr, "-nop");
 
     if (li->li_TransmitBuf > 0 && li->li_TransmitBuf < 16 * 1024 * 1024)
 	sprintf(txBufSizeStr, "-T%d", li->li_TransmitBuf);
@@ -547,6 +564,8 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 	sprintf(compressStr, "-Z%d", li->li_Compress);
     if (li->li_DelayFeed > 0)
 	sprintf(delayStr, "-W%d", li->li_DelayFeed);
+    if (li->li_ConnLife > 0 && li->li_RealTime)
+	sprintf(connlifeStr, "-K%d", li->li_ConnLife);
 
     /*
      * Outbound article logging.
@@ -795,6 +814,10 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 			if (li->li_Priority > 0)
 			    nice(li->li_Priority);
 
+			/* The parent uses this descriptor only to test the lock.
+			 * Do not pass a second open queue handle to dnewslink.
+			 */
+			close(fd);
 			snprintf(binPath, sizeof(binPath), "%s/dbin/dnewslink", NewsHome);
 
 			    execl(binPath, "dnewslink",
@@ -851,7 +874,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 			printf("dspoolout: run realtime %s\n", spoolFile);
 
 		    if (VerboseOpt)
-			printf("%s %s%s %s%s %s%s %s%s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+			printf("%s %s%s %s%s %s%s %s%s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
 				"dnewslink",
 				"-h", li->li_HostName,
 				"-b", spoolFile,
@@ -873,6 +896,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 				txBufSizeStr,
 				rxBufSizeStr,
 				delayStr,
+				connlifeStr,
 				maxStreamStr
 			    );
 		    if (ForReal && fork() == 0) {
@@ -884,6 +908,10 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 			if (li->li_Priority > 0)
 			    nice(li->li_Priority);
 
+			/* The parent uses this descriptor only to test the lock.
+			 * Do not pass a second open queue handle to dnewslink.
+			 */
+			close(fd);
 			snprintf(binPath, sizeof(binPath), "%s/dbin/dnewslink", NewsHome);
 
 			    /*
@@ -912,6 +940,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 				txBufSizeStr,
 				rxBufSizeStr,
 				delayStr,
+				connlifeStr,
 				maxStreamStr,
 				NULL
 			    );

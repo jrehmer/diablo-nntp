@@ -97,6 +97,43 @@ int KPDBLookup(KPDB *kpdb, const char *key, int lockMe, int forceCheck);
 
 #define RESORT_LIMIT	128U
 
+/* Never rely on a single write() for a fixed-size database update. */
+static int
+KPDBWriteAt(int fd, const void *buf, size_t len, off_t offset)
+{
+    const char *ptr = buf;
+
+    while (len != 0) {
+        ssize_t n = pwrite(fd, ptr, len, offset);
+
+        if (n > 0) {
+            ptr += n;
+            offset += n;
+            len -= (size_t)n;
+        } else if (n < 0 && errno == EINTR) {
+            continue;
+        } else {
+            if (n == 0)
+                errno = EIO;
+            return(-1);
+        }
+    }
+    return(0);
+}
+
+/* A partially updated KPDB cannot safely continue serving requests. */
+static void
+KPDBFatalIO(KPDB *kpdb, const char *operation)
+{
+    int error = errno;
+
+    logit(LOG_ERR, "KPDB %s failed for %s: %s",
+        operation, kpdb->kp_FileName, strerror(error));
+    fprintf(stderr, "KPDB %s failed for %s: %s\n",
+        operation, kpdb->kp_FileName, strerror(error));
+    exit(1);
+}
+
 /*
  * KPDBOpen() - open a KP database.  WARNING! If you fork() after calling
  *		KPDBOpen(), you must call KPDBReOpen() to re-open the
@@ -174,8 +211,8 @@ KPDBReOpen(KPDB *kpdb)
 	    char buf[9];
 
 	    sprintf(buf, "%08x", (int)(uint32)time(NULL));
-	    lseek(kpdb->kp_Fd, M_OFF, 0);
-	    write(kpdb->kp_Fd, buf, 8);
+	    if (KPDBWriteAt(kpdb->kp_Fd, buf, 8, M_OFF) < 0)
+		KPDBFatalIO(kpdb, "close timestamp write");
 	}
 	hflock(kpdb->kp_Fd, 0, XLOCK_UN);
 	close(kpdb->kp_Fd);
@@ -226,8 +263,14 @@ KPDBReOpen(KPDB *kpdb)
 	    if (st.st_size == 0) {
 		const char *s = "$V" KPVERSION " 00000000 00000000 0FFFFFFF\n";
 		kpdb->kp_Modified = 1;
-		if (write(kpdb->kp_Fd, s, strlen(s)) != strlen(s)) {
-		    failed = 1;
+		if (KPDBWriteAt(kpdb->kp_Fd, s, strlen(s), 0) < 0) {
+		    int error = errno;
+
+		    /* Do not leave a truncated control line to confuse reopen. */
+		    if (ftruncate(kpdb->kp_Fd, 0) < 0)
+			KPDBFatalIO(kpdb, "initial header rollback");
+		    errno = error;
+		    KPDBFatalIO(kpdb, "initial header write");
 		}
 		if (fstat(kpdb->kp_Fd, &st) < 0) {
 		    failed = 1;
@@ -645,13 +688,27 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	    &odataLen,
 	    NULL
 	);
-	if (dataLen == odataLen) {
+	if (odata != NULL && dataLen == odataLen) {
 	    kpdb->kp_Modified = 1;
 #if USE_KP_RW_MAP
 	    bcopy(data, (char *)odata, dataLen);
 #else
-	    lseek(kpdb->kp_Fd, odata - kpdb->kp_MapBase, 0);
-	    write(kpdb->kp_Fd, data, dataLen);
+	    off_t offset = odata - kpdb->kp_MapBase;
+	    char *saved = malloc((size_t)dataLen ? (size_t)dataLen : 1);
+
+	    if (saved == NULL)
+		KPDBFatalIO(kpdb, "replacement allocation");
+	    memcpy(saved, odata, (size_t)dataLen);
+	    if (KPDBWriteAt(kpdb->kp_Fd, data, (size_t)dataLen, offset) < 0) {
+		int error = errno;
+
+		if (KPDBWriteAt(kpdb->kp_Fd, saved, (size_t)dataLen, offset) < 0)
+		    KPDBFatalIO(kpdb, "replacement rollback");
+		free(saved);
+		errno = error;
+		KPDBFatalIO(kpdb, "replacement write");
+	    }
+	    free(saved);
 #endif
 	    /*
 	     * unlock record if lockMe is 0 or KP_UNLOCK, else
@@ -684,7 +741,11 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	int cval = 0;
 	char astr[9];
 	char cstr[9];
+	char oldAstr[8];
+	char oldCstr[8];
 	int nlockoff;
+	const char *failedOp = NULL;
+	int writeError = 0;
 
 	hflock(kpdb->kp_Fd, 4, XLOCK_EX);	/* append lock		*/
 	kpdb->kp_Lock4 = 1;			/* locked thru remap	*/
@@ -712,17 +773,9 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	sprintf(astr, "%08x", (int)(uint32)(aval + 1));
 	sprintf(cstr, "%08x", (int)(uint32)(cval + 1));
 
-	kpdb->kp_Modified = 1;
-
-#if USE_KP_RW_MAP
-	bcopy(astr, (char *)kpdb->kp_MapBase + A_OFF, 8);
-	bcopy(cstr, (char *)kpdb->kp_MapBase + C_OFF, 8);
-#else
-	lseek(kpdb->kp_Fd, A_OFF, 0);
-	write(kpdb->kp_Fd, astr, 8);
-	lseek(kpdb->kp_Fd, C_OFF, 0);
-	write(kpdb->kp_Fd, cstr, 8);
-#endif
+	/* Save the control fields after any resort, for error rollback. */
+	memcpy(oldAstr, kpdb->kp_MapBase + A_OFF, sizeof(oldAstr));
+	memcpy(oldCstr, kpdb->kp_MapBase + C_OFF, sizeof(oldCstr));
 
 	/*
 	 * Append new record, possibly merging from the old record
@@ -735,6 +788,8 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	 */
 
 	nlockoff = lseek(kpdb->kp_Fd, 0L, 2);
+	if (nlockoff < 0)
+	    KPDBFatalIO(kpdb, "append seek");
 	if (hflock(kpdb->kp_Fd, nlockoff, XLOCK_EX|XLOCK_NB) < 0) {
 	    logit(LOG_ERR, "unable to lock new %s record offset %d", kpdb->kp_FileName, nlockoff);
 	}
@@ -768,22 +823,66 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	    } else {
 		sprintf(p + kpdb->kp_CacheLen - 1, " %s=%s\n", tok, data);
 	    }
-	    write(kpdb->kp_Fd, p, strlen(p));
+	    if (KPDBWriteAt(kpdb->kp_Fd, p, strlen(p), nlockoff) < 0) {
+		writeError = errno;
+		failedOp = "replacement append";
+	    }
 	    zfree(&SysMemPool, p, l);
-
-	    /*
-	     * delete original record
-	     */
-
-	    lseek(kpdb->kp_Fd, kpdb->kp_Cache - kpdb->kp_MapBase, 0);
-	    write(kpdb->kp_Fd, "-", 1);
+	    if (failedOp)
+		goto append_failed;
 	} else {
 	    int l = 20 + strlen(key) + strlen(tok) + dataLen;
 	    char *p = zalloc(&SysMemPool, l);
 	    sprintf(p, "+00000000.0000:%s %s=%s\n", key, tok, data);
-	    write(kpdb->kp_Fd, p, strlen(p));
+	    if (KPDBWriteAt(kpdb->kp_Fd, p, strlen(p), nlockoff) < 0) {
+		writeError = errno;
+		failedOp = "new record append";
+	    }
 	    zfree(&SysMemPool, p, l);
+	    if (failedOp)
+		goto append_failed;
 	}
+
+	/* Publish the new record only once its contents are complete. */
+	if (KPDBWriteAt(kpdb->kp_Fd, astr, 8, A_OFF) < 0) {
+	    writeError = errno;
+	    failedOp = "append sequence update";
+	    goto append_failed;
+	}
+	if (KPDBWriteAt(kpdb->kp_Fd, cstr, 8, C_OFF) < 0) {
+	    writeError = errno;
+	    failedOp = "append counter update";
+	    goto append_failed;
+	}
+	if (copyOld && KPDBWriteAt(kpdb->kp_Fd, "-", 1, lockoff) < 0) {
+	    writeError = errno;
+	    failedOp = "old record deletion";
+	    goto append_failed;
+	}
+	kpdb->kp_Modified = 1;
+	goto append_done;
+
+append_failed:
+	/* The append lock is still held.  Recover the previous file state. */
+	{
+	    int rollbackFailed = 0;
+
+	    /* Attempt every recovery operation even if one of them fails. */
+	    if (ftruncate(kpdb->kp_Fd, nlockoff) < 0)
+		rollbackFailed = 1;
+	    if (KPDBWriteAt(kpdb->kp_Fd, oldAstr, 8, A_OFF) < 0)
+		rollbackFailed = 1;
+	    if (KPDBWriteAt(kpdb->kp_Fd, oldCstr, 8, C_OFF) < 0)
+		rollbackFailed = 1;
+	    if (rollbackFailed) {
+		errno = EIO;
+		KPDBFatalIO(kpdb, "append rollback");
+	    }
+	}
+	errno = writeError;
+	KPDBFatalIO(kpdb, failedOp);
+
+append_done:
 	kpdb->kp_Lock4 = 0;
 	hflock(kpdb->kp_Fd, 4, XLOCK_UN);
 
@@ -815,8 +914,9 @@ KPDBDelete(KPDB *kpdb, const char *key)
 #if USE_KP_RW_MAP
 	*(char *)kpdb->kp_Cache = '-';
 #else
-	lseek(kpdb->kp_Fd, kpdb->kp_Cache - kpdb->kp_MapBase, 0);
-	write(kpdb->kp_Fd, "-", 1);
+	if (KPDBWriteAt(kpdb->kp_Fd, "-", 1,
+	    kpdb->kp_Cache - kpdb->kp_MapBase) < 0)
+	    KPDBFatalIO(kpdb, "record deletion");
 #endif
 	hflock(kpdb->kp_Fd, kpdb->kp_Cache - kpdb->kp_MapBase, XLOCK_UN);
     }
@@ -1121,6 +1221,10 @@ KPDBSort(KPDB *kpdb)
 
     qsort(ary, nc, sizeof(char *), kpdqsort);
 
+    /* If the sort is interrupted, force another resort on next open. */
+    if (KPDBWriteAt(kpdb->kp_Fd, "FFFFFFFF", 8, C_OFF) < 0)
+	KPDBFatalIO(kpdb, "resort marker write");
+
     for ((c = 0), (i = kpdb->kp_HeadLen); c < nc; ++c) {
 	char buf[9];
 	int al = strchr(ary[c], '\n') - ary[c];
@@ -1129,8 +1233,8 @@ KPDBSort(KPDB *kpdb)
 	    printf("ary[%d] = %*.*s\n", c, al, al, ary[c]);
 
 	sprintf(buf, "%08x", (unsigned int)(ary[c] - kpdb->kp_MapBase));
-	lseek(kpdb->kp_Fd, i + 1, 0);
-	write(kpdb->kp_Fd, buf, 8);
+	if (KPDBWriteAt(kpdb->kp_Fd, buf, 8, i + 1) < 0)
+	    KPDBFatalIO(kpdb, "sort offset write");
 
 	while (i < kpdb->kp_MapSize && p[i] != '\n')
 	    ++i;
@@ -1138,14 +1242,15 @@ KPDBSort(KPDB *kpdb)
 	    break;
 	++i;
     }
-    lseek(kpdb->kp_Fd, C_OFF, 0);
-    write(kpdb->kp_Fd, "00000000", 8);
     {
 	char buf[10];
 	sprintf(buf, "%08x", (int)(uint32)time(NULL));
-	lseek(kpdb->kp_Fd, M_OFF, 0);
-	write(kpdb->kp_Fd, buf, 8);
+	if (KPDBWriteAt(kpdb->kp_Fd, buf, 8, M_OFF) < 0)
+	    KPDBFatalIO(kpdb, "sort timestamp write");
     }
+    /* Clearing the marker is the last step of a completed sort. */
+    if (KPDBWriteAt(kpdb->kp_Fd, "00000000", 8, C_OFF) < 0)
+	KPDBFatalIO(kpdb, "sort completion write");
     pagefree(ary, nc * sizeof(char *));
     kpdb->kp_Modified = 1;
     return(0);

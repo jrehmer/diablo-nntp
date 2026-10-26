@@ -23,6 +23,7 @@
 
 struct ServReq;
 struct Timer;
+struct DnsRes;
 
 #define THREAD_LISTEN	1	/* listening thread		*/
 #define THREAD_DNS	2	/* dns resolver thread		*/
@@ -75,6 +76,8 @@ typedef struct ForkDesc {
     int		d_Count;	/* active subthreads	*/
     int		d_Pri;
     void	*d_Data;
+    struct DnsRes *d_DnsRes;	/* partial DNS reply (THREAD_DNS only) */
+    size_t	d_DnsRead;	/* number of reply bytes accumulated */
     struct sockaddr_storage d_SaveRSin;
     char	*d_LocalSpool;	/* direct spool access	*/
     int		d_Cache;	/* is spooler to be locally cached */

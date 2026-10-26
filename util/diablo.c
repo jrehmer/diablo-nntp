@@ -761,11 +761,11 @@ DiabloServer(int lfd)
     }
     if (DOpts.FeederBindHost != NULL &&
 				strchr(DOpts.FeederBindHost, ':') != NULL)
-	logit(LOG_INFO, "Listening on [%s]:%s\n",
+	logit(LOG_INFO, "Listening on [%s]:%s",
 			DOpts.FeederBindHost ? DOpts.FeederBindHost : "ALL",
 			DOpts.FeederPort);
     else
-	logit(LOG_INFO, "Listening on %s:%s\n",
+	logit(LOG_INFO, "Listening on %s:%s",
 			DOpts.FeederBindHost ? DOpts.FeederBindHost : "ALL",
 			DOpts.FeederPort);
 
@@ -799,9 +799,21 @@ DiabloServer(int lfd)
 	}
 	gid = gr->gr_gid;
 	ChownGeneralLog(pw->pw_uid, gr->gr_gid);
-	setgroups(1, &gid);
-	setgid(gr->gr_gid);
-	setuid(pw->pw_uid);
+	if (setgroups(1, &gid) < 0) {
+	    syslog(LOG_CRIT, "Unable to set supplementary groups to news: %s",
+	           strerror(errno));
+	    exit(1);
+	}
+	if (setgid(gr->gr_gid) < 0) {
+	    syslog(LOG_CRIT, "Unable to set group ID to news: %s",
+	           strerror(errno));
+	    exit(1);
+	}
+	if (setuid(pw->pw_uid) < 0) {
+	    syslog(LOG_CRIT, "Unable to set user ID to news: %s",
+	           strerror(errno));
+	    exit(1);
+	}
     }
 
     /*

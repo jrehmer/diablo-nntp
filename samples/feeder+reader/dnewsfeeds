@@ -22,6 +22,7 @@ label reader
     hostname	localhost
     rtflush
     realtime	yes
+    # connlife	86400    # Optional persistent 24-hour NNTP session
     alias	dummy
     addgroup	*
     headfeed	yes

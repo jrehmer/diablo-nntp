@@ -530,11 +530,11 @@ main(int ac, char **av)
 #endif
 	    listen(lfd, 256);
 	    if (bl->bl_Host != NULL && strchr(bl->bl_Host, ':') != NULL)
-		syslog(LOG_INFO, "Listening on [%s]:%s\n",
+		syslog(LOG_INFO, "Listening on [%s]:%s",
 					bl->bl_Host ? bl->bl_Host : "ALL",
 					bl->bl_Port);
 	    else
-		syslog(LOG_INFO, "Listening on %s:%s\n",
+		syslog(LOG_INFO, "Listening on %s:%s",
 					bl->bl_Host ? bl->bl_Host : "ALL",
 					bl->bl_Port);
 	    AddThread("acceptor", lfd, -1, THREAD_LISTEN, -1, 0);
@@ -635,9 +635,21 @@ main(int ac, char **av)
             exit(1);
         }
         gid = gr->gr_gid;
-        setgroups(1, &gid);
-        setgid(gr->gr_gid);
-        setuid(pw->pw_uid);
+        if (setgroups(1, &gid) < 0) {
+            syslog(LOG_CRIT, "Unable to set supplementary groups to news: %s",
+                   strerror(errno));
+            exit(1);
+        }
+        if (setgid(gr->gr_gid) < 0) {
+            syslog(LOG_CRIT, "Unable to set group ID to news: %s",
+                   strerror(errno));
+            exit(1);
+        }
+        if (setuid(pw->pw_uid) < 0) {
+            syslog(LOG_CRIT, "Unable to set user ID to news: %s",
+                   strerror(errno));
+            exit(1);
+        }
     }
 
 #ifdef	USE_PRCTL
@@ -1552,6 +1564,39 @@ ForkPipe(int *pfd, void (*task)(int fd, const char *id), const char *description
 }
 
 
+/*
+ * DNS replies arrive over a nonblocking SOCK_STREAM socket.  Preserve
+ * partial fixed-size replies between select() wakeups.  Return 0 if more
+ * bytes are needed, 1 when a complete response is ready, or -1 on error.
+ */
+static int
+ReadDnsResponse(ForkDesc *desc, DnsRes *dres)
+{
+    DnsRes *partial = desc->d_DnsRes;
+
+    while (desc->d_DnsRead < sizeof(*partial)) {
+	size_t remaining = sizeof(*partial) - desc->d_DnsRead;
+	ssize_t n = read(desc->d_Fd, (char *)partial + desc->d_DnsRead,
+			 remaining);
+
+	if (n > 0) {
+	    desc->d_DnsRead += (size_t)n;
+	    continue;
+	}
+	if (n < 0 && errno == EINTR)
+	    continue;
+	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+	    return(0);
+	if (n == 0)
+	    errno = EPIPE;	/* worker closed before completing its reply */
+	return(-1);
+    }
+
+    memcpy(dres, partial, sizeof(*dres));
+    desc->d_DnsRead = 0;
+    return(1);
+}
+
 void
 HandleDnsThread(ForkDesc *desc)
 {
@@ -1567,39 +1612,22 @@ HandleDnsThread(ForkDesc *desc)
 #endif
     char tmpaddr[NI_MAXHOST];
 
-    errno = 0;
-    if ((r = read(desc->d_Fd, &dres, sizeof(dres))) != sizeof(dres)) {
-	/*
-	 * The dns subprocesses return a fixed-size structure.  If we 
-	 * get part of it, we should get the whole thing but may not 
-	 * since the descriptor is set for non-blocking.  Handle the
-	 * case.
-	 */
-	if (r > 0) {
-	    int n;
+    r = ReadDnsResponse(desc, &dres);
+    if (r == 0)
+	return;
+    if (r < 0) {
+	int err = errno;
 
-	    n = read(desc->d_Fd, (char *)&dres + r, sizeof(dres) - r);
-	    if (n > 0)
-		r += n;
-	}
-	if (r != sizeof(dres)) {
-	    if (errno != EINTR && 
-		errno != EWOULDBLOCK && 
-		errno != EINPROGRESS &&
-		r != 0
-	    ) {
-		/*
-		 * let the child process cleanup any operations in
-		 * progress.
-		 */
-		logit(LOG_CRIT, "read %d error on DNS subprocess, killing %d (%s)", r, (int)desc->d_Pid, strerror(errno));
-		kill(desc->d_Pid, 9);
-		NumActive -= desc->d_Count;
-		NumPending -= desc->d_Count;
-		desc->d_Count = 0;
-	    }
-	    return;
-	}
+	logit(LOG_CRIT, "DNS subprocess %d response failed after %lu/%lu bytes: %s",
+		(int)desc->d_Pid, (unsigned long)desc->d_DnsRead,
+		(unsigned long)sizeof(dres), strerror(err));
+	FD_CLR(desc->d_Fd, &SFds);	/* avoid select() spinning on EOF */
+	if (desc->d_Pid > 0)
+	    kill(desc->d_Pid, SIGKILL);
+	NumActive -= desc->d_Count;
+	NumPending -= desc->d_Count;
+	desc->d_Count = 0;
+	return;
     }
     --desc->d_Count;
     --NumPending;

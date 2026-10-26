@@ -245,29 +245,64 @@ openFilterFile(FilterInfo *fi, const char *fname)
 	logit(LOG_ERR, "Unable open spam cache file: %s %s)\n",
 					PatDbExpand(fname), strerror(errno));
 
-    if (fi->HashAry == NULL && fi->Fd >= 0 && fstat(fi->Fd, &st) == 0) {
-	if (st.st_size != fi->Hsize * sizeof(Filter)) {
-	    int i;
-	    Filter f = {{ 0 }};
-	    ftruncate(fi->Fd, 0);
-	    for (i = 0; i < fi->Hsize; i++)
-		write(fi->Fd, &f, sizeof(f));
-	    lseek(fi->Fd, 0, SEEK_SET);
-	}
-	fi->HashAry = xmap(
-		NULL, 
-		fi->Hsize * sizeof(Filter),
-		PROT_READ | (USE_SPAM_RW_MAP * PROT_WRITE),
-		MAP_SHARED,
-		fi->Fd,
-		0
-	    );
-    }
     if (fi->HashAry == NULL && fi->Fd >= 0) {
-	close(fi->Fd);
-	fi->Fd = -1;
+        size_t length = (size_t)fi->Hsize * sizeof(Filter);
+
+        if (fstat(fi->Fd, &st) < 0) {
+            logit(LOG_ERR, "Unable to stat spam cache file %s: %s",
+                  PatDbExpand(fname), strerror(errno));
+            goto fail;
+        }
+        if (st.st_size != (off_t)length) {
+            Filter empty = {{ 0 }};
+            int i;
+
+            if (ftruncate(fi->Fd, 0) < 0 || lseek(fi->Fd, 0, SEEK_SET) < 0) {
+                logit(LOG_ERR, "Unable to reset spam cache file %s: %s",
+                      PatDbExpand(fname), strerror(errno));
+                goto fail;
+            }
+            for (i = 0; i < fi->Hsize; ++i) {
+                const char *ptr = (const char *)&empty;
+                size_t remaining = sizeof(empty);
+
+                while (remaining != 0) {
+                    ssize_t n = write(fi->Fd, ptr, remaining);
+                    if (n < 0 && errno == EINTR)
+                        continue;
+                    if (n <= 0) {
+                        int error = (n == 0) ? EIO : errno;
+                        logit(LOG_ERR, "Unable to initialize spam cache file %s: %s",
+                              PatDbExpand(fname), strerror(error));
+                        goto fail;
+                    }
+                    ptr += n;
+                    remaining -= (size_t)n;
+                }
+            }
+        }
+        fi->HashAry = xmap(
+                NULL,
+                length,
+                PROT_READ | (USE_SPAM_RW_MAP * PROT_WRITE),
+                MAP_SHARED,
+                fi->Fd,
+                0
+            );
+        if (fi->HashAry == NULL) {
+            logit(LOG_ERR, "Unable to map spam cache file %s: %s",
+                  PatDbExpand(fname), strerror(errno));
+            goto fail;
+        }
     }
     return(fi->Fd);
+
+fail:
+    if (fi->Fd >= 0) {
+        close(fi->Fd);
+        fi->Fd = -1;
+    }
+    return(-1);
 }
 
 void

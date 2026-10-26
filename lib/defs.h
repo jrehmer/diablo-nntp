@@ -271,7 +271,10 @@ struct DiabloOpts {
     GroupHashType ReaderGroupHashMethod;
     char *PgpVerifyArgs[10];
     char *PostXFilter;
-} DiabloOpts;
+};
+
+/* One shared definition is provided by lib/global.c. */
+extern struct DiabloOpts DiabloOpts;
 
 /*
  * History
@@ -458,6 +461,7 @@ typedef struct NewslinkInfo {
     int			li_DelayFeed;
     int			li_DelayInFeed;
     int			li_RealTime;
+    int			li_ConnLife;	/* persistent realtime session lifetime (seconds) */
     int			li_Notify;
     int			li_MaxQueueFile;
     int			li_HeadFeed;
@@ -853,7 +857,7 @@ typedef struct IPList {
     struct IPList *il_next;
 } IPList;
 
-IPList *IPHash;
+extern IPList *IPHash;
 
 /*
  * MISC

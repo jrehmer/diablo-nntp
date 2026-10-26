@@ -222,7 +222,7 @@ ascToAddr(const char *str)
 u_long
 ascToMask(const char *str)
 {
-    char *ptr;
+    const char *ptr;
     u_long i;
 
     if ((ptr = strchr(str, '/')))

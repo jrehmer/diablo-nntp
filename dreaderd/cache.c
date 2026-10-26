@@ -14,6 +14,7 @@
  */
 
 #include "defs.h"
+#include <stdint.h>
 
 Prototype int OpenCache(const char *msgid, int *pcfd, int *psize);
 Prototype void CreateCache(Connection *conn);
@@ -31,6 +32,49 @@ int XPageMask=0;
 int CacheHitsFD=-1;
 char *CacheHits=NULL;
 uint32 CacheHitsEnd=0;
+
+/* Write the complete scoreboard range, including after EINTR/short writes.
+ * Explicit offsets avoid disturbing other users of CacheHitsFD's file offset.
+ */
+static int
+CacheHitsWriteAt(int fd, const void *data, size_t len, off_t offset)
+{
+    const char *ptr = data;
+
+    while (len != 0) {
+        ssize_t n = pwrite(fd, ptr, len, offset);
+
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0) {
+            if (n == 0)
+                errno = EIO;
+            return -1;
+        }
+        ptr += n;
+        offset += n;
+        len -= n;
+    }
+    return 0;
+}
+
+static int
+CacheHitsZeroRange(int fd, uint32 first, uint32 end)
+{
+    char zeros[512];
+
+    bzero(zeros, sizeof(zeros));
+    while (first < end) {
+        size_t len = end - first;
+
+        if (len > sizeof(zeros))
+            len = sizeof(zeros);
+        if (CacheHitsWriteAt(fd, zeros, len, first) < 0)
+            return -1;
+        first += len;
+    }
+    return 0;
+}
 
 unsigned int
 cacheHashNum(char *st)
@@ -203,8 +247,12 @@ CreateCache(Connection *conn)
 	    close(fd);			/* rename race		*/
 	    return;
 	}
-	if (st.st_size != 0)		/* truncate if partial left over */
-	    ftruncate(fd, 0);
+	if (st.st_size != 0 && ftruncate(fd, 0) < 0) {
+	    logit(LOG_ERR, "CreateCache: cannot truncate %s (%s)",
+		  tmp, strerror(errno));
+	    close(fd);
+	    return;
+	}
     }
 
     conn->co_SReq->sr_Cache = fdopen(fd, "w");
@@ -226,7 +274,9 @@ AbortCache(int fd, const char *msgid, int closefd)
     cacheFile(hv, path, 0);
     strcat(path, ".tmp");
     remove(path);
-    ftruncate(fd, 0);
+    if (ftruncate(fd, 0) < 0)
+	logit(LOG_ERR, "AbortCache: cannot truncate %s (%s)",
+	      path, strerror(errno));
     hflock(fd, 0, XLOCK_UN);
     if (closefd)
 	close(fd);
@@ -248,15 +298,31 @@ CommitCache(Connection *conn, int closefd)
     cacheFile(hv, path2, 0);
     strcpy(path1, path2);
     strcat(path1, ".tmp");
-    if (rename(path1, path2) < 0)
+    if (rename(path1, path2) < 0) {
+	logit(LOG_ERR, "CommitCache: cannot rename %s to %s (%s)",
+	      path1, path2, strerror(errno));
 	remove(path1);
-    {
+    } else {
 	struct stat st;
-	if (stat(path2, &st) == 0 && ((conn->co_Desc->d_CacheMax > 0 &&
-				st.st_size > conn->co_Desc->d_CacheMax)
-			|| (conn->co_Desc->d_CacheMin > 0 &&
-				st.st_size < conn->co_Desc->d_CacheMin)))
-	    ftruncate(fd, 0);
+
+	/* Check the file we own, not a pathname another process may replace. */
+	if (fstat(fd, &st) == 0 &&
+	    ((conn->co_Desc->d_CacheMax > 0 &&
+	      st.st_size > conn->co_Desc->d_CacheMax) ||
+	     (conn->co_Desc->d_CacheMin > 0 &&
+	      st.st_size < conn->co_Desc->d_CacheMin))) {
+	    if (ftruncate(fd, 0) < 0) {
+		logit(LOG_ERR, "CommitCache: cannot truncate %s (%s)",
+		      path2, strerror(errno));
+		/* Do not offer an out-of-policy file as a completed cache. */
+		if (stat(path2, &st) == 0) {
+		    struct stat owned;
+		    if (fstat(fd, &owned) == 0 &&
+			st.st_dev == owned.st_dev && st.st_ino == owned.st_ino)
+			remove(path2);
+		}
+	    }
+	}
     }
     hflock(fd, 0, XLOCK_UN);
     if (closefd)
@@ -443,91 +509,122 @@ FindCacheHitEntry(struct CacheHash_t *ch) {
  */
 struct CacheHitEntry*
 CreateCacheHitEntry(struct CacheHash_t *ch, artno_t endNo) {
-    uint32 *i=NULL;
-    uint32 ne=0;
-    struct CacheHitEntry *che=NULL;
-    struct CacheHitHead *chh=(struct CacheHitHead *)CacheHits;
+    uint32 *i = NULL;
+    uint32 ne, next, oldEnd, newEnd;
+    uint64_t next64, end64;
+    size_t linkOffset;
+    struct CacheHitEntry *che = NULL;
+    struct CacheHitHead *chh;
+    char *newMap;
 
-    /* Get an exclusive lock */
-    hflock(CacheHitsFD, 0, XLOCK_EX);
-
-    /* has CacheHitsFD size changed ? */
-    if (chh->chh_end != CacheHitsEnd) {
-	int end;
-	logit(LOG_ERR, "CreateCacheHitEntry - cache.hits size has changed");
-	end = CacheHitsEnd;
-	CacheHitsEnd = chh->chh_end;
-	munmap(CacheHits, end);
-    	CacheHits = mmap(NULL, CacheHitsEnd, PROT_READ|PROT_WRITE, MAP_SHARED, CacheHitsFD, 0);
-	if (CacheHits == NULL) {
-    	    CacheHitsEnd = 0;
-	    logit(LOG_ERR, "Error on cache hits remaping (%s)", strerror(errno));
-    	    hflock(CacheHitsFD, 0, XLOCK_UN);
-	    close(CacheHitsFD);
-	    return NULL;
-	}
-	chh=(struct CacheHitHead *)CacheHits;
+    if (CacheHits == NULL || CacheHitsFD < 0)
+	return NULL;
+    if (hflock(CacheHitsFD, 0, XLOCK_EX) < 0) {
+	logit(LOG_ERR, "CreateCacheHitEntry: cannot lock cache.hits (%s)",
+	      strerror(errno));
+	return NULL;
     }
 
-    /* check if someone else have created the entry while waiting for the lock */
-    i = (uint32*) (CacheHits+sizeof(struct CacheHitHead)+((ch->h1^ch->h2)%chh->chh_hashSize)*sizeof(uint32));
+    chh = (struct CacheHitHead *)CacheHits;
+    /* Another process may have enlarged the scoreboard.  Keep the old
+     * mapping alive until the replacement has been mapped successfully.
+     */
+    if (chh->chh_end != CacheHitsEnd) {
+	struct stat st;
+	uint32 end = chh->chh_end;
 
-    while ((*i) != 0) {
-	che = (struct CacheHitEntry*) (CacheHits + (*i));
-	if (memcmp(ch, &(che->che_hash), sizeof(struct CacheHash_t))==0) {
-    	    hflock(CacheHitsFD, 0, XLOCK_UN);
+	if (end < sizeof(struct CacheHitHead) ||
+	    fstat(CacheHitsFD, &st) < 0 || st.st_size < end) {
+	    logit(LOG_ERR, "CreateCacheHitEntry: invalid cache.hits growth");
+	    goto failed;
+	}
+	newMap = mmap(NULL, end, PROT_READ|PROT_WRITE, MAP_SHARED,
+		      CacheHitsFD, 0);
+	if (newMap == MAP_FAILED) {
+	    logit(LOG_ERR, "CreateCacheHitEntry: cache.hits remap failed (%s)",
+		  strerror(errno));
+	    goto failed;
+	}
+	munmap(CacheHits, CacheHitsEnd);
+	CacheHits = newMap;
+	CacheHitsEnd = end;
+	chh = (struct CacheHitHead *)CacheHits;
+    }
+
+    i = (uint32 *)(CacheHits + sizeof(struct CacheHitHead) +
+	((ch->h1 ^ ch->h2) % chh->chh_hashSize) * sizeof(uint32));
+    while (*i != 0) {
+	che = (struct CacheHitEntry *)(CacheHits + *i);
+	if (memcmp(ch, &che->che_hash, sizeof(struct CacheHash_t)) == 0) {
+	    hflock(CacheHitsFD, 0, XLOCK_UN);
 	    return che;
 	}
-	i = &(che->che_Next);
+	i = &che->che_Next;
     }
 
-    /* Adding an entry */
-    (*i) = ne = chh->chh_newEntry;
-    chh->chh_newEntry += sizeof(struct CacheHitEntry);
-    if (chh->chh_newEntry > chh->chh_end) {
-	char buf[512];
-	int len;
-	uint32 j, end;
-
-	j = chh->chh_end;
-	lseek(CacheHitsFD, chh->chh_end, SEEK_SET);
-	end = (chh->chh_newEntry + XPageMask) & ~XPageMask;
-	logit(LOG_ERR, "CreateCacheHitEntry - cache.hits is being increased (%x/%x)", j, end);
-
-	bzero(buf, sizeof(buf));
-	len = sizeof(buf);
-	while(j<end) {
-	    if (j+len>end) len=end-j;
-	    write(CacheHitsFD, buf, len);
-	    j += len;
+    /* Do not publish the hash-chain link or the new-entry pointer until
+     * the backing storage exists and can be mapped.  In particular, a
+     * short/failed zero write must leave the old scoreboard usable.
+     */
+    ne = chh->chh_newEntry;
+    oldEnd = chh->chh_end;
+    next64 = (uint64_t)ne + sizeof(struct CacheHitEntry);
+    if (next64 > UINT32_MAX || ne > oldEnd ||
+	ne < sizeof(struct CacheHitHead) +
+	     (uint64_t)chh->chh_hashSize * sizeof(uint32)) {
+	logit(LOG_ERR, "CreateCacheHitEntry: cache.hits offset overflow");
+	goto failed;
+    }
+    next = (uint32)next64;
+    newEnd = oldEnd;
+    if (next > oldEnd) {
+	end64 = (next64 + XPageMask) & ~(uint64_t)XPageMask;
+	if (end64 > UINT32_MAX) {
+	    logit(LOG_ERR, "CreateCacheHitEntry: cache.hits size overflow");
+	    goto failed;
 	}
-	fsync(CacheHitsFD);
-
-	chh->chh_end = end;
+	newEnd = (uint32)end64;
+	if (CacheHitsZeroRange(CacheHitsFD, oldEnd, newEnd) < 0 ||
+	    fsync(CacheHitsFD) < 0) {
+	    logit(LOG_ERR, "CreateCacheHitEntry: cache.hits extension failed (%s)",
+		  strerror(errno));
+	    if (ftruncate(CacheHitsFD, oldEnd) < 0)
+		logit(LOG_ERR, "CreateCacheHitEntry: rollback truncate failed (%s)",
+		      strerror(errno));
+	    goto failed;
+	}
+	newMap = mmap(NULL, newEnd, PROT_READ|PROT_WRITE, MAP_SHARED,
+		      CacheHitsFD, 0);
+	if (newMap == MAP_FAILED) {
+	    logit(LOG_ERR, "CreateCacheHitEntry: cache.hits extension remap failed (%s)",
+		  strerror(errno));
+	    if (ftruncate(CacheHitsFD, oldEnd) < 0)
+		logit(LOG_ERR, "CreateCacheHitEntry: rollback truncate failed (%s)",
+		      strerror(errno));
+	    goto failed;
+	}
+	linkOffset = (char *)i - CacheHits;
 	munmap(CacheHits, CacheHitsEnd);
-    	CacheHitsEnd = end;
-    	CacheHits = mmap(NULL, end, PROT_READ|PROT_WRITE, MAP_SHARED, CacheHitsFD, 0);
-	if (CacheHits == NULL) {
-    	    CacheHitsEnd = 0;
-	    logit(LOG_ERR, "Error on cache hits remaping (%s)", strerror(errno));
-    	    hflock(CacheHitsFD, 0, XLOCK_UN);
-	    close(CacheHitsFD);
-	    return NULL;
-	}
-	chh=(struct CacheHitHead *)CacheHits;
+	CacheHits = newMap;
+	CacheHitsEnd = newEnd;
+	chh = (struct CacheHitHead *)CacheHits;
+	i = (uint32 *)(CacheHits + linkOffset);
     }
-    /* beware, values may have changed */
-    che = (struct CacheHitEntry*) (CacheHits + ne);
 
-    memcpy(&(che->che_hash) , ch, sizeof(struct CacheHash_t));
-    che->che_Next = 0;
-    che->che_ReadArt = 0;
-    che->che_Hits = 0;
+    che = (struct CacheHitEntry *)(CacheHits + ne);
+    memset(che, 0, sizeof(*che));
+    memcpy(&che->che_hash, ch, sizeof(struct CacheHash_t));
     che->che_LastHi = endNo;
-    che->che_NewArt = 0;
+    chh->chh_newEntry = next;
+    chh->chh_end = newEnd;
+    *i = ne;
 
     hflock(CacheHitsFD, 0, XLOCK_UN);
     return che;
+
+failed:
+    hflock(CacheHitsFD, 0, XLOCK_UN);
+    return NULL;
 }
 
 struct CacheHitEntry*
@@ -538,6 +635,8 @@ UpdateCacheHits(char *groupName, int grpIter, artno_t endNo, int cachehit) {
     if ((groupName==NULL) || (grpIter<0)) {
 	return NULL;
     }
+    if (CacheHits == NULL || CacheHitsFD < 0)
+	return NULL;
     SetCacheHash(&ch, groupName, grpIter, &DOpts.ReaderGroupHashMethod);
 
     che = FindCacheHitEntry(&ch);
@@ -559,62 +658,113 @@ UpdateCacheHits(char *groupName, int grpIter, artno_t endNo, int cachehit) {
 void
 OpenCacheHits(void) {
     struct CacheHitHead chh;
+    struct stat st;
     int r;
+    int locked = 0;
 
-    if (CacheHitsFD >= 0) {
+    if (CacheHitsFD >= 0)
 	return;
-    } 
-    if (XPageMask==0) {
-	XPageMask = getpagesize()-1;
-    }
+    if (XPageMask == 0)
+	XPageMask = getpagesize() - 1;
     CacheHitsFD = open(PatDbExpand(CacheHitsPat), O_RDWR|O_CREAT, 0644);
-    if (CacheHitsFD<0) {
-	logit(LOG_ERR, "Can not open cache hits file (%s)", PatDbExpand(CacheHitsPat));
+    if (CacheHitsFD < 0) {
+	logit(LOG_ERR, "Cannot open cache hits file (%s)",
+	      PatDbExpand(CacheHitsPat));
 	return;
     }
 
-    r = read(CacheHitsFD, &chh, sizeof(struct CacheHitHead));
-    if ( (r < sizeof(struct CacheHitHead)) || (chh.chh_magic != CHMAGIC) || (chh.chh_version != CHVERSION) ) {
-	/* unusable cache, recreating it */
-	hflock(CacheHitsFD, 0, XLOCK_EX);
-	lseek(CacheHitsFD, 0L, 0);
-    	r = read(CacheHitsFD, &chh, sizeof(struct CacheHitHead));
-    	if ( (r < sizeof(struct CacheHitHead)) || (chh.chh_magic != CHMAGIC) || (chh.chh_version != CHVERSION) ) {
-	    /* clean the cache only if no one had the lock before */
-	    char buf[512];
-	    int i,len;
+    do {
+	r = pread(CacheHitsFD, &chh, sizeof(chh), 0);
+    } while (r < 0 && errno == EINTR);
+    if (r < 0) {
+	logit(LOG_ERR, "OpenCacheHits: cannot read cache.hits (%s)",
+	      strerror(errno));
+	goto failed;
+    }
+    if (r != sizeof(chh) || chh.chh_magic != CHMAGIC ||
+	chh.chh_version != CHVERSION) {
+	/* A second reader may already be repairing the scoreboard. */
+	if (hflock(CacheHitsFD, 0, XLOCK_EX) < 0) {
+	    logit(LOG_ERR, "OpenCacheHits: cannot lock cache.hits (%s)",
+		  strerror(errno));
+	    goto failed;
+	}
+	locked = 1;
+	do {
+	    r = pread(CacheHitsFD, &chh, sizeof(chh), 0);
+	} while (r < 0 && errno == EINTR);
+	if (r < 0) {
+	    logit(LOG_ERR, "OpenCacheHits: cannot reread cache.hits (%s)",
+		  strerror(errno));
+	    goto failed;
+	}
+	if (r != sizeof(chh) || chh.chh_magic != CHMAGIC ||
+	    chh.chh_version != CHVERSION) {
+	    uint64_t needed, aligned;
 
-	    ftruncate(CacheHitsFD, sizeof(struct CacheHitHead));
-	    fsync(CacheHitsFD);
-	    bzero(&chh, sizeof(struct CacheHitHead));
+	    needed = sizeof(chh) +
+		(uint64_t)DOpts.ReaderCacheHashSize * sizeof(uint32);
+	    aligned = (needed + XPageMask) & ~(uint64_t)XPageMask;
+	    if (DOpts.ReaderCacheHashSize == 0 || aligned > UINT32_MAX) {
+		logit(LOG_ERR, "OpenCacheHits: invalid cache hash size");
+		goto failed;
+	    }
+	    if (ftruncate(CacheHitsFD, 0) < 0) {
+		logit(LOG_ERR, "OpenCacheHits: cannot truncate cache.hits (%s)",
+		      strerror(errno));
+		goto failed;
+	    }
+	    bzero(&chh, sizeof(chh));
 	    chh.chh_magic = CHMAGIC;
 	    chh.chh_version = CHVERSION;
 	    chh.chh_hashSize = DOpts.ReaderCacheHashSize;
-	    chh.chh_newEntry = sizeof(struct CacheHitHead)+DOpts.ReaderCacheHashSize*sizeof(uint32);
-	    chh.chh_end = (chh.chh_newEntry+XPageMask) & ~XPageMask;
-	    time(&(chh.chh_lastExpired));
+	    chh.chh_newEntry = (uint32)needed;
+	    chh.chh_end = (uint32)aligned;
+	    time(&chh.chh_lastExpired);
 
-	    lseek(CacheHitsFD, 0L, 0);
-	    write(CacheHitsFD, &chh, sizeof(struct CacheHitHead));
-	    i = sizeof(struct CacheHitHead);
-	    bzero(buf, sizeof(buf));
-	    len = sizeof(buf);
-	    while(i<chh.chh_end) {
-		if (i+len>chh.chh_end) len=chh.chh_end-i;
-		write(CacheHitsFD, buf, len);
-		i += len;
+	    /* Initialize the body before publishing the magic/version header. */
+	    if (CacheHitsZeroRange(CacheHitsFD, 0, chh.chh_end) < 0 ||
+		CacheHitsWriteAt(CacheHitsFD, &chh, sizeof(chh), 0) < 0 ||
+		fsync(CacheHitsFD) < 0) {
+		logit(LOG_ERR, "OpenCacheHits: initializing cache.hits failed (%s)",
+		      strerror(errno));
+		/* Ensure an interrupted initialization is not mistaken for
+		 * a valid cache on the next open. */
+		if (ftruncate(CacheHitsFD, 0) < 0)
+		    logit(LOG_ERR, "OpenCacheHits: cleanup truncate failed (%s)",
+			  strerror(errno));
+		goto failed;
 	    }
-	    fsync(CacheHitsFD);
 	}
-	hflock(CacheHitsFD, 0, XLOCK_UN);
+    }
+    if (fstat(CacheHitsFD, &st) < 0 ||
+	chh.chh_hashSize == 0 ||
+	chh.chh_end < sizeof(chh) ||
+	chh.chh_newEntry < sizeof(chh) +
+	    (uint64_t)chh.chh_hashSize * sizeof(uint32) ||
+	chh.chh_end < chh.chh_newEntry ||
+	st.st_size < chh.chh_end) {
+	logit(LOG_ERR, "OpenCacheHits: invalid or truncated cache.hits");
+	goto failed;
+    }
+    CacheHits = mmap(NULL, chh.chh_end, PROT_READ|PROT_WRITE,
+		     MAP_SHARED, CacheHitsFD, 0);
+    if (CacheHits == MAP_FAILED) {
+	logit(LOG_ERR, "OpenCacheHits: cache.hits mmap failed (%s)",
+	      strerror(errno));
+	CacheHits = NULL;
+	goto failed;
     }
     CacheHitsEnd = chh.chh_end;
-    CacheHits = mmap(NULL, chh.chh_end, PROT_READ|PROT_WRITE, MAP_SHARED, CacheHitsFD, 0);
-    if (CacheHits == NULL) {
-    	CacheHitsEnd = 0;
-	logit(LOG_ERR, "Error on cache hits mmap (%s)", strerror(errno));
-	close(CacheHitsFD);
-	return;
-    }
-}
+    if (locked)
+	hflock(CacheHitsFD, 0, XLOCK_UN);
+    return;
 
+failed:
+    if (locked)
+	hflock(CacheHitsFD, 0, XLOCK_UN);
+    close(CacheHitsFD);
+    CacheHitsFD = -1;
+    CacheHitsEnd = 0;
+    CacheHits = NULL;
+}

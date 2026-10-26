@@ -497,6 +497,16 @@
 #	entry is written by diablo. This eliminates most delays in
 #	propagating articles.
 #
+#  connlife		N
+#	Optional persistent realtime NNTP session lifetime in seconds.
+#	For example, 86400 retires a realtime dnewslink after 24 hours,
+#	at the next safe queue handoff (or when the active queue is empty).
+#	Normal queue rotations keep the same TCP session and MODE STREAM.
+#	At retirement dnewslink sends QUIT and exits; dspoolout restarts it.
+#	The batch/backlog workers, maxparallel, and maxqueue are unchanged.
+#	DEFAULT: 0 (disabled; historic reconnect-per-rotation behavior).
+#	Only applies when realtime is enabled.
+#
 #  nobatch		on|off
 #	Tell dspoolout NOT to run any batch dnewslink's for this feed. 
 #	Nominally used for realtime-only feeds where the loss of an

@@ -5,7 +5,7 @@ CC ?= clang
 # Shared release version defaults; command-line values take precedence.
 .include "build-version.mk"
 CPPFLAGS += -I. -DVERS=\"${VERS}\" -DSUBREV=\"${SUBREV}\" -DDEBUG_ZALLOC -DDEBUG_MBUF
-CFLAGS += -O2 -pipe -Wall -Wstrict-prototypes -fcommon -MMD -MP
+CFLAGS += -O2 -pipe -Wall -Wstrict-prototypes -fno-common -MMD -MP
 LDFLAGS += -Lobj
 LDLIBS += -lfilter -ldiablo -lm -lmd -lradius -lz -lcrypto
 LIB_SRCS = lib/global.c lib/node.c lib/xopen.c lib/buffer.c lib/wildcmp.c lib/history.c lib/expire.c lib/newsfeed.c lib/parsedate.c lib/sigs.c lib/lock.c lib/alloc.c lib/subs.c lib/xmap.c lib/precommit.c lib/spamfilter.c lib/strerror.c lib/memcpy.c lib/zalloc.c lib/config.c lib/kpdb.c lib/active.c lib/msgid.c lib/hash.c lib/psstat.c lib/runprog.c lib/snprintf.c lib/fatal.c lib/log.c lib/logtime.c lib/iplist.c lib/dgp.c lib/pgp.c lib/hostauth.c lib/strsep.c lib/groupfind.c lib/spool.c lib/arttype.c lib/stats.c lib/dmd5.c lib/notify.c lib/wildmat.c lib/include.c lib/hashfeed.c lib/dgzip.c
