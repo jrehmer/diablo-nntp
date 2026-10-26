@@ -192,6 +192,27 @@ However, if you are doing a major update, it is recommended that you shutdown
 diablo and follow the DSyncGroups command with a dkp -t command to trim the
 deleted records out of the dactive.kp database, making it smaller.
 .PP
+.PP
+.B \-B bindhost[:port]
+.PP
+Connect from this local address.
+.PP
+.B \-U username, \-u password
+.PP
+Log in to the remote host (AUTHINFO) with this username and password.
+.PP
+.B \-v
+.PP
+Be more verbose about what is being done.
+.PP
+.B \-C diablo.config
+.PP
+Use this diablo.config instead of the default.
+.PP
+.B \-V
+.PP
+Print the version and exit.
+
 .SH "SEE ALSO"
 dcancel(8),
 dclient(8),

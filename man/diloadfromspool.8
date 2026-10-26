@@ -121,6 +121,24 @@ Specify a spool file to scan.  You may specify multiple spool files
 on the command line.  Note that you must be CD'd to the top of the news
 spool and you must specify the spool file in the 'D.xxxxxxxx/B.xxxx' form.
 
+.PP
+.B \-tb time, \-te time
+.PP
+Only scan spool directories from (\-tb) or until (\-te) this time,
+given as yyyymmddhhmm or as a spool directory name D.nnnnnnnn.
+.PP
+.B \-C diablo.config
+.PP
+Use this diablo.config instead of the default.
+.PP
+.B \-d[n]
+.PP
+Set the debug level.
+.PP
+.B \-V
+.PP
+Print the version and exit.
+
 .SH "SEE ALSO"
 dcancel(8),
 dclient(8),

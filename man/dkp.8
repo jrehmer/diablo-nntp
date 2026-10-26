@@ -10,7 +10,7 @@ dkp \- Diablo program to manage DKP databases
 .IR DKP 
 manages KP databases.  Currently Diablo has only one KP database,
 the active file, called dactive.kp.
-issues a command to the parent diablo server.  The command allows
+The command allows
 a key and optional tok=data (for writes) to be specified on the
 command line.  If no key/data is specified, DKP takes key or
 key tok=data lines from the standard input.  The data may not contain
@@ -68,6 +68,11 @@ A KP DATABASE!
 .PP
 Diablo gives instructions on how to prune its various KP 
 databases by example, usually in the adm/ or samples/ directory.
+
+.PP
+.B \-V
+.PP
+Print the version and exit.
 
 .SH "SEE ALSO"
 dcancel(8),
