@@ -85,6 +85,29 @@ to a single entry.  Otherwise, all entries are run.
 Specify a configuration file other then dspoolout.ctl.  If the configuration
 file is not an absolute path, diablo's news home is prepended to it.
 .PP
+.B \-p
+Read the old dspoolout.ctl format, whatever the file is called.
+.PP
+.B \-r
+Start realtime workers for every realtime feed, also when its queue is
+long (normally only when two or fewer queue files are waiting).
+.PP
+.B \-Q tos
+Default IP type-of-service value for the dnewslink connections.
+.PP
+.B \-J
+Internal: a retiring realtime dnewslink (connlife) runs dspoolout -J
+with its label to start its replacement.  Not for manual use.
+.PP
+.B \-d[n]
+Set the debug level.
+.PP
+.B \-C diablo.config
+Use this diablo.config instead of the default.
+.PP
+.B \-V
+Print the version and exit.
+.PP
 The
 .B \-T
 and
