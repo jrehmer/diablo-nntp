@@ -1,8 +1,11 @@
 				INSTALLATION
 
-Get and install XMake if you don't have it.  You can get XMake from
-http://www.backplane.com/xmake/.  XMake is a required package to build
-Diablo.
+Diablo builds with GNU Make (Linux, illumos/SmartOS/OmniOS, optionally
+FreeBSD) or with FreeBSD's own make.  XMake is no longer needed.
+README.md lists the build requirements and the packages to install.
+lib/vendor.h enables RADIUS by default: install the RADIUS library
+(radlib.h; libradius on SmartOS) or #undef RADIUS_ENABLED, which is
+needed on Linux.
 
 Please read the README.READER and README.SERVER files if you haven't
 already.
@@ -53,40 +56,42 @@ Edit lib/config.h
 	You shouldn't need to modify anything in here, but this is
 	where the port-specific defaults reside.
 
-xmake clean
-xmake
+Build:
 
-Create a news home called /news (in recognition that usenet news is a
-major subsystem, we have no need of this /usr/local/news crap :).
-/news can also be a symlink to wherever the real news home is.
+	make -j4		(Linux, where make is GNU Make)
+	gmake -j4		(illumos; FreeBSD with GNU Make)
+	make -j4		(FreeBSD's own make)
 
-Create a news user-id and a news group-id.  Determine whether you are
-going to run the Diablo feeder side, the Diablo reader side, or both
-subsystems on your box.  Anything marked MOUNTED PARTITION below is
-recommended to be a separately mounted partition.  The suggested
-MINIMUM partition sizes for a full feed are shown.
+Create the news user and group, and decide whether this machine runs
+the feeder (diablo), the reader (dreaderd) or both.
 
-	mkdir /news		(reader and feeder, MOUNTED PARTITION/ 4G)
-	mkdir /news/dbin	(reader and feeder)
-	mkdir /news/spool	(reader and feeder)
-	mkdir /news/log		(reader and feeder)
-	mkdir /news/dqueue	(feeder only)
-	mkdir /news/spool/news	(feeder only, MOUNTED PARTITION, 8G)
-	mkdir /news/spool/cache	(reader only, MOUNTED PARTITION, 2G)
-	mkdir /news/spool/group	(reader only, MOUNTED PARTITION, 16G)
-	chown -R news.news /news
+	groupadd news				(Linux, illumos)
+	useradd -g news -d /news -s /bin/sh news
+	pw groupadd news			(FreeBSD)
+	pw useradd news -g news -d /news -s /bin/sh
 
-	xmake install
+	On SmartOS, new accounts are locked and cron refuses their jobs;
+	run "passwd -N news" (no password, no logins).
 
-Make sure that all *underlying* mount points are properly chown'd and
-chmod'd to prevent weirdness on a number of UNIX platforms.  These
-mount points should be owned by the same user you will be running news
-as.  For most configurations, this will be user 'news'.
+Install as root:
 
-Generally speaking, when you do an 'xmake install', Diablo will
-install defaults for all system files.  The following systems files
-must be in /news/etc or placed in /news/etc if not placed there by the
-'xmake install'.  The required files are:
+	make install		(gmake install on illumos)
+
+This creates /news and below it dbin, adm, log, run, dqueue, spool,
+spool/news, spool/group, spool/cache, man and samples, owned by news.
+The home is /news; another PREFIX doesn't change where the programs
+look for their files at run time (use -C or DIABLO_CONFIG_PATH).
+"make bininstall" replaces only the programs.
+
+Directories that should be separately mounted partitions for a real
+feed: /news/spool/news (feeder articles), /news/spool/group (reader
+overview), /news/spool/cache (reader cache), and /news/dqueue
+(outgoing queues).  Mount them before installing, or make sure the
+mount points are owned by news.
+
+The configuration files are read from /news itself (not /news/etc).
+The install puts a default copy of each one there and never overwrites
+an existing one:
 
 	diablo.config	(reader and feeder)
 	dhistory	(feeder only, created on startup of diablo)
@@ -99,6 +104,12 @@ must be in /news/etc or placed in /news/etc if not placed there by the
 	dreader.access	(reader only)
 	dserver.hosts	(reader only)
 
+	/news/samples/feeder, /news/samples/reader and
+	/news/samples/feeder+reader hold complete example sets for the
+	three setups; copy the one that matches over the defaults and
+	edit it.  On a feeder+reader machine the feeder listens on port
+	120 and the reader on 119 (see samples/feeder+reader/README).
+
 	(1): The dsyncgroups program can be used to generate an initial
 	  dactive.kp database, see the manual page for dsyncgroups.
 	  You can configure either the Diablo feeder OR the Diablo
@@ -109,9 +120,15 @@ must be in /news/etc or placed in /news/etc if not placed there by the
 	  feeder does not need to use dactive.kp.  See diablo.config
 	  for more information.
 
-Don't forget the adm directory with the sample crontabs.  You will
-have to edit the sample crontab as appropriate for your system, and
-then install it for the 'news' user.
+Install the crontab for the news user from /news/samples/adm/crontab.sample
+(crontab -u news, or "crontab file" as news); uncomment the reader lines on
+a reader.  It runs dspoolout, the expire and the log and history trims.
+
+Start and stop the daemons with /news/adm/diablo-ctl (settings in
+/news/diablo-ctl.conf, see /news/samples/adm/diablo-ctl.conf):
+
+	/news/adm/diablo-ctl start
+	/news/adm/diablo-ctl status
 
 And you are off.
 
@@ -150,7 +167,7 @@ Here's a checklist for once you have Diablo running:
 
 * After Diablo has been running for a day, check the logs generated by
   the cron scripts.  Make sure that the expire is being run every four
-  hours.  These logs are located in /news/logs/.  Ensure that your
+  hours.  These logs are located in /news/log/.  Ensure that your
   cronjobs are rotating these logs as they can grow very large.
 
 * After Diablo has been running for a few days, check the logs again.
