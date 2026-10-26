@@ -9,7 +9,7 @@ This manual page provides a synopsis for various diablo configuration
 and control files.  It does not necessarily describe all commands or
 the specific file format.  You can obtain most of the latter by looking
 at the example config/control files in the 
-.B sample/
+.B samples/
 directory.  What this manual page does is describe specific featurisms
 that would otherwise not be readily apparent.
 .PP
@@ -17,7 +17,7 @@ The location of all diablo files is controlled by /news/diablo.config.
 The location of diablo.config itself can be specified with the 
 DIABLO_CONFIG_PATH environment variable or with the '-C diabloconfigpath'
 option to any command.  Diablo files are typically rooted at either
-the news root, the library root, or the database root (path_news, 
+the news root, the library root, or the database root (path_home,
 path_lib, or path_db in diablo.config).  See samples/diablo.config
 for more information.
 
@@ -74,7 +74,8 @@ for more information.
 .PP
 .B filter
 effects INBOUND feeds.  Articles coming FROM the specified label (see
-diablo.hosts on how to tie labels to incomming connections) are rejected
+alias and inhost, or diablo.hosts, on how incoming connections are tied
+to labels) are rejected
 if any listed newsgroup matches the wildcard specified in any of the
 filter commands.  You normally use this to reject articles cross posted
 to your local newsgroups that are propogated from outside entities.  Note
@@ -108,12 +109,8 @@ wildcard list linearly and cannot really support group-specific
 wildcards (where a feed wants 10,000 specific groups rather then
 fewer wildcarded groups).
 .PP
-A special label, called
-.B ME
-may be specified.  This label generally only contains
-.B filter
-commands.  Diablo will revert to this label for any incoming
-connections that have not been associated with a specific label.
+A connection from a host that no label lists (alias, inhost or
+diablo.hosts) is refused with "502 ... Transfer permission denied".
 .PP
 There is also the 
 .B groupdef
@@ -196,7 +193,17 @@ file is read and returned by the NNTP 'list distributions' command.
 
 .SH DIABLO.HOSTS
 
-The 
+The usual way to tie incoming connections to labels is the
+.B alias
+and
+.B inhost
+lines of the labels in dnewsfeeds.  The older
+.IR diablo.hosts
+file is optional and is still read if it exists; both go into the host
+cache, dhosts.cache (see
+.IR dprimehostcache (8)).
+.PP
+The
 .IR diablo.hosts
 file controls authentication for incoming connections.  Each
 line consists of a domain name or IP address wildcard and a label
@@ -227,13 +234,14 @@ connection's DNS load is consistent only with the domain/IP the connection
 is coming from which is very important for stability in the face of a 
 large number of feeds.
 
-.SH DREADER.HOSTS
+.SH DREADER.ACCESS
 
 The
-.IR dreaderd.hosts
-file contains access permissions for NNTP readers for the dreaderd server.
-This file also contains access permissions for header-only feeds coming into 
-the dreaderd server.
+.IR dreader.access
+file contains access permissions for NNTP readers for the dreaderd server,
+and for the feeds coming into it (readerdef with feed).  It replaced the
+dreader.hosts file of Diablo 1.x, which is no longer read.  See
+samples/dreader.access.
 
 .SH DSERVER.HOSTS
 
