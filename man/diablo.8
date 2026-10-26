@@ -49,6 +49,25 @@ diablo \- NetNews daemon for backbone article transit
 ]
 [
 .B \-x
+.I on|off
+]
+[
+.B \-Z
+]
+[
+.B \-b
+.I fd
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-r
+.I maxage
+]
+[
+.B \-V
 ]
 .BI server
 
@@ -205,11 +224,41 @@ guarentee lockup-free operation in streaming mode.
 sets the XRef: hostname used when generating Xref: lines. The default
 is to use the newspathname if Xref: generation is enabled.
 .PP
-.B \-x
+.B \-x on|off
 .PP
 If active file is enabled and we are not an Xref: slave, then use the
 Xref: line to update the NX field in the active file. This is useful
-for a backup to the Xref: generator in large installations.
+for a backup to the Xref: generator in large installations.  Same as
+feederxrefsync in diablo.config.
+.PP
+.B \-Z
+.PP
+Reject articles that contain a NUL byte (rejectartswithnul).
+.PP
+.B \-r maxage
+.PP
+Reject articles whose Date: is more than maxage in the past or the
+future.  The value is in days, or with s, m, h or d appended.  Same as
+feedermaxacceptage in diablo.config; the default is the remember time.
+.PP
+.B \-b fd
+.PP
+Listen on the already open socket fd instead of opening one.
+.IR dstart (8)
+uses this.
+.PP
+.B \-C diablo.config
+.PP
+Use this diablo.config instead of the default (path_home/diablo.config,
+or DIABLO_CONFIG_PATH).
+.PP
+.B \-N newsadminname
+.PP
+The same as \-A.
+.PP
+.B \-V
+.PP
+Print the version and exit.
 .PP
 Diablo understands a subset of the NNTP protocol.  The basic commands it
 understands are
