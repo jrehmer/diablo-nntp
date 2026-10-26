@@ -37,10 +37,17 @@ dexpire \- Diablo program to expire article files
 .B \-s[#[:#]]
 ]
 [
+.B \-t
+]
+[
 .B \-u
 ]
 [
 .B \-v
+]
+[
+.B \-f
+.I historyfile
 ]
 [
 .B \-z
@@ -105,6 +112,16 @@ This option tells dexpire to run through, but not make any updates.
 It useful for testing what a set of options will do and a status
 report will be printed (unless disabled with ``-q''). This is
 the default.
+.PP
+.B \-t
+.PP
+Check the history against the spool and print how many entries are
+valid or expired, each split into those whose spool directory exists
+and those whose doesn't.  Implies \-v.
+.PP
+.B \-f historyfile
+.PP
+Use this history file instead of the configured dhistory.
 .PP
 .B \-O[n]
 This option specifies the number of iterations to run before
