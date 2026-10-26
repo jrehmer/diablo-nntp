@@ -1,0 +1,141 @@
+.TH DFEEDTEST 8
+.SH NAME
+dfeedtest \- show which dnewsfeeds labels and spool an article would go to
+.SH SYNOPSIS
+.B dfeedtest
+[
+.B \-a
+]
+[
+.B \-n
+.I newsgroups
+]
+[
+.B \-D
+.I distribution
+]
+[
+.B \-s
+.I size
+]
+[
+.B \-p
+.I numpath
+]
+[
+.B \-t
+.I arttype
+]
+[
+.B \-M
+.I message-id
+]
+[
+.B \-h
+]
+[
+.B \-S
+]
+[
+.B \-l
+.I label
+]
+[
+.B \-N
+.I dnewsfeeds
+]
+[
+.B \-F
+]
+[
+.B \-X
+]
+[
+.BR \-d [\fIn\fP]
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-V
+]
+.SH DESCRIPTION
+.I dfeedtest
+loads dnewsfeeds (and, with
+.BR \-X ,
+dspool.ctl) the way diablo does and shows where an article with the given
+properties would go.  It is a way to check a feed or spool change before
+diablo reloads it; it doesn't talk to a running server.
+.PP
+The article is described with options, or read from standard input with
+.BR \-a .
+A newsgroups list is required.  The program prints the article properties
+it used, then one line
+.BI "Matched: " label
+for every label that would be fed the article.
+.SH OPTIONS
+.TP
+.B \-a
+Read an article (headers and body) from standard input and take the
+Newsgroups, Distribution, Message-ID, number of Path entries, size and
+article type from it.
+.TP
+.BI \-n " newsgroups"
+The Newsgroups header, a comma-separated list.
+.TP
+.BI \-D " distribution"
+The Distribution header (default: none).
+.TP
+.BI \-s " size"
+The article size in bytes (default 1000).
+.TP
+.BI \-p " numpath"
+The number of Path entries (default 1).
+.TP
+.BI \-t " arttype"
+The article type, for example binary or mime (default: plain text).
+.TP
+.BI \-M " message-id"
+The Message-ID.
+.TP
+.B \-h
+Match as a header-only article.
+.TP
+.B \-S
+Match as spam.
+.TP
+.BI \-l " label"
+Load only this dnewsfeeds label.  With \fB\-F\fP, dump only this label.
+.TP
+.BI \-N " dnewsfeeds"
+Use this dnewsfeeds file instead of the one in diablo.config.
+.TP
+.B \-F
+Print diablo's in-memory view of dnewsfeeds (all labels, or the one given
+with \fB\-l\fP) and exit.
+.TP
+.B \-X
+Print the spool the article would be stored in instead of the matching
+labels: a spool number, or NoSpool, RejectArt or DontStore.
+.TP
+.BR \-d [\fIn\fP]
+Set the debug level and trace the dnewsfeeds matching.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.TP
+.B \-V
+Print the version and exit.
+.SH EXAMPLES
+.nf
+dfeedtest -n comp.lang.c,misc.test -s 5000
+dfeedtest -a < article
+dfeedtest -n alt.binaries.test -t binary -X
+dfeedtest -F -l reader
+.fi
+.SH "SEE ALSO"
+diablo(8),
+dnewslink(8),
+dspoolout(8),
+diablo-files(5)

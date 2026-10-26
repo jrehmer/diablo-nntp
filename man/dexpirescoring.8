@@ -1,0 +1,59 @@
+.TH DEXPIRESCORING 8
+.SH NAME
+dexpirescoring \- Diablo program to age the dreaderd cache scoring
+.SH SYNOPSIS
+.B dexpirescoring
+[
+.B \-H
+.I halflife
+]
+[
+.B \-v
+]
+.SH DESCRIPTION
+When
+.B readercache
+is on, dreaderd counts per group how many articles are read, how many of
+those reads were cache hits, and how many new articles arrive.  The counts
+are kept in cache.hits (path_cachehits, normally /news/cache.hits) and
+decide which groups' articles are worth caching.
+.PP
+.I dexpirescoring
+updates the count of new articles of every group in the reader's
+dactive.kp and, with
+.BR \-H ,
+ages all counts so that recent reading weighs more than old reading:
+each count is divided by
+.RI 2^( elapsed / halflife ),
+where
+.I elapsed
+is the time since the last aging run.  Run it from cron, for example
+daily.
+.SH OPTIONS
+.TP
+.BI \-H " halflife"
+Halve the counts every \fIhalflife\fP seconds of elapsed time.  Without
+it the counts are not aged.
+.TP
+.B \-v
+Print each group's counts: reads, cache hit percentage, new articles and
+the read/new ratio.
+.SH FILES
+.TP
+.I /news/cache.hits
+the scoring file (path_cachehits).
+.TP
+.I /news/dactive.kp
+the reader's active file.
+.SH EXAMPLES
+.nf
+dexpirescoring -H 604800 -v
+.fi
+.SH BUGS
+.B \-C
+is not accepted, so only the default diablo.config (or
+DIABLO_CONFIG_PATH) can be used.
+.SH "SEE ALSO"
+dreaderd(8),
+dexpirecache(8),
+diablo-files(5)
