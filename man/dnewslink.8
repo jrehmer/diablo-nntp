@@ -237,6 +237,49 @@ option is not given.
 This option sets the source ip address for outbound connections. It
 can be either an ip address or a hostname which will be resolved by
 DNS.
+.PP
+.B \-K seconds
+.PP
+Connection lifetime for realtime feeds: after this many seconds the
+connection is closed and a new one is opened (connlife in dnewsfeeds;
+dspoolout passes it).
+.PP
+.B \-M number
+.PP
+The maximum number of streaming transactions in flight at once
+(maxstream in dnewsfeeds).
+.PP
+.B \-W seconds
+.PP
+Delay feed: send an article only when it has been queued for this many
+seconds (delayfeed in dnewsfeeds).
+.PP
+.B \-Q tos
+.PP
+Set this IP type-of-service value on the connection.
+.PP
+.B \-Z level
+.PP
+Ask the peer for MODE COMPRESS and, if it agrees, compress the feed with
+this zlib level (1 to 9).  Only with zlib support.
+.PP
+.B \-o label
+.PP
+Take new-article notifications from diablo for this label instead of
+only polling the queue file (realtime feeds).
+.PP
+.B \-x
+.PP
+Skip queued articles whose spool file no longer exists instead of
+offering them.
+.PP
+.B \-C diablo.config
+.PP
+Use this diablo.config instead of the default.
+.PP
+.B \-V
+.PP
+Print the version and exit.
 
 .SH "TYPICAL USE"
 .PP
