@@ -173,12 +173,14 @@ main(int ac, char **av)
 	 * create new header if necessary
 	 */
 	if (he == NULL) {		/* new header		      */
-	    he = malloc(sizeof(Header));
+	    if ((he = malloc(sizeof(Header))) == NULL)
+		exit(2);
 	    nl = 1;
 	    *PHe = he;
 	    PHe = &he->he_Next;
 	    he->he_Next = NULL;
-	    he->he_Name = malloc(1);
+	    if ((he->he_Name = malloc(1)) == NULL)
+		exit(2);
 	    he->he_Name[0] = 0;
 	}
 
@@ -186,9 +188,13 @@ main(int ac, char **av)
 	 * append data buffer to header
 	 */
 	{
-	    int r = strlen(he->he_Name);
-	    he->he_Name = realloc(he->he_Name, r + l + 1);
-	    strcpy(he->he_Name + r, buf);
+	    size_t r = strlen(he->he_Name);
+	    char *name = realloc(he->he_Name, r + l + 1);
+
+	    if (name == NULL)
+		exit(2);
+	    memcpy(name + r, buf, l + 1);
+	    he->he_Name = name;
 	}
 
 	/*
@@ -431,7 +437,7 @@ VerifyGpgv(char **argv, const char *keyring, const char *version,
 	}
     }
     n = 0;
-    while (argv[n] != NULL && n < 10) {
+    while (n < 10 && argv[n] != NULL) {
 	gargv[n] = argv[n];
 	++n;
     }
