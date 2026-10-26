@@ -269,8 +269,47 @@ options in diablo.config.
 specify the hostname as it appears in the Xref: line of the host
 we accept Xref: headers from.  If not specified, or the host does
 not match, the Xref: header will be ignored and article numbers
-will be assigned from the active file. See also the ``readerslavexrefhost''
+will be assigned from the active file. See also the ``readerxrefslavehost''
 option in diablo.config.
+
+.PP
+.B \-X xrefhost
+the host name in the Xref: lines shown to clients (readerxrefhost in
+diablo.config).
+
+.PP
+.B \-A newsadmin
+the news administrator address shown in the banner.
+
+.PP
+.B \-S[T|R]size
+set the TCP buffer sizes: \-ST the send buffer, \-SR the receive
+buffer, \-S with only a number both.
+
+.PP
+.B \-r rtstatusfile
+the file for the realtime status data (default
+path_log/dreaderd.status).
+
+.PP
+.B \-b fd
+listen on the already open socket fd instead of opening one.
+.IR dstart (8)
+uses this.
+
+.PP
+.B \-C diablo.config
+use this diablo.config instead of the default (path_home/diablo.config,
+or DIABLO_CONFIG_PATH).
+
+.PP
+.B \-Z
+for debugging: a reader or DNS process that crashes (SIGSEGV and the
+like) stays alive instead of exiting, so a debugger can be attached.
+
+.PP
+.B \-V
+print the version and exit.
 
 .PP
 dreaderd will assign article numbers based on the supplied Xref:
