@@ -53,16 +53,16 @@
 #			and clients will not see overview info for
 #			articles that have expired from the spool already.
 #
-#	ZFLOAT		Allow 'dexpireover -w' to gz-compress data files
+#	ZFLOAT		Allow 'dexpireover -z' to gz-compress data files
 #			older than FLOAT hours (should be longer than your
 #			longest possible feed queueing window to a dreaderd,
 #			must always be at least 1 hour, should be at least 24)
 #
-#	FFILES		Forbid 'dexpireover -w' to gz-compress the FILES newest
+#	FFILES		Forbid 'dexpireover -z' to gz-compress the FILES newest
 #			data files for a group.  Must be at least 1, should
 #			be at least 2.  In the event that a group goes 
 #			quiescent for an extended period of time, this must
-#			be at least 1 to prevent dexpireover -w from gzipping
+#			be at least 1 to prevent dexpireover -z from gzipping
 #			the data file that should be written to.
 #
 # The last match is used, with values that match being cumulative.

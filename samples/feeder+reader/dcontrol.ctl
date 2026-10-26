@@ -13,19 +13,20 @@
 ##	<newsgroups>	Pattern that must match the newsgroup being
 ##			newgroup'd or rmgroup'd (ignored for other messages).
 ##	<action>	What to do:
-##	    doit			Perform action (usually sends mail too)
-##	    doit=xxx			Do action; log to xxx (see below)
-##	    drop			Ignore message
-##	    log				One line to error log
+##	    doit			Perform the action
+##	    doit=xxx			Perform it; log to xxx (see below)
+##	    drop			Ignore the message
+##	    log				Nothing by itself; use log=xxx
 ##	    log=xxx			Log to xxx (see below)
-##	    mail			Send mail to admin
+##	    mail			Mail the message's log to the news admin
 ##	    verify-pgp_userid		Do PGP verification on user (GnuPG
 ##					gpgv by default; see README.PGP).
 ##	    verify-pgp_userid=logfile	PGP verify and log.
 ##	    break			terminate dcontrol.ctl scan
 ##
-##			xxx=mail to mail; xxx= (empty) to toss; xxx=/full/path
-##			to log to /full/path; xxx=foo to log to ${LOG}/foo.log
+##			xxx=/full/path logs to /full/path; xxx=foo logs to
+##			foo in path_log (/news/log/foo, no .log is added).
+##			An empty xxx logs nothing.
 ##
 ## --------------------------------------------------------------------------
 ##	DEFAULTS
