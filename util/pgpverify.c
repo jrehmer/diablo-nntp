@@ -275,7 +275,7 @@ main(int ac, char **av)
 
     if (argcount == 0) {
 	if ((prog = FindGpgv()) == NULL) {
-	    fprintf(stderr, "pgpverify: no gpgv, gpgv2 or gpgv1 found\n");
+	    fprintf(stderr, "pgpverify: no gpgv2, gpgv or gpgv1 found\n");
 	    exit(2);
 	}
 	argv[argcount++] = (char *)prog;
@@ -291,8 +291,10 @@ main(int ac, char **av)
 }
 
 /*
- * FindGpgv() - locate gpgv (GnuPG 2.x usually, 1.x on older systems),
- *		gpgv2 or gpgv1 in the usual binary directories.
+ * FindGpgv() - locate gpgv2, gpgv (GnuPG 2.x usually, 1.x on older
+ *		systems and in pkgsrc's gnupg) or gpgv1 in the usual binary
+ *		directories.  gpgv2 first: where both are installed, gpgv
+ *		is often 1.4, which can't check newer key types (Ed25519).
  */
 
 static const char *
@@ -300,7 +302,7 @@ FindGpgv(void)
 {
     static const char *dirs[] = { "/usr/bin", "/usr/local/bin", "/opt/local/bin",
 				  "/usr/pkg/bin", "/opt/ooce/bin", NULL };
-    static const char *names[] = { "gpgv", "gpgv2", "gpgv1", NULL };
+    static const char *names[] = { "gpgv2", "gpgv", "gpgv1", NULL };
     static char path[PATH_MAX];
     int n;
     int d;

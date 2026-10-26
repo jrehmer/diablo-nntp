@@ -22,7 +22,7 @@ var (
 // haveGpgv reports whether pgpverify will find gpgv (it looks in these directories only).
 func haveGpgv() bool {
 	for _, d := range []string{"/usr/bin", "/usr/local/bin", "/opt/local/bin", "/usr/pkg/bin", "/opt/ooce/bin"} {
-		for _, n := range []string{"gpgv", "gpgv2", "gpgv1"} {
+		for _, n := range []string{"gpgv2", "gpgv", "gpgv1"} {
 			if _, err := os.Stat(filepath.Join(d, n)); err == nil {
 				return true
 			}
