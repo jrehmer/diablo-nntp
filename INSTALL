@@ -130,8 +130,9 @@ Install the crontab for the news user from /news/samples/adm/crontab.sample
 (crontab -u news, or "crontab file" as news); uncomment the reader lines on
 a reader.  It runs dspoolout, the expire and the log and history trims.
 
-Start and stop the daemons with /news/adm/diablo-ctl (settings in
-/news/diablo-ctl.conf, see /news/samples/adm/diablo-ctl.conf):
+Start and stop the daemons with /news/adm/diablo-ctl. To customize its
+settings, copy /news/samples/adm/diablo-ctl.conf to /news/diablo-ctl.conf
+and edit it; the script reads that optional file from the Diablo home:
 
 	/news/adm/diablo-ctl start
 	/news/adm/diablo-ctl status
