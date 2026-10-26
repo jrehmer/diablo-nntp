@@ -73,12 +73,18 @@ the feeder (diablo), the reader (dreaderd) or both.
 	On SmartOS, new accounts are locked and cron refuses their jobs;
 	run "passwd -N news" (no password, no logins).
 
+Create the installation prefix and make it owned by the installation
+user and group before installing:
+
+	mkdir /news
+	chown news:news /news
+
 Install as root:
 
 	make install		(gmake install on illumos)
 
-This creates /news and below it dbin, adm, log, run, dqueue, spool,
-spool/news, spool/group, spool/cache, man and samples, owned by news.
+The installer creates dbin, adm, log, run, dqueue, spool, spool/news,
+spool/group, spool/cache, man and samples under /news, owned by news.
 The home is /news; another PREFIX doesn't change where the programs
 look for their files at run time (use -C or DIABLO_CONFIG_PATH).
 "make bininstall" replaces only the programs.
