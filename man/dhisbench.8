@@ -45,13 +45,12 @@ the number of operations and the time they took.  At least one of
 or
 .B \-lf
 is required.
-.SH WARNING
-Always give a scratch file with
-.BR \-f .
-Without it,
-.I dhisbench
-uses the configured dhistory, and the add processes write made-up
-entries (1000 per process by default) into the live history.
+.PP
+The add processes write made-up entries, so adds need a scratch history
+file given with
+.BR \-f ;
+dhisbench refuses to add to the configured dhistory.  Lookups alone use
+dhistory (read-only) when \-f is not given.
 .SH OPTIONS
 .TP
 .BI \-f " historyfile"

@@ -10,6 +10,10 @@ dlockhistory \- keep the Diablo history hash table locked in memory
 .B \-f
 ]
 [
+.B \-s
+.I sleeptime
+]
+[
 .B \-V
 ]
 .I historyfile
@@ -19,7 +23,7 @@ maps the hash table of a history file (normally /news/dhistory) and locks
 it into memory with
 .IR mlock (2),
 so that history lookups don't wait for the disk.  It keeps running and
-checks every 5 seconds whether the history file was replaced (a new inode,
+checks every 5 seconds (\-s) whether the history file was replaced (a new inode,
 for example after
 .IR dhisexpire (8)),
 and then maps and locks the new file.
@@ -38,13 +42,11 @@ Lock the whole history file, not only the hash table.
 .B \-f
 Don't check for root.
 .TP
+.BI \-s " sleeptime"
+Check for a new history file every sleeptime seconds (default 5).
+.TP
 .B \-V
 Print the version and exit.
-.SH BUGS
-.B \-s
-.I sleeptime
-(the time between checks) is listed in the usage message but crashes the
-program, because the option is not declared to take an argument.
 .SH "SEE ALSO"
 diablo(8),
 dhisexpire(8),

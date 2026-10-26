@@ -3,8 +3,10 @@
 dexpirecache \- Diablo program to expire the dreaderd article cache
 .SH SYNOPSIS
 .B dexpirecache
+[
 .B \-d
 .I cachedir
+]
 [
 .B \-f
 .I kbytes
@@ -43,8 +45,11 @@ file.  Run it from cron, for example every hour.
 .SH OPTIONS
 .TP
 .BI \-d " cachedir"
-The cache directory.  Required; there is no default.  The directory
-must be given as a separate argument.
+The cache directory.  Default: path_cache from diablo.config
+(/news/spool/cache).
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
 .TP
 .BI \-f " kbytes"
 Keep at least this many kilobytes free.

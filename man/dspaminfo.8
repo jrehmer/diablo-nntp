@@ -58,6 +58,8 @@ Work on the body filter cache.
 .TP
 .B \-N
 Work on the posting host cache.
+.PP
+\-l without \-B or \-N shows both caches; \-c needs one or both.
 .TP
 .BR \-d [\fIn\fP]
 Set the debug level.
@@ -67,19 +69,6 @@ Use this diablo.config instead of the default.
 .TP
 .B \-V
 Print the version and exit.
-.SH BUGS
-Both caches are always selected, so
-.B \-B
-and
-.B \-N
-make no difference, and
-.B \-c
-clears the entry in both caches.
-.B \-c
-.I n
-also sets the debug level to
-.IR n .
-The usage message calls the debug option \-D; it is \-d.
 .SH "SEE ALSO"
 diablo(8),
 dicmd(8),

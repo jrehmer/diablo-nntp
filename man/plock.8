@@ -22,7 +22,8 @@ locks
 .IR sh (1),
 waits for it and releases the lock.  It is used in Diablo's adm scripts
 to keep two runs of the same job from overlapping.  The arguments are
-joined with spaces and passed to sh -c.
+joined with spaces and passed to sh -c.  The exit status is the
+command's.
 .SH OPTIONS
 .TP
 .B \-r

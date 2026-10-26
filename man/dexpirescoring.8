@@ -10,6 +10,10 @@ dexpirescoring \- Diablo program to age the dreaderd cache scoring
 [
 .B \-v
 ]
+[
+.B \-C
+.I diablo.config
+]
 .SH DESCRIPTION
 When
 .B readercache
@@ -38,6 +42,9 @@ it the counts are not aged.
 .B \-v
 Print each group's counts: reads, cache hit percentage, new articles and
 the read/new ratio.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
 .SH FILES
 .TP
 .I /news/cache.hits
@@ -49,10 +56,6 @@ the reader's active file.
 .nf
 dexpirescoring -H 604800 -v
 .fi
-.SH BUGS
-.B \-C
-is not accepted, so only the default diablo.config (or
-DIABLO_CONFIG_PATH) can be used.
 .SH "SEE ALSO"
 dreaderd(8),
 dexpirecache(8),

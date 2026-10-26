@@ -28,7 +28,9 @@ connects to the NNTP server on
 (port 119 by default), sends a command and writes the reply to standard
 output, then sends QUIT.  The command is one argument, so quote a command
 with arguments.  Without a command, it reads command lines from standard
-input and sends them one at a time.
+input and sends them one at a time.  After a reply code that RFC 3977
+follows with a block (LIST, ARTICLE, OVER, LISTGROUP ...) it reads up to
+the line holding a single dot.
 .PP
 With
 .BR \-f ,
@@ -54,14 +56,6 @@ Print the version and exit.
 dclient news.example.com "LIST NEWSGROUPS"
 dclient -p 120 localhost "LIST ACTIVE"
 .fi
-.SH BUGS
-After each command
-.I dclient
-reads until a line holding a single dot, so it only works for commands
-with a multi-line reply (LIST, LISTGROUP, OVER, ARTICLE ...).  After a
-command with a one-line reply, such as DATE or GROUP, it waits forever.
-Lines read from standard input are sent with their newline followed by
-CR LF.
 .SH "SEE ALSO"
 diablo(8),
 dreaderd(8),
