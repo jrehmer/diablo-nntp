@@ -1,0 +1,111 @@
+.TH DCANCEL 8
+.SH NAME
+dcancel \- Diablo program to cancel articles by hand
+.SH SYNOPSIS
+.B dcancel
+.B \-a
+|
+.B \-h
+|
+.B \-s
+|
+.B \-r
+[
+.B \-u
+]
+[
+.B \-n
+]
+[
+.BR \-v [\fIn\fP]
+]
+[
+.BR \-d [\fIn\fP]
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-V
+]
+.SH DESCRIPTION
+.I dcancel
+cancels articles listed on standard input, one per line, without a cancel
+control message.  At least one of
+.BR \-a ,
+.BR \-h ,
+.B \-s
+or
+.B \-r
+is required.  For
+.BR \-a ,
+.B \-h
+and
+.B \-s
+each line holds a Message-ID; for
+.B \-r
+each line holds
+.IR group : number .
+Leading blanks are ignored, and anything after the first blank is ignored.
+.PP
+.B \-h
+marks the article's entry in the feeder's dhistory as expired, so the
+feeder no longer serves it and refuses it if it is offered again.
+.B \-s
+removes the article from the spool: every spool file that holds a
+cancelled article is rewritten without it (an emptied file is removed),
+and the history entry is updated to the new location.  Rewriting spool
+files while diablo is writing to them is not recommended.
+.B \-a
+does both, and is the normal way to cancel on a feeder.
+.PP
+.B \-r
+cancels the article in the reader's overview (header index) for the
+group, so dreaderd no longer lists or serves it there.  It does not touch
+the feeder.
+.SH OPTIONS
+.TP
+.B \-a
+Cancel in the history and the spool (\fB\-h\fP and \fB\-s\fP).
+.TP
+.B \-h
+Cancel in the history only.
+.TP
+.B \-s
+Cancel in the spool only.
+.TP
+.B \-r
+Cancel in the reader overview; input lines are \fIgroup\fP:\fInumber\fP.
+.TP
+.B \-u
+Uncancel: clear the expired mark of the history entries instead
+(with \fB\-h\fP).
+.TP
+.B \-n
+Don't rewrite or remove spool files and don't update history with the
+new spool locations.  The history marks of \fB\-h\fP are still written.
+.TP
+.BR \-v [\fIn\fP]
+Be more verbose, optionally with a level.
+.TP
+.BR \-d [\fIn\fP]
+Set the debug level.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.TP
+.B \-V
+Print the version and exit.
+.SH EXAMPLES
+.nf
+echo '<abc@example.com>' | dcancel -a -v
+echo 'misc.test:1234' | dcancel -r
+.fi
+.SH "SEE ALSO"
+diablo(8),
+dreaderd(8),
+dhisctl(8),
+dexpire(8),
+dexpireover(8),
+diablo-files(5)

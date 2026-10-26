@@ -1,0 +1,67 @@
+.TH DEXPIRECACHE 8
+.SH NAME
+dexpirecache \- Diablo program to expire the dreaderd article cache
+.SH SYNOPSIS
+.B dexpirecache
+.B \-d
+.I cachedir
+[
+.B \-f
+.I kbytes
+]
+[
+.B \-i
+.I inodes
+]
+[
+.B \-t
+]
+[
+.B \-v
+]
+.SH DESCRIPTION
+.I dexpirecache
+frees space in the article cache that dreaderd keeps when
+.B readercache
+is on (normally path_cache, /news/spool/cache).  When the file system
+holding
+.I cachedir
+has less free space than
+.B \-f
+or fewer free inodes than
+.BR \-i ,
+it removes cache files, least recently used first (by access time),
+until enough space is free.  Otherwise it does nothing.
+.PP
+The order depends on access times, so the cache file system should not
+be mounted with noatime.
+.PP
+At the end it prints how many cache files it found and removed, split
+into files read again after they were cached, files never read again,
+and empty pre-cache files, and the age of the oldest and newest removed
+file.  Run it from cron, for example every hour.
+.SH OPTIONS
+.TP
+.BI \-d " cachedir"
+The cache directory.  Required; there is no default.  The directory
+must be given as a separate argument.
+.TP
+.BI \-f " kbytes"
+Keep at least this many kilobytes free.
+.TP
+.BI \-i " inodes"
+Keep at least this many inodes free.
+.TP
+.B \-t
+Truncate cache files to zero length instead of removing them.
+.TP
+.B \-v
+Be verbose.
+.SH EXAMPLES
+.nf
+dexpirecache -d /news/spool/cache -f 2000000 -i 100000
+.fi
+.SH "SEE ALSO"
+dreaderd(8),
+dexpireover(8),
+diablo-files(5)

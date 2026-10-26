@@ -1,0 +1,114 @@
+.TH DHISCTL 8
+.SH NAME
+dhisctl \- Diablo program to inspect and change dhistory entries
+.SH SYNOPSIS
+.B dhisctl
+[
+.B \-e
+|
+.B \-u
+]
+[
+.B \-f
+.I file
+]
+[
+.B \-h
+]
+[
+.B \-p
+]
+[
+.B \-S
+]
+[
+.BR \-v [\fIn\fP]
+]
+[
+.BR \-d [\fIn\fP]
+]
+[
+.B \-C
+.I diablo.config
+]
+[
+.B \-V
+]
+.I historyfile
+[
+.I message-id
+|
+.I hash
+]
+.SH DESCRIPTION
+.I dhisctl
+works on a Diablo history file (normally dhistory in path_db).  It can
+show the file's header and sizes, and mark single entries as expired or
+clear that mark.
+.PP
+An entry is given as a Message-ID in angle brackets, or as its history
+hash in the form
+.IR h1 . h2
+(two hexadecimal numbers, as printed by
+.IR dilookup (8)).
+More entries can be listed in a file with
+.BR \-f .
+Without
+.B \-e
+or
+.B \-u
+the entries are only looked up.
+.PP
+Expiring an entry this way only sets the expired mark in history; it
+does not remove the article from the spool.  Use
+.IR dcancel (8)
+for that.
+.SH OPTIONS
+.TP
+.B \-e
+Mark the entries as expired.
+.TP
+.B \-u
+Clear the expired mark of the entries.
+.TP
+.BI \-f " file"
+Read Message-IDs or hashes from \fIfile\fP, one per line, or from
+standard input if \fIfile\fP is '-'.
+.TP
+.B \-h
+Print the history header (magic, hash table size, version, entry and
+header size) and the total size and number of entries.
+.TP
+.B \-p
+Show progress on standard output.
+.TP
+.B \-S
+Print the sizes of the internal history structures and the hash table
+size from diablo.config, and exit.  No history file is needed.
+.TP
+.BR \-v [\fIn\fP]
+Be more verbose: report each entry that is (un)expired or already was.
+.TP
+.BR \-d [\fIn\fP]
+Set the debug level.
+.TP
+.BI \-C " diablo.config"
+Use this diablo.config instead of the default.
+.TP
+.B \-V
+Print the version and exit.
+.PP
+.B \-a
+(a scan of all entries) is no longer supported and is refused.
+.SH EXAMPLES
+.nf
+dhisctl -h /news/dhistory
+dhisctl -e -v /news/dhistory '<abc@example.com>'
+dhisctl -u -f - /news/dhistory < message-ids
+.fi
+.SH "SEE ALSO"
+dilookup(8),
+dcancel(8),
+dhisexpire(8),
+didump(8),
+diablo-files(5)
