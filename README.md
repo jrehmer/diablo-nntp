@@ -42,7 +42,23 @@ On RPM-based Linux distributions that provide these package names, install the f
 sudo dnf install zlib-devel libdb-devel openssl-devel
 ```
 
-These supply the zlib, Berkeley DB, and OpenSSL headers and libraries required by the tested Linux configuration. `libdb-devel` is needed when `DB_ENABLED` is enabled in `lib/vendor.h` or `REJECT_DB` is enabled in `lib/vendor.h`. Other Linux distributions may use different package names.
+On Debian and Ubuntu (tested on Ubuntu 26.04):
+
+```sh
+sudo apt install gcc make libssl-dev zlib1g-dev libdb5.3-dev
+```
+
+On RPM-based systems, add `gcc` and `make` to the `dnf` line if they aren't installed.
+
+These supply the zlib, Berkeley DB, and OpenSSL headers and libraries required by the tested Linux configuration. The Berkeley DB package (`libdb-devel`, `libdb5.3-dev`) is needed when `DB_ENABLED` is enabled in `lib/vendor.h` or `REJECT_DB` is enabled in `lib/vendor.h`. Other Linux distributions may use different package names.
+
+**RADIUS on Linux:** the default `lib/vendor.h` defines `RADIUS_ENABLED`, and Linux has no usable `radlib.h`, so the build fails until you turn it off. Change that line in `lib/vendor.h` to:
+
+```c
+#undef	RADIUS_ENABLED
+```
+
+**The news user:** create the `news` user and group, home `/news`, before `make install`; see `INSTALL`.
 
 ### SmartOS Build Packages
 
@@ -225,7 +241,7 @@ The build includes compatibility code for interfaces required by Diablo or its t
 
 ### RADIUS Header Compatibility
 
-`compat/illumos_radlib.h` supplies BSD compatibility definitions required by some pkgsrc RADIUS headers.
+`compat/smartos_radlib.h` supplies BSD compatibility definitions required by some pkgsrc RADIUS headers.
 
 The compatibility header is included conditionally on illumos.
 
@@ -367,6 +383,8 @@ Override the default `/news` installation directory:
 ```sh
 gmake PREFIX=/opt/diablo install
 ```
+
+`PREFIX` only changes where the files are installed. The programs still look for their configuration in `/news` (compiled in), so start them with `-C /opt/diablo/diablo.config` or set `DIABLO_CONFIG_PATH`, and set `path_home` in that diablo.config.
 
 ### Staged Installation
 

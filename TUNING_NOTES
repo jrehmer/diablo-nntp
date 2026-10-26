@@ -120,7 +120,7 @@ online readers or more.
     improve performance on heavily loaded servers:
 
     lib/defs.h:
-	#define MAXFORKS        256
+	#define MAXFORKS        512
     This option restricts the number of incoming connections
 	#define MAXFEEDS        128
     This option restricts the number of outgoing feed labels
@@ -292,8 +292,6 @@ online readers or more.
 
 (VI) DHistory file tuning
 
-<<<DONE TO HERE>>>
-
     Diablo should be able to handle upwards of 3000 accepted articles/min
     and message-id history lookups (check/ihave) rates between 40,000 and
     100,000 lookups/minute.  The actual performance depends heavily on
@@ -398,10 +396,10 @@ online readers or more.
 
 (IX) Tuning dexpire
 
-    There are two cron jobs that deal with dexpire.  The first is called
-    quadhr.expire and nominally runs dexpire every four hours (6 times a day).
-    The second is called hourly.expire and attempts to rerun dexpire if
-    the quadhr cron fails.
+    One cron job deals with dexpire: adm/hourly.expire, run every hour by
+    samples/adm/crontab.sample.  How much is expired is set per spool in
+    dspool.ctl (minfree, minfreefiles, maxsize, keeptime), not in the
+    script.
 
     DExpire in Diablo is very fast.  Since diablo stores multiple-articles
     per spool file, DExpire is able to free up disk space very quickly and
@@ -410,21 +408,9 @@ online readers or more.
     does not rewrite the dhistory file.  Instead, it expires entries in-
     place which is considerably faster.
 
-    NOTE!!! If you have a small spool (8G or smaller) you may be forced
-    to run dexpire once an hour rather then once every four hours.  If you
-    have a larger spool you can get away with once every four hours but
-    may have to increase the free space margin.  See samples/adm/hourly.expire
-    and samples/adm/quadhr.expire.
-
-    The sample expiration cron jobs adm/quadhr.expire and adm/hourly.expire
-    set a free space target of 2.5 gigabytes.  This is the suggested free space
-    target if you run expire every 4 hours and is designed to deal with
-    large influxes of data that may occur in a 4 hour period, but not really
-    designed to deal with an unfiltered full feed.
-
-    If you are running an unfiltered full feed (15GB/day) you should run
-    dexpire once an hour rather then once every four hours with a 2.5GB
-    free space margin.
+    Set minfree large enough to absorb the articles that arrive between
+    two runs.  On a small spool, or with a large unfiltered feed, run
+    hourly.expire more often than once an hour.
 
     You can manually retire articles from the spool if you like without running
     dexpire.  The history file will still be completely synchronized when

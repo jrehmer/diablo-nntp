@@ -79,14 +79,15 @@
 
 			    WHERE TO GET DIABLO
 
-    http://www.openusenet.org/diablo/
+    https://github.com/jrehmer/diablo-nntp
+
+    (The old openusenet.org site and its mailing lists are gone.)
 
 			    REPORTING BUGS
 
-    send the bug to:	   diablo-bugs@openusenet.org
-    send non-bug stuff to: diablo-users@openusenet.org
+    BUGS:		   https://github.com/jrehmer/diablo-nntp/issues
+    SECURITY ISSUES:	   see SECURITY.md (private reports, not issues)
     NEWSGROUPS:		   news.software.nntp
-    MAILING LISTS:	   http://www.plig.net/mailman/listinfo/diablo-users
 
 
 			USE OF REALTIME FEEDS AND FEED DELAYS
