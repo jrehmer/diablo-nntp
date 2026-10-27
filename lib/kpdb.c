@@ -797,6 +797,21 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	nlockoff = lseek(kpdb->kp_Fd, 0L, 2);
 	if (nlockoff < 0)
 	    KPDBFatalIO(kpdb, "append seek");
+	/*
+	 * A crash can leave a torn record or a block of NULs at the end of
+	 * the file.  A record appended right behind it would share its line
+	 * and never be found, so end that line first.
+	 */
+	if (nlockoff > kpdb->kp_HeadLen) {
+	    char last;
+
+	    if (pread(kpdb->kp_Fd, &last, 1, nlockoff - 1) == 1 &&
+							last != '\n') {
+		if (KPDBWriteAt(kpdb->kp_Fd, "\n", 1, nlockoff) < 0)
+		    KPDBFatalIO(kpdb, "tail repair");
+		++nlockoff;
+	    }
+	}
 	if (hflock(kpdb->kp_Fd, nlockoff, XLOCK_EX|XLOCK_NB) < 0) {
 	    logit(LOG_ERR, "unable to lock new %s record offset %d", kpdb->kp_FileName, nlockoff);
 	}
