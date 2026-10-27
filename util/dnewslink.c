@@ -3380,16 +3380,25 @@ readretry(char *buf, int size)
 	    Stream *s = &StreamAry[i];
 
 	    if (s->st_State == STATE_RETRY) {
+		/* the ' H' and ' C<size>' flags are those of the queue line */
+		char cst[16];
+
+		if (s->st_CompSize > 0)
+		    snprintf(cst, sizeof(cst), " C%d", s->st_CompSize);
+		else
+		    cst[0] = 0;
 		if (s->st_Off || s->st_Size) {
-		    sprintf(buf, 
-			"%s\t%s\t%lld,%d",
+		    snprintf(buf, size,
+			"%s\t%s\t%lld,%d%s%s",
 			s->st_RelPath, 
 			s->st_MsgId, 
 			(long long)s->st_Off,
-			s->st_Size
+			s->st_Size,
+			HeaderOnlyFeed ? " H" : "",
+			cst
 		    );
 		} else {
-		    sprintf(buf, "%s\t%s", s->st_RelPath, s->st_MsgId);
+		    snprintf(buf, size, "%s\t%s", s->st_RelPath, s->st_MsgId);
 		}
 		memset(s, 0, sizeof(Stream));
 		inval = 0;
@@ -3929,7 +3938,15 @@ extractFeedLine(const char *buf, char *relPath, char *msgId, off_t *poff, int *p
     if (*buf == '#')
 	return(-1);
 
+    /*
+     * The caller passes the same variables for every line: a field the
+     * line does not carry must not keep the value of the previous line.
+     */
     *pheadOnly = 0;
+    *poff = 0;
+    *psize = 0;
+    *queuedTime = 0;
+    *cSize = 0;
 
     /*
      * RELPATH
