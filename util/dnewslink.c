@@ -2443,7 +2443,12 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 	++StreamPend;
 	AveragePend = StreamPend * (1 - 0.98) + AveragePend * 0.98;
 	if (StreamPend == NumStream) {
-	    HiWaterMark = STREAMDRAIN;
+	    /*
+	     * Drain by STREAMDRAIN, but never the whole window: with fewer
+	     * slots the mark would stay above NumStream and nothing more
+	     * would be read.
+	     */
+	    HiWaterMark = (NumStream > STREAMDRAIN) ? STREAMDRAIN : NumStream - 1;
 	    if (DebugOpt > 1)
 		printf("set watermark\n");
 	}
