@@ -106,7 +106,7 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-89](#d-89-ai_addrconfig-still-passed-for-listen-bind-and-connect-addresses) | Low | `dreaderd` listen, bind and connect and `dsyncgroups` still pass `AI_ADDRCONFIG` | open |
 | [D-90](#d-90-kpdb-sort-writes-the-offsets-one-record-at-a-time) | Low | `KPDBSort()` does one 8-byte write per record; on a full ZFS dataset a sort of 259 records took about 51 s | open |
 
-Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315), [F-02 configure script](#f-02-configure-script-for-the-build-options).
+Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315), [F-02 configure script](#f-02-configure-script-for-the-build-options), [F-03 refeed a whole spool](#f-03-refeed-a-whole-spool-to-another-server).
 
 ## Details
 
@@ -742,3 +742,26 @@ write a local override file that `vendor.h` includes, leaving the admin's own se
 It covers Linux, FreeBSD and SmartOS with little churn. A full autoconf setup (`configure.ac`, a
 generated `configure`, a `config.h.in`) can follow if it is wanted. Suggested by the maintainer and
 go-while on 2026-10-27.
+
+### F-03 Refeed a whole spool to another server
+There is no command that feeds every article on a diablo spool to another server. To another diablo
+the spool files and a few other files can be copied, but to INN (or any other server) the articles
+have to be offered one by one. A recipe can be built from tools diablo has, and it should either
+become a tool (for example `dspoolrefeed`) or be documented extensively (README and a man page):
+
+1. `didump -v dhistory` lists the history entries with `boff=`, `bsize=` and `file=`.
+2. The history stores only a hash of the Message-ID, so the Message-ID header is read from the
+   spool file at that offset (not possible for compressed spool objects: use `dreadart -h <hash>`).
+3. The result is a `dnewslink` batch file, lines of `D.xxxxxxxx/B.xxxx <message-id> offset,size`,
+   sent with `dnewslink -h host -b batchfile` (CHECK/TAKETHIS or IHAVE; articles the peer has are
+   refused, deferred ones stay in the batch file, so a rerun retries).
+
+Points to cover: the receiving server must accept old articles (INN `artcutoff`, default 10 days)
+and have the sender as a peer; run as the news user from the queue directory; large spools need
+the batch split over several `dnewslink` processes; header-only entries (`flags=H`) are left out.
+
+Checked on 2026-10-27 on a scratch instance (batch generation only, the feeding step could not be
+run because the spool there was full): `didump -x` does **not** leave out expired entries (it dumped
+all 4775 records, 1843 of them still on the spool), so entries whose file is gone have to be
+skipped, and `file=` is an absolute path, so the spool directory has to be stripped to get the
+`D.xxxxxxxx/B.xxxx` form. Raised by the maintainer.
