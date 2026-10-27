@@ -104,6 +104,7 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-87](#d-87-numeric-ipv6-host-in-diablohosts-dropped-on-a-machine-without-ipv6) | Low | `getaddrinfo()` with NULL hints in `lib/hostauth.c` drops a numeric IPv6 `diablo.hosts` entry on glibc 2.39 without a global IPv6 address | fixed (#115) |
 | [D-88](#d-88-dnewslink--p-overwrites-leftover-lines-of-an-earlier-run) | Low | `dnewslink -p`: a later pipe run overwrites the leftover lines an earlier run wrote to the batch file | open |
 | [D-89](#d-89-ai_addrconfig-still-passed-for-listen-bind-and-connect-addresses) | Low | `dreaderd` listen, bind and connect and `dsyncgroups` still pass `AI_ADDRCONFIG` | open |
+| [D-90](#d-90-kpdb-sort-writes-the-offsets-one-record-at-a-time) | Low | `KPDBSort()` does one 8-byte write per record; on a full ZFS dataset a sort of 259 records took about 51 s | open |
 
 Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315).
 
@@ -685,6 +686,15 @@ with explicit hints (#115).
 bindhost) and `util/dsyncgroups.c:906` still pass `AI_ADDRCONFIG`. On a glibc 2.39 host without a
 global IPv6 address a numeric IPv6 listen, bind or connect address (for example `::1`) fails with
 `EAI_ADDRFAMILY`. Same cause as D-87. From reading (found in the reviews of D-87).
+
+### D-90 KPDB sort writes the offsets one record at a time
+`KPDBSort()` (`lib/kpdb.c`) writes the sorted offset of every record with its own 8-byte `pwrite`.
+On a ZFS dataset at its quota each such write took about 0.2 s: `dkp -r` and `dgrpctl newgroup` on a
+full 2 MB test dataset with 259 records spent 40 to 50 s in the sort, with the file locked, while the
+same sort takes well under a second with free space. A real active file has thousands of groups. An
+interrupted sort is safe (the next open sorts again), but a sort that is interrupted by a timeout
+starts over each time. Found while testing a full file system on the scratch instance. Fix idea:
+build the offsets in memory and write them in one or a few large writes.
 
 ## Feature requests
 
