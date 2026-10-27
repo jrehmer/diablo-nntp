@@ -11,6 +11,7 @@
 #include "defs.h"
 
 Prototype const char *PatExpand(const char *pat);
+Prototype char *ConfigGets(char *buf, int size, FILE *fi, int *tooLong);
 Prototype const char *PatSubst(char *buf, size_t size, const char *pat, const char *dir);
 Prototype void diablo_strlcpy(char *d, const char *s, int ssize, int dsize);
 Prototype void diablo_strlcpynl(char *d, const char *s, int ssize, int dsize);
@@ -977,4 +978,29 @@ NiceBestEffort(int inc)
 {
     if (nice(inc) == -1)
 	return;
+}
+
+/*
+ * ConfigGets() - fgets() for configuration files.  A line longer than the
+ * buffer is not split into two lines: the rest of it is read and dropped
+ * and *tooLong is set, so the caller can skip a long comment or report the
+ * line instead of parsing its tail as a line of its own.  A line that just
+ * fits (its newline is the next character), or whose dropped rest is only
+ * white space, is not too long.
+ */
+char *
+ConfigGets(char *buf, int size, FILE *fi, int *tooLong)
+{
+    *tooLong = 0;
+    if (fgets(buf, size, fi) == NULL)
+	return(NULL);
+    if (strchr(buf, '\n') == NULL) {
+	int c = getc(fi);
+
+	for (; c != EOF && c != '\n'; c = getc(fi)) {
+	    if (!isspace(c))
+		*tooLong = 1;
+	}
+    }
+    return(buf);
 }

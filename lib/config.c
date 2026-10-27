@@ -187,7 +187,9 @@ LoadDiabloConfig(int ac, char **av)
 
     PatSubst(configPath, sizeof(configPath), diabloConfig, NewsHome);
     if ((fi = xfopen("r", "%s", configPath)) != NULL) {
-	while (fgets(buf, sizeof(buf), fi) != NULL) {
+	int tooLong;
+
+	while (ConfigGets(buf, sizeof(buf), fi, &tooLong) != NULL) {
 	    char *cmd;
 	    char *opt = buf;
 	    int cmdErr = 1;
@@ -195,6 +197,20 @@ LoadDiabloConfig(int ac, char **av)
 
 	    if (buf[0] == '\n' || buf[0] == '#')
 		continue;
+	    /*
+	     * A line longer than buf: fine if the part that did not fit
+	     * is a comment, otherwise an error (its tail is not read as
+	     * a line of its own).  Lines in a block for a newer version
+	     * are ignored (versOk 0), long ones too.
+	     */
+	    if (tooLong && versOk && strchr(buf, '#') == NULL) {
+		exitMe = 1;
+		fprintf(stderr, "diablo.config line too long (at most %d characters): %.60s...\n",
+						(int)sizeof(buf) - 1, buf);
+		logit(LOG_CRIT, "diablo.config line too long (at most %d characters): %.60s...",
+						(int)sizeof(buf) - 1, buf);
+		continue;
+	    }
 	    if ((cmd = strchr(buf, '#')) != NULL)
 		*cmd = 0;
 	    while (isspace((int)*opt))
