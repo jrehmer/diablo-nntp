@@ -23,6 +23,8 @@ func TestDnewslinkBadCompressLevel(t *testing.T) {
 			return "203 stream ok\r\n", false
 		case strings.HasPrefix(line, "mode compress"):
 			return "207 compress ok\r\n", false
+		case strings.HasPrefix(line, "check "):
+			return "438 " + strings.Fields(line)[1] + "\r\n", false
 		}
 		return "", false
 	})
