@@ -3389,7 +3389,7 @@ readretry(char *buf, int size)
 		    cst[0] = 0;
 		if (s->st_Off || s->st_Size) {
 		    snprintf(buf, size,
-			"%s\t%s\t%lld,%d%s%s",
+			"%s\t%s\t%lld,%d%s%s\n",
 			s->st_RelPath, 
 			s->st_MsgId, 
 			(long long)s->st_Off,
@@ -3398,7 +3398,7 @@ readretry(char *buf, int size)
 			cst
 		    );
 		} else {
-		    snprintf(buf, size, "%s\t%s", s->st_RelPath, s->st_MsgId);
+		    snprintf(buf, size, "%s\t%s\n", s->st_RelPath, s->st_MsgId);
 		}
 		memset(s, 0, sizeof(Stream));
 		inval = 0;
