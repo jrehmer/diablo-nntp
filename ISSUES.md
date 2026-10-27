@@ -12,8 +12,8 @@ re-checked yet.
 Status values: **open**, **PR** (fix waiting for review, with its number), **fixed** (with
 the PR that fixed it), **decision** (needs the maintainer to decide), **won't fix**.
 
-Last updated 2026-10-27: D-66 to D-86 added from the second review pass (D-77 is documented
-behaviour and only needs a note). Before that, D-53 to D-65 added from the review of `main` at `ca648d4`. Before that, 2026-10-26, after batch 1 (#30, #31, #37 to #44, #47 to #49) and the first part
+Last updated 2026-10-27: D-66 to D-89 added from the second review pass and the reviews of the fixes
+(D-77 is documented behaviour and only needs a note); the fixed ones are marked with their PR. Before that, D-53 to D-65 added from the review of `main` at `ca648d4`. Before that, 2026-10-26, after batch 1 (#30, #31, #37 to #44, #47 to #49) and the first part
 of batch 2 (#46, #50, #52, #62) were merged. Open: #35 (GnuPG pgpverify, held for a private
 advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 
@@ -83,25 +83,27 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-65](#d-65-dnewsfeeds-label-name-overflows-the-host-cache-buffer) | Low | A label name over 254 characters overflows a buffer when the host cache is built | fixed (#104) |
 | [D-63](#d-63-dnewslink-refile-loses-flags) | Medium | `dnewslink` refiles pending streams without their H and C flags and writes one entry twice | fixed (#103) |
 | [D-64](#d-64-weighted-spool-allocation-divides-by-zero) | Low | Weighted spool allocation divides by zero with weight 0 | fixed (#99) |
-| [D-66](#d-66-dnewslink-loses-431-deferred-entries) | Medium | `dnewslink` loses entries the peer deferred with 431 when the session ends early | open |
-| [D-67](#d-67-dcancel--s-does-not-update-the-history) | Medium | `dcancel -s` rewrites the spool file but not the history | open |
-| [D-68](#d-68-dnewslink-with-a-small-maxstream-sends-one-window) | Low | `dnewslink` with `maxstream` 2 to 5 sends one window and hands the rest back | open |
-| [D-69](#d-69-dnewslink-spins-on-a-compression-level-zlib-rejects) | Low | `dnewslink` spins when zlib rejects the compression level | open |
+| [D-66](#d-66-dnewslink-loses-431-deferred-entries) | Medium | `dnewslink` loses entries the peer deferred with 431 when the session ends early | fixed (#111) |
+| [D-67](#d-67-dcancel--s-does-not-update-the-history) | Medium | `dcancel -s` rewrites the spool file but not the history | fixed (#112) |
+| [D-68](#d-68-dnewslink-with-a-small-maxstream-sends-one-window) | Low | `dnewslink` with `maxstream` 2 to 5 sends one window and hands the rest back | fixed (#117) |
+| [D-69](#d-69-dnewslink-spins-on-a-compression-level-zlib-rejects) | Low | `dnewslink` spins when zlib rejects the compression level | fixed (#118) |
 | [D-70](#d-70-dgrpctl-checkgroups-reads-long-lines-as-two) | Medium | `dgrpctl checkgroups`: lines of 128 bytes or more become two lines; an empty list crashes | open |
-| [D-72](#d-72-dnewslink-deletes-the-queue-after-an-overlong-line) | Low | `dnewslink` removes the whole queue file after a queue line of 4 to 8 KB without a newline | open |
-| [D-73](#d-73-dnewslink-queue-fields-leak-into-the-next-line) | Low | `dnewslink`: `extractFeedLine` keeps fields of the previous line; `readretry` drops H and C flags | open |
-| [D-74](#d-74-dnewslink-queue-rewrite-write-errors-are-unchecked) | Low | `dnewslink` does not check the writes of the rewritten queue file before the rename | open |
-| [D-76](#d-76-dexpire-removes-a-directory-younger-than-keeptime) | Medium | `dexpire` removes a spool directory younger than its keep time | open |
+| [D-72](#d-72-dnewslink-deletes-the-queue-after-an-overlong-line) | Low | `dnewslink` removes the whole queue file after a queue line of 4 to 8 KB without a newline | fixed (#113) |
+| [D-73](#d-73-dnewslink-queue-fields-leak-into-the-next-line) | Low | `dnewslink`: `extractFeedLine` keeps fields of the previous line; `readretry` drops H and C flags | fixed (#114) |
+| [D-74](#d-74-dnewslink-queue-rewrite-write-errors-are-unchecked) | Low | `dnewslink` does not check the writes of the rewritten queue file before the rename | fixed (#113) |
+| [D-76](#d-76-dexpire-removes-a-directory-younger-than-keeptime) | Medium | `dexpire` removes a spool directory younger than its keep time | fixed (#109) |
 | [D-77](#d-77-dhisexpire-without--a-leaves-the-history-dead) | Low | `dhisexpire` without `-a` leaves the history marked dead without saying so | open |
-| [D-78](#d-78-dicmd-config-internalfilter-disables-the-spam-filter) | Medium | `dicmd config internalfilter` silently disables the internal spam filter | open |
-| [D-79](#d-79-kpdb-blank-or-short-line) | Low | A blank or very short line in a KP database corrupts the sort and overflows the lookup stack | open |
-| [D-80](#d-80-kpdb-torn-tail-loses-appends) | Medium | A KP database with a torn or NUL tail loses the first append | open |
-| [D-81](#d-81-the-sample-internalfilter-line-turns-the-filter-off) | Low | `samples/diablo.config` shows an `internalfilter` option (`t`) that does not exist | open |
-| [D-82](#d-82-long-config-lines-are-split) | Low | A long line in `diablo.config`, `dspool.ctl` or `dexpire.ctl` is read as two lines | open |
-| [D-83](#d-83-indented-dexpirectl-line-is-ignored) | Low | An indented line in `dexpire.ctl` matches nothing | open |
-| [D-85](#d-85-dhisexpire-treats-a-read-error-as-end-of-file) | Low | `dhisexpire` treats a read error as end of file | open |
-| [D-86](#d-86-spool-number-off-by-one) | Low | Off-by-one in the spool number checks reads `SpoolObjectMap[100]` | open |
+| [D-78](#d-78-dicmd-config-internalfilter-disables-the-spam-filter) | Medium | `dicmd config internalfilter` silently disables the internal spam filter | fixed (#124) |
+| [D-79](#d-79-kpdb-blank-or-short-line) | Low | A blank or very short line in a KP database corrupts the sort and overflows the lookup stack | fixed (#123) |
+| [D-80](#d-80-kpdb-torn-tail-loses-appends) | Medium | A KP database with a torn or NUL tail loses the first append | fixed (#110) |
+| [D-81](#d-81-the-sample-internalfilter-line-turns-the-filter-off) | Low | `samples/diablo.config` shows an `internalfilter` option (`t`) that does not exist | fixed (#121) |
+| [D-82](#d-82-long-config-lines-are-split) | Low | A long line in `diablo.config`, `dspool.ctl` or `dexpire.ctl` is read as two lines | fixed (#125) |
+| [D-83](#d-83-indented-dexpirectl-line-is-ignored) | Low | An indented line in `dexpire.ctl` matches nothing | fixed (#119) |
+| [D-85](#d-85-dhisexpire-treats-a-read-error-as-end-of-file) | Low | `dhisexpire` treats a read error as end of file | fixed (#122) |
+| [D-86](#d-86-spool-number-off-by-one) | Low | Off-by-one in the spool number checks reads `SpoolObjectMap[100]` | fixed (#120) |
+| [D-87](#d-87-numeric-ipv6-host-in-diablohosts-dropped-on-a-machine-without-ipv6) | Low | `getaddrinfo()` with NULL hints in `lib/hostauth.c` drops a numeric IPv6 `diablo.hosts` entry on glibc 2.39 without a global IPv6 address | fixed (#115) |
 | [D-88](#d-88-dnewslink--p-overwrites-leftover-lines-of-an-earlier-run) | Low | `dnewslink -p`: a later pipe run overwrites the leftover lines an earlier run wrote to the batch file | open |
+| [D-89](#d-89-aiaddrconfig-still-passed-for-listen-bind-and-connect-addresses) | Low | `dreaderd` listen, bind and connect and `dsyncgroups` still pass `AI_ADDRCONFIG` | open |
 
 Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315).
 
@@ -669,6 +671,20 @@ with `-a` a truncated history is installed (the old one stays as the backup). Fr
 With `-p` the batch file receives only the leftover lines, and a later pipe run opens it with
 `fopen("w")` (`util/dnewslink.c`, final queue rewrite), so it overwrites the leftovers of the earlier
 run even when nothing fails. Older behaviour, found while reviewing D-72/D-74. From reading.
+
+### D-87 Numeric IPv6 host in diablo.hosts dropped on a machine without IPv6
+`lib/hostauth.c:240` called `getaddrinfo(host, NULL, NULL, ...)`. With NULL hints glibc uses
+`AI_ADDRCONFIG|AI_V4MAPPED`, and on glibc 2.39 (EL10) `AI_ADDRCONFIG` also drops a numeric IPv6
+address when the machine has no non-loopback IPv6 address: `getaddrinfo("2001:db8::25")` fails with
+`EAI_ADDRFAMILY`, so an IPv6 `diablo.hosts` entry is silently ignored. Found by go-while's matrix
+run (`TestHostCacheDiabloHostsForms` failed on AlmaLinux 10, CentOS Stream 10 and Rocky 10). Fixed
+with explicit hints (#115).
+
+### D-89 AI_ADDRCONFIG still passed for listen, bind and connect addresses
+`dreaderd/main.c:485` (listen, `AI_PASSIVE|AI_ADDRCONFIG`), `dreaderd/server.c:401` (connect and
+bindhost) and `util/dsyncgroups.c:906` still pass `AI_ADDRCONFIG`. On a glibc 2.39 host without a
+global IPv6 address a numeric IPv6 listen, bind or connect address (for example `::1`) fails with
+`EAI_ADDRFAMILY`. Same cause as D-87. From reading (found in the reviews of D-87).
 
 ## Feature requests
 
