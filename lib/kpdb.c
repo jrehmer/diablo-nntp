@@ -1030,6 +1030,14 @@ KPDBLookup(KPDB *kpdb, const char *key, int lockMe, int forceCheck)
 	     * beginning of record, scan 00000000 (unsorted) records only
 	     */
 
+	    /*
+	     * A line shorter than a record (blank or damaged) has no offset
+	     * to parse, and the digits of a blank last line would lie past
+	     * the map.
+	     */
+	    if (rl <= KEY_OFF)
+		continue;
+
 	    if (strtol(p + i + 1, NULL, 16) != 0)
 		break;
 
@@ -1100,7 +1108,8 @@ KPDBLookupBinary(
     if (DebugOpt > 8)
 	printf("LookupBinary %d (%d) %d %*.*s\n", b, c, e, cl, cl, &p[c]);
 
-    if (cl && c < kpdb->kp_MapSize)
+    /* only a line of at least KEY_OFF bytes, all inside the map, carries an offset */
+    if (cl > KEY_OFF && c + 9 <= kpdb->kp_MapSize)
 	s = strtol(p + c + 1, NULL, 16);  /* offset of sorted record or 0 */
 
     if (s < kpdb->kp_HeadLen || s >= kpdb->kp_MapSize || p[s-1] != '\n') {
@@ -1241,7 +1250,7 @@ KPDBSort(KPDB *kpdb)
 
     /*
      * Only lines of at least KEY_OFF bytes are records: a blank or short
-     * line (hand edit, crash debris) has no room for the offset digits and
+     * line (hand edit, crash debris) has no key at KEY_OFF and
      * is left out of the sort and of the offset table.
      */
     for ((c = 0), (i = kpdb->kp_HeadLen); i < kpdb->kp_MapSize; ) {

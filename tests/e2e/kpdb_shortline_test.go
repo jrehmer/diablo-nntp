@@ -86,4 +86,30 @@ func TestKPDBBlankLine(t *testing.T) {
 			}
 		}
 	})
+
+	// A blank line at the very end of the file (page-sized files made the old code read
+	// one byte past the map).
+	t.Run("trailing blank line", func(t *testing.T) {
+		db := kpWithBlankLine(t)
+		b, err := os.ReadFile(db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(db, append(b, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range keys {
+			if out, err := dkpBounded(t, "-r", db, k); err != nil || !strings.Contains(out, ":"+k+" x=1") {
+				t.Errorf("dkp -r %s with a blank last line: err=%v output %q", k, err, out)
+			}
+		}
+		if out, err := dkpBounded(t, "-s", "-r", db); err != nil {
+			t.Errorf("dkp -s -r with a blank last line: %v: %q", err, out)
+		}
+		for _, k := range keys {
+			if out, err := dkpBounded(t, "-r", db, k); err != nil || !strings.Contains(out, ":"+k+" x=1") {
+				t.Errorf("dkp -r %s after the sort: err=%v output %q", k, err, out)
+			}
+		}
+	})
 }
