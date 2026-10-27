@@ -436,6 +436,7 @@ rewriteFile(HistoryList *hl_file)
     HistoryList *hl;
     History h;
     int copyArt;
+    int inHistory;
     char *msgid;
     int artSize;
     int compressed;
@@ -524,7 +525,8 @@ rewriteFile(HistoryList *hl_file)
 	/*
 	 * Lookup the msgid in history for later modification
 	 */
-	if (HistoryCancel && HistoryLookup(msgid, &h) != 0) {
+	inHistory = (HistoryLookup(msgid, &h) == 0);
+	if (!inHistory && HistoryCancel) {
 	    fprintf(stderr, "Cannot find %s in history - skipping\n",
 								msgid);
 	    filepos += artSize;
@@ -581,9 +583,10 @@ rewriteFile(HistoryList *hl_file)
 	}
 
 	/*
-	 * Update the history entry with the new location or cancel
+	 * Update the history entry with the new location or cancel,
+	 * also for -s: the later articles moved
 	 */
-	if (HistoryCancel && ForReal)
+	if (inHistory && ForReal)
 	    HistoryStore(&h);
     }
     close(oldf);

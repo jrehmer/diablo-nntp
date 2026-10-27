@@ -632,6 +632,7 @@ cleanupDirectories(void)
 	long freefiles;
 	double remsize = 0.0;
 	long c;
+	int j;
 
 	part = SpoolEntries[i]->partn;
 	if (part->spaceok)
@@ -703,8 +704,6 @@ cleanupDirectories(void)
 	 * down to the newest directory.
 	 */
 	{
-	    int j;
-
 	    for (j = i + 1; j < entryIdx; ++j) {
 		if (SpoolEntries[j]->partn == part)
 		    break;
@@ -736,8 +735,11 @@ cleanupDirectories(void)
 	} else if (!NotForReal && (part->minfree || part->minfreefiles))
 	    part->filesys->fsfree = freeSpaceOn(part->partname, 1,
 					&part->filesys->fsfreefiles);
-	if (i + 1 < entryIdx)
-	    part->age = TimeNow - getAge(SpoolEntries[i + 1]->dirname);
+	/*
+	 * j is the next directory of this spool (found above).  The next
+	 * entry of the sorted list may belong to another spool.
+	 */
+	part->age = TimeNow - getAge(SpoolEntries[j]->dirname);
 	if (VerboseOpt) {
 	    if (part->expmethod == EXM_DIRSIZE || part->maxsize)
 		printf("     Removed %s (used: %s free: %s age: %s)\n",
