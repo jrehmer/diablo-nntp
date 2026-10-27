@@ -12,7 +12,8 @@ re-checked yet.
 Status values: **open**, **PR** (fix waiting for review, with its number), **fixed** (with
 the PR that fixed it), **decision** (needs the maintainer to decide), **won't fix**.
 
-Last updated 2026-10-27: D-53 to D-64 added from the review of `main` at `ca648d4`. Before that, 2026-10-26, after batch 1 (#30, #31, #37 to #44, #47 to #49) and the first part
+Last updated 2026-10-27: D-66 to D-86 added from the second review pass (D-77 is documented
+behaviour and only needs a note). Before that, D-53 to D-65 added from the review of `main` at `ca648d4`. Before that, 2026-10-26, after batch 1 (#30, #31, #37 to #44, #47 to #49) and the first part
 of batch 2 (#46, #50, #52, #62) were merged. Open: #35 (GnuPG pgpverify, held for a private
 advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 
@@ -79,11 +80,28 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-60](#d-60-host-cache-end-does-not-end-a-label) | Low | Host cache: `end` does not end a label; a stray `inhost` joins the previous one | fixed (#97) |
 | [D-61](#d-61-diablohosts-cannot-hold-an-ipv6-address) | Low | `diablo.hosts` cannot hold an IPv6 address | fixed (#97) |
 | [D-62](#d-62-stat-uses-a-128-byte-path-buffer) | Low | `STAT` uses a 128-byte path buffer and answers 430 for existing articles | fixed (#98) |
-| [D-63](#d-63-dnewslink-refile-loses-flags) | Medium | `dnewslink` refiles pending streams without their H and C flags and writes one entry twice | open |
-| [D-64](#d-64-weighted-spool-allocation-divides-by-zero) | Low | Weighted spool allocation divides by zero with weight 0 | open |
 | [D-65](#d-65-dnewsfeeds-label-name-overflows-the-host-cache-buffer) | Low | A label name over 254 characters overflows a buffer when the host cache is built | fixed (#104) |
 | [D-63](#d-63-dnewslink-refile-loses-flags) | Medium | `dnewslink` refiles pending streams without their H and C flags and writes one entry twice | fixed (#103) |
 | [D-64](#d-64-weighted-spool-allocation-divides-by-zero) | Low | Weighted spool allocation divides by zero with weight 0 | fixed (#99) |
+| [D-66](#d-66-dnewslink-loses-431-deferred-entries) | Medium | `dnewslink` loses entries the peer deferred with 431 when the session ends early | open |
+| [D-67](#d-67-dcancel--s-does-not-update-the-history) | Medium | `dcancel -s` rewrites the spool file but not the history | open |
+| [D-68](#d-68-dnewslink-with-a-small-maxstream-sends-one-window) | Low | `dnewslink` with `maxstream` 2 to 5 sends one window and hands the rest back | open |
+| [D-69](#d-69-dnewslink-spins-on-a-compression-level-zlib-rejects) | Low | `dnewslink` spins when zlib rejects the compression level | open |
+| [D-70](#d-70-dgrpctl-checkgroups-reads-long-lines-as-two) | Medium | `dgrpctl checkgroups`: lines of 128 bytes or more become two lines; an empty list crashes | open |
+| [D-72](#d-72-dnewslink-deletes-the-queue-after-an-overlong-line) | Low | `dnewslink` removes the whole queue file after a queue line of 4 to 8 KB without a newline | open |
+| [D-73](#d-73-dnewslink-queue-fields-leak-into-the-next-line) | Low | `dnewslink`: `extractFeedLine` keeps fields of the previous line; `readretry` drops H and C flags | open |
+| [D-74](#d-74-dnewslink-queue-rewrite-write-errors-are-unchecked) | Low | `dnewslink` does not check the writes of the rewritten queue file before the rename | open |
+| [D-76](#d-76-dexpire-removes-a-directory-younger-than-keeptime) | Medium | `dexpire` removes a spool directory younger than its keep time | open |
+| [D-77](#d-77-dhisexpire-without--a-leaves-the-history-dead) | Low | `dhisexpire` without `-a` leaves the history marked dead without saying so | open |
+| [D-78](#d-78-dicmd-config-internalfilter-disables-the-spam-filter) | Medium | `dicmd config internalfilter` silently disables the internal spam filter | open |
+| [D-79](#d-79-kpdb-blank-or-short-line) | Low | A blank or very short line in a KP database corrupts the sort and overflows the lookup stack | open |
+| [D-80](#d-80-kpdb-torn-tail-loses-appends) | Medium | A KP database with a torn or NUL tail loses every later append | open |
+| [D-81](#d-81-the-sample-internalfilter-line-turns-the-filter-off) | Low | `samples/diablo.config` shows an `internalfilter` option (`t`) that does not exist | open |
+| [D-82](#d-82-long-config-lines-are-split) | Low | A long line in `diablo.config`, `dspool.ctl` or `dexpire.ctl` is read as two lines | open |
+| [D-83](#d-83-indented-dexpirectl-line-is-ignored) | Low | An indented line in `dexpire.ctl` matches nothing | open |
+| [D-84](#d-84-spoolsizegb-uses-a-relative-path) | Low | `spoolSizeGb()` is given the relative spool path, so the default weight is always 1 | open |
+| [D-85](#d-85-dhisexpire-treats-a-read-error-as-end-of-file) | Low | `dhisexpire` treats a read error as end of file | open |
+| [D-86](#d-86-spool-number-off-by-one) | Low | Off-by-one in the spool number checks reads `SpoolObjectMap[100]` | open |
 
 Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315).
 
@@ -533,6 +551,119 @@ from reading. Fix: treat a weight <= 0 as 1, or fall back to sequential when the
 A label name of 255 characters or more in dnewsfeeds (a local file) overflowed it when the host cache
 was built. Found by go-while in review of #97. Reproduced with a 3000-character name (dprimehostcache
 aborts). Fix: a name that does not fit is skipped, with the hosts of its label.
+
+### D-66 dnewslink loses 431-deferred entries
+Entries answered 431 sit in the in-memory `deferbuf` (up to 100) and are retried only at the end
+of the file or when it reaches 80 (`util/dnewslink.c:1062`, `:1160-1180`, `:1275-1321`). If the
+session ends first (the peer answers 400 or goes away and the reconnect fails, SIGTERM) the queue
+is rewritten without them. Reproduced: queue a1, a2, a3; the peer answers 431, 431, 400 and closes;
+only a3 is left in the queue. Fix: write the deferred entries back with the unsent ones.
+
+### D-67 dcancel -s does not update the history
+`dcancel -s` (spool only, no `-h`) rewrites the spool file and shifts the later articles but does
+not update the history (`util/dcancel.c:586`). Afterwards the cancelled id still answers `STAT 223`,
+and `ARTICLE` of the second id returns the third article's text. `-a` is fine. Reproduced on the
+test zone. Fix: refuse `-s` without `-h`, or update the history in every mode.
+
+### D-68 dnewslink with a small maxstream sends one window
+`HiWaterMark` is 5, so `StreamPend < NumStream - HiWaterMark` is never true again after the first
+window (`util/dnewslink.c:835`, `:2391`). `-M 2` with 6 queued articles sends 2 CHECKs and leaves
+4 in the queue. Reproduced. Fix: scale the mark to `NumStream`.
+
+### D-69 dnewslink spins on a compression level zlib rejects
+A level zlib rejects (dnewsfeeds `compress 12`, giving `-Z12`) makes `deflateInit` fail while
+`CompressOn` stays set, and `flushCompressBuffer` loops forever (`util/dnewslink.c:1945-1948`,
+`:2877`). Reproduced. Fix: clear `CompressOn` (and log) when `deflateInit` fails. The session-end
+compression line also logs `-nan%` or `-inf%` for a session without data and passes int32
+counters to `%ld` (`util/dnewslink.c:2799-2805`, found by go-while); fixed in the same PR.
+
+### D-70 dgrpctl checkgroups reads long lines as two
+`fgets` into `buf[128]` (`util/dgrpctl.c:683`) reads a line of 128 bytes or more as two lines, and
+the tail becomes a phantom group on `exec`. An empty list leaves `hierarchy` NULL and the delete
+scan calls `WildCmp(NULL, ...)`: SIGSEGV (`:843`). Both reproduced. Fix: read whole lines and
+skip a list without a hierarchy.
+
+
+### D-72 dnewslink deletes the queue after an overlong line
+A damaged queue file with a line of 4 to 8 KB and no newline makes `readline` fail for good and
+`dnewslink` removes the whole queue file (`util/dnewslink.c:3434`, `:1289`, `:1321`). Reproduced.
+Fix: skip the line, keep the file.
+
+### D-73 dnewslink queue fields leak into the next line
+`extractFeedLine` sets `cSize`, `fileOff`, `fileSize` and `queuedTime` only when the field is
+present, so a plain line after a `C50` line inherits `C50`; `readretry()` rebuilds retried lines
+without the H/C flags (`util/dnewslink.c:3890-3910`, `:3329`). Reproduced: z0 plain, z1 `C50`, z2
+plain, with a reconnect: z2 is written back as `200,100 C50`. D-63 fixed only the refile text.
+Fix: reset the fields per line; keep the flags in `readretry`.
+
+### D-74 dnewslink queue rewrite write errors are unchecked
+`fputs`, `fflush` and `fclose` of the rewritten queue file are not checked before the rename over
+the queue (`util/dnewslink.c:1289-1321`); a full disk replaces the queue with a truncated one.
+From reading. Fix: check them and keep the old queue on failure; same PR as D-72.
+
+
+### D-76 dexpire removes a directory younger than keeptime
+After removing a directory, `part->age` is taken from `SpoolEntries[i+1]`, the next entry of the
+globally sorted list, which can belong to another spool or partition when the directory times
+interleave (`util/dexpire.c:739-740`, age test `:675`). Reproduced: spool 01 with directories 180,
+42 and 12 minutes old, spool 02 with 120 and 90, keeptime 3600: the 42-minute directory is removed.
+Fix: take the next entry of the same partition, as the newest-directory guard at `:706` does.
+
+### D-77 dhisexpire without -a leaves the history dead
+A successful `dhisexpire` without `-a` leaves the live `dhistory` marked dead (`util/dhisexpire.c`
+`DeadFd`); new connections get no greeting until `dhisexpire -u`. **Documented behaviour**, not a
+regression from #95: `man/dhisexpire.8` says the old file's magic is marked invalid when the
+rewrite completes and `-u` makes it usable again (checked by go-while on the tree before #95 and on
+main). What is missing is a note: print one at the end of a run without `-a` and in the usage text.
+
+### D-78 dicmd config internalfilter disables the spam filter
+Even for an unchanged value: `termSpamData()` sets `fi->Fd = -1` but not `BodyFilterFd` and
+`NphFilterFd`, so the following `InitSpamFilter()` skips `openFilterFile()`
+(`lib/spamfilter.c:356`, `:376-403`; `lib/config.c:667-672`, `util/diablo.c:4246-4250`). `dicmd
+info` still says enabled. Reproduced: `internalfilter B3`, 12 identical bodies: 2 stored before the
+change, 12 after. Fix: reset all three descriptors in `termSpamData()`.
+
+### D-79 KPDB blank or short line
+The sort writes 8 hex digits at `i+1` whatever the line length and corrupts the next record;
+`KPDBLookupBinary` recurses forever on a range that is just the blank line (stack overflow, SIGSEGV)
+(`lib/kpdb.c:1238-1254`, `:1050-1167`). Needs a hand-edited or damaged file (the header documents
+manual editing). Reproduced: `dkp -r` crashes with 3 of 4 records left.
+
+### D-80 KPDB torn tail loses appends
+`KPDBWrite` appends at the end without looking at the last byte, and the lookup from the end needs
+`'\n'` (`lib/kpdb.c:791-851`, `:1000-1003`). After a crash (a half-written record, or a NUL block
+on ext4 or XFS) new records are written, `dkp` exits 0, and no lookup finds them: lost group
+creations. Reproduced. Fix: on write, if the last byte is not `'\n'`, cut back to the last newline
+or write one first.
+
+### D-81 The sample internalfilter line turns the filter off
+`samples/diablo.config:400` shows `internalfilter B6s32768 N16t7200`; the expire option is `e`, so
+`t` is invalid, `SetSpamFilterOpt` logs to syslog only, and the filter stays off
+(`lib/spamfilter.c:134`, `:207-211`). Copying the example turns the filter off silently. Fix the
+sample; maybe make an invalid string a config error.
+
+### D-82 Long config lines are split
+`diablo.config` is read with `buf[256]` (`lib/config.c:158`, `:190`): a 422-character comment line
+makes every Diablo program exit with "Unknown diablo.config command". The same pattern is in
+`dspool.ctl` (`lib/spool.c:575`) and `dexpire.ctl` (`lib/expire.c:73`, from reading). The
+`diablo.config` case is reproduced.
+
+### D-83 Indented dexpire.ctl line is ignored
+After skipping white space the pattern is copied from `buf` instead of `p` (`lib/expire.c:104`), so
+`   e2e.*:a4000` matches nothing. Reproduced.
+
+### D-84 spoolSizeGb uses a relative path
+`spoolSizeGb()` is called with the relative `so_Path` (`lib/spool.c:465-466`): `statvfs("P.01")`
+fails with ENOENT, the default weight falls back to 1, and weighted allocation ignores partition
+sizes. From reading and a `truss` probe.
+
+### D-85 dhisexpire treats a read error as end of file
+`n = read()` returning -1 is handled like 0 (`util/dhisexpire.c:328`): an EIO ends the copy, and
+with `-a` a truncated history is installed (the old one stays as the backup). From reading.
+
+### D-86 Spool number off by one
+`spool > MAX_SPOOL_OBJECTS` should be `>=` (`lib/spool.c:126`, `:148`); a history record with exp
+200 reads `SpoolObjectMap[100]`. From reading.
 
 ## Feature requests
 
