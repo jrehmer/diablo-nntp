@@ -106,7 +106,7 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-89](#d-89-ai_addrconfig-still-passed-for-listen-bind-and-connect-addresses) | Low | `dreaderd` listen, bind and connect and `dsyncgroups` still pass `AI_ADDRCONFIG` | open |
 | [D-90](#d-90-kpdb-sort-writes-the-offsets-one-record-at-a-time) | Low | `KPDBSort()` does one 8-byte write per record; on a full ZFS dataset a sort of 259 records took about 51 s | open |
 
-Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315).
+Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315), [F-02 configure script](#f-02-configure-script-for-the-build-options).
 
 ## Details
 
@@ -721,3 +721,19 @@ Upgrades: a reader that relied on unchecked cancels must set `readercanlock all`
 `NNPostBuffer` (`dreaderd/post.c`) with OpenSSL HMAC, byte-identical to INN's locks; then a
 key tool. Waiting for the decision on sha1 (INN still generates it next to sha256) and on
 secret storage.
+
+### F-02 configure script for the build options
+Every option in `lib/vendor.h` (RADIUS, CDB, zlib, DB and so on) is meant to be chosen by the admin
+before building. Today the defaults must suit every platform at once, which is why `RADIUS_ENABLED`
+(needs a BSD `libradius` with `radlib.h`, not on Linux) cannot simply be on or off for everyone
+(see D-16, which stays undecided until this exists). A `./configure` step would probe the build
+host and turn an option on only where its header and library are there, and the admin could still
+force any option either way.
+
+First step, small: a hand-written `./configure` in POSIX sh. The tree already has most of the parts:
+`compat/detect-vendor-option.awk` reads `vendor.h`, and `tests/e2e/ci/build-on-host` already probes
+for `db_185.h` and `radlib.h`. The script would probe the same headers (and zlib and OpenSSL) and
+write a local override file that `vendor.h` includes, leaving the admin's own settings in charge.
+It covers Linux, FreeBSD and SmartOS with little churn. A full autoconf setup (`configure.ac`, a
+generated `configure`, a `config.h.in`) can follow if it is wanted. Suggested by the maintainer and
+go-while on 2026-10-27.
