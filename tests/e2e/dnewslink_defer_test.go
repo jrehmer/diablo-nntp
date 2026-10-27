@@ -102,4 +102,3 @@ func TestDnewslinkDeferredKeptOnExit(t *testing.T) {
 		}
 	}
 }
-
