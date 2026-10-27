@@ -409,10 +409,12 @@ TermSpamFilter(void)
 
     if (BodyFilter.Fd != -1 || BodyFilter.HashAry != NULL) {
 	termSpamData(&BodyFilter);
+	BodyFilterFd = -1;	/* else InitSpamFilter() never reopens the file */
 	done = 1;
     }
     if (NphFilter.Fd != -1 || NphFilter.HashAry != NULL) {
 	termSpamData(&NphFilter);
+	NphFilterFd = -1;
 	done = 1;
     }
     if (done)
