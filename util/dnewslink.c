@@ -1995,17 +1995,30 @@ connectTo(const char *hostName, const char *serviceName, int defPort)
 	 */
 #ifdef	USE_ZLIB
 	if (CompressMode > 0) {
-	    switch(commandResponse(cfd, &ptr, "mode compress\r\n")) {
+	    int deflateOk;
+
+	    /*
+	     * Set the stream up before asking the peer: once it has agreed
+	     * to compress we cannot go back to plain text, and a level zlib
+	     * rejects (dnewsfeeds "compress 12") would make every write fail.
+	     */
+	    bzero(&Z_Strm, sizeof(Z_Strm));
+	    deflateOk = (deflateInit(&Z_Strm, CompressMode) == Z_OK);
+	    if (!deflateOk) {
+		logit(LOG_ERR, "deflateInit error (level %d): %s, not using compression",
+			CompressMode, Z_Strm.msg ? Z_Strm.msg : "failed");
+		CompressMode = COMPRESS_OFF;
+	    }
+	    switch(deflateOk ? commandResponse(cfd, &ptr, "mode compress\r\n") : -1) {
 	    case OK_COMPRESSOK:
 		CompressOn = 1;
 		strcat(negotiated," compression enabled");
-		bzero(&Z_Strm, sizeof(Z_Strm));
-		if (deflateInit(&Z_Strm, CompressMode) != Z_OK)
-		    logit(LOG_ERR, "deflateInit error: %s", Z_Strm.msg);
 		dl_logit("connect: %s (%s)\n", (ptr ? ptr : "<Unexpected EOF>"),
 								 negotiated);
 		break;
 	    default:
+		if (deflateOk)
+		    deflateEnd(&Z_Strm);
 		CompressOn = 0;
 		strcat(negotiated," compression disabled");
 		CompressMode = COMPRESS_OFF;
@@ -2857,11 +2870,11 @@ logStats(const char *description)
 	);
 #ifdef	USE_ZLIB
     if (CompressOn > 0)
-	dl_logit("%s compbytes=%ld decompbytes=%ld (%.2f%% compression)\n",
+	dl_logit("%s compbytes=%lld decompbytes=%lld (%.2f%% compression)\n",
 	    description,
-	    CompressedBytes,
-	    RawBytes,
-	    100 - (((float)CompressedBytes / (float)RawBytes) * 100)
+	    (long long)CompressedBytes,
+	    (long long)RawBytes,
+	    RawBytes ? 100 - (((double)CompressedBytes / (double)RawBytes) * 100) : 0.0
 	);
 #endif
 
