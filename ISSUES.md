@@ -101,6 +101,7 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-83](#d-83-indented-dexpirectl-line-is-ignored) | Low | An indented line in `dexpire.ctl` matches nothing | open |
 | [D-85](#d-85-dhisexpire-treats-a-read-error-as-end-of-file) | Low | `dhisexpire` treats a read error as end of file | open |
 | [D-86](#d-86-spool-number-off-by-one) | Low | Off-by-one in the spool number checks reads `SpoolObjectMap[100]` | open |
+| [D-88](#d-88-dnewslink--p-overwrites-leftover-lines-of-an-earlier-run) | Low | `dnewslink -p`: a later pipe run overwrites the leftover lines an earlier run wrote to the batch file | open |
 
 Feature requests are at the end: [F-01 Cancel-Lock](#f-01-cancel-lock-rfc-8315).
 
@@ -663,6 +664,11 @@ with `-a` a truncated history is installed (the old one stays as the backup). Fr
 ### D-86 Spool number off by one
 `spool > MAX_SPOOL_OBJECTS` should be `>=` (`lib/spool.c:126`, `:150`); a history record with exp
 200 reads `SpoolObjectMap[100]`. From reading.
+
+### D-88 dnewslink -p overwrites leftover lines of an earlier run
+With `-p` the batch file receives only the leftover lines, and a later pipe run opens it with
+`fopen("w")` (`util/dnewslink.c`, final queue rewrite), so it overwrites the leftovers of the earlier
+run even when nothing fails. Older behaviour, found while reviewing D-72/D-74. From reading.
 
 ## Feature requests
 
