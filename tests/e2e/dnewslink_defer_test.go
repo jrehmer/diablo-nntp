@@ -96,10 +96,23 @@ func TestDnewslinkDeferredKeptOnExit(t *testing.T) {
 		"-P", strconv.Itoa(port), "-t", "5")
 	t.Logf("dnewslink: err=%v\n%s", err, out)
 	got := dnlQueue(t, s, "out.S00000")
+	if !strings.HasSuffix(got, "\n") {
+		t.Errorf("queue file does not end with a newline: %q", got)
+	}
+	// every entry on a line of its own, exactly once
+	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
 	for _, id := range []string{"<a1@e2e.test>", "<a2@e2e.test>", "<a3@e2e.test>"} {
-		if !strings.Contains(got, id) {
-			t.Errorf("%s was never delivered and is no longer queued; queue file now:\n%s", id, got)
+		n := 0
+		for _, l := range lines {
+			if strings.Contains(l, id) {
+				n++
+				if strings.Count(l, "<") != 1 {
+					t.Errorf("%s shares a queue line with another entry: %q", id, l)
+				}
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s is on %d queue lines, want 1; queue file now:\n%s", id, n, got)
 		}
 	}
 }
-

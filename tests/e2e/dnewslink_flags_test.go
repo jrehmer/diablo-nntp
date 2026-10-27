@@ -34,13 +34,31 @@ func TestDnewslinkQueueFieldsPerLine(t *testing.T) {
 	t.Logf("dnewslink: err=%v\n%s", err, out)
 	got := dnlQueue(t, s, "out.S00000")
 	t.Logf("queue now:\n%s", got)
+	if strings.HasPrefix(got, "<missing") {
+		t.Fatalf("queue file is gone, dnewslink did not leave z1 and z2 queued: %s", got)
+	}
+	if strings.Contains(got, "<z0@") {
+		t.Errorf("z0 was answered 438 but is still queued:\n%s", got)
+	}
+	seen := map[string]bool{}
 	for _, l := range strings.Split(strings.TrimSpace(got), "\n") {
-		hasC := strings.Contains(l, " C")
+		hasC := strings.Contains(l, " C50")
 		switch {
-		case strings.Contains(l, "<z1@") && !hasC:
-			t.Errorf("z1 lost its C50 flag: %q", l)
-		case strings.Contains(l, "<z2@") && hasC:
-			t.Errorf("z2 (not compressed) gained a C flag: %q", l)
+		case strings.Contains(l, "<z1@"):
+			seen["z1"] = true
+			if !hasC {
+				t.Errorf("z1 lost its C50 flag: %q", l)
+			}
+		case strings.Contains(l, "<z2@"):
+			seen["z2"] = true
+			if strings.Contains(l, " C") {
+				t.Errorf("z2 (not compressed) gained a C flag: %q", l)
+			}
+		}
+	}
+	for _, id := range []string{"z1", "z2"} {
+		if !seen[id] {
+			t.Errorf("%s is no longer queued; queue file now:\n%s", id, got)
 		}
 	}
 }

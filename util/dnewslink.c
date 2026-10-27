@@ -2495,7 +2495,7 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 		    snprintf(cst, sizeof(cst), " C%d", s->st_CompSize);
 		else
 		    cst[0] = 0;
-		sprintf(buf,"%s %s %lld,%d %c%s", s->st_RelPath, s->st_MsgId,
+		sprintf(buf,"%s %s %lld,%d %c%s\n", s->st_RelPath, s->st_MsgId,
 			(long long)s->st_Off, s->st_Size,
 			HeaderOnlyFeed ? 'H' : ' ', cst);
 		break;
