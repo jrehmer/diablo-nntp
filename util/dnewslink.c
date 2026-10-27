@@ -799,6 +799,7 @@ main(int ac, char **av)
 	    int more = 0;
 	    int deferbegin = 0;
 	    int deferend = 0;
+	    int keepOld = 0;	/* queue rewrite could not be opened */
 	    int cSize = 0;
 	    /* We kept a list of defer requests (431 response) and procedd
 	     * it from time to time.
@@ -1173,6 +1174,8 @@ main(int ac, char **av)
 				(void)RefilePendingStreams(fo);
 				if (!bufInval && !inStream)
 				    fputs(buf, fo);
+			    } else {
+				keepOld = 1;
 			    }
 			} else {
 			    WouldHaveRefiled += RefilePendingStreams(NULL);
@@ -1278,6 +1281,8 @@ main(int ac, char **av)
 			fo = fopen(path, "w");
 		    if (fo) {
 			(void)RefilePendingStreams(fo);
+		    } else {
+			keepOld = 1;
 		    }
 		}
 
@@ -1285,8 +1290,11 @@ main(int ac, char **av)
 		 * Entries the peer deferred (431) and that were not retried
 		 * yet go back into the queue with the unsent ones.
 		 */
-		if (deferbegin < deferend && fo == NULL)
+		if (deferbegin < deferend && fo == NULL) {
 		    fo = fopen(path, "w");
+		    if (fo == NULL)
+			keepOld = 1;
+		}
 		while (deferbegin < deferend) {
 		    if (fo != NULL)
 			fputs(deferbuf[deferbegin], fo);
@@ -1299,13 +1307,28 @@ main(int ac, char **av)
 		 * were read.
 		 */
 		more = (readline(fd, buf, sizeof(buf), TimeNow) == 0);
-		if (more || fo != NULL) {
+		if (keepOld) {
+		    /*
+		     * The rewrite file could not be opened while there was
+		     * something to put into it: leave the old queue alone.
+		     */
+		    dl_logit("Cannot write %s: %s, keeping the old queue",
+						path, strerror(errno));
+		    if (fo != NULL) {
+			fclose(fo);
+			fo = NULL;
+			if (PipeOpt == 0)
+			    remove(path);
+		    }
+		} else if (more || fo != NULL) {
 		    struct stat st;
 		    int writeFailed = 0;
 
 		    if (fo == NULL)
 			fo = fopen(path, "w");
-		    if (fo != NULL) {
+		    if (fo == NULL) {
+			writeFailed = 1;
+		    } else {
 			if (more) {
 			    do {
 				fputs(buf, fo);
@@ -1323,7 +1346,9 @@ main(int ac, char **av)
 			 */
 			dl_logit("Cannot write %s: %s, keeping the old queue",
 						path, strerror(errno));
-			remove(path);
+			/* in pipe mode path is the queue itself */
+			if (PipeOpt == 0)
+			    remove(path);
 		    } else if (DeleteDetectOpt && 
 			!PipeOpt && 
 			!RealTimeOpt &&
@@ -1336,7 +1361,11 @@ main(int ac, char **av)
 			remove(path);
 			NumBatches = 0;
 		    } else if (PipeOpt == 0 && RealTimeOpt == 0) {
-			rename(path, CurrentBatchFile);
+			if (rename(path, CurrentBatchFile) != 0) {
+			    dl_logit("Cannot rename %s to %s: %s, keeping the old queue",
+					path, CurrentBatchFile, strerror(errno));
+			    remove(path);
+			}
 		    }
 		} else {
 		    if (PipeOpt == 0 && RealTimeOpt == 0)
