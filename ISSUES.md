@@ -95,11 +95,10 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-77](#d-77-dhisexpire-without--a-leaves-the-history-dead) | Low | `dhisexpire` without `-a` leaves the history marked dead without saying so | open |
 | [D-78](#d-78-dicmd-config-internalfilter-disables-the-spam-filter) | Medium | `dicmd config internalfilter` silently disables the internal spam filter | open |
 | [D-79](#d-79-kpdb-blank-or-short-line) | Low | A blank or very short line in a KP database corrupts the sort and overflows the lookup stack | open |
-| [D-80](#d-80-kpdb-torn-tail-loses-appends) | Medium | A KP database with a torn or NUL tail loses every later append | open |
+| [D-80](#d-80-kpdb-torn-tail-loses-appends) | Medium | A KP database with a torn or NUL tail loses the first append | open |
 | [D-81](#d-81-the-sample-internalfilter-line-turns-the-filter-off) | Low | `samples/diablo.config` shows an `internalfilter` option (`t`) that does not exist | open |
 | [D-82](#d-82-long-config-lines-are-split) | Low | A long line in `diablo.config`, `dspool.ctl` or `dexpire.ctl` is read as two lines | open |
 | [D-83](#d-83-indented-dexpirectl-line-is-ignored) | Low | An indented line in `dexpire.ctl` matches nothing | open |
-| [D-84](#d-84-spoolsizegb-uses-a-relative-path) | Low | `spoolSizeGb()` is given the relative spool path, so the default weight is always 1 | open |
 | [D-85](#d-85-dhisexpire-treats-a-read-error-as-end-of-file) | Low | `dhisexpire` treats a read error as end of file | open |
 | [D-86](#d-86-spool-number-off-by-one) | Low | Off-by-one in the spool number checks reads `SpoolObjectMap[100]` | open |
 
@@ -594,7 +593,9 @@ Fix: skip the line, keep the file.
 present, so a plain line after a `C50` line inherits `C50`; `readretry()` rebuilds retried lines
 without the H/C flags (`util/dnewslink.c:3890-3910`, `:3329`). Reproduced: z0 plain, z1 `C50`, z2
 plain, with a reconnect: z2 is written back as `200,100 C50`. D-63 fixed only the refile text.
-Fix: reset the fields per line; keep the flags in `readretry`.
+The refile path (`util/dnewslink.c:2688`) writes " H" from the global `HeaderOnlyFeed`, so
+keeping the flags in `readretry` is not enough on its own. Fix: reset the fields per line; keep the
+flags in `readretry`.
 
 ### D-74 dnewslink queue rewrite write errors are unchecked
 `fputs`, `fflush` and `fclose` of the rewritten queue file are not checked before the rename over
@@ -624,16 +625,18 @@ info` still says enabled. Reproduced: `internalfilter B3`, 12 identical bodies: 
 change, 12 after. Fix: reset all three descriptors in `termSpamData()`.
 
 ### D-79 KPDB blank or short line
-The sort writes 8 hex digits at `i+1` whatever the line length and corrupts the next record;
+The sort writes 8 hex digits at `i+1` whatever the line length;
 `KPDBLookupBinary` recurses forever on a range that is just the blank line (stack overflow, SIGSEGV)
-(`lib/kpdb.c:1238-1254`, `:1050-1167`). Needs a hand-edited or damaged file (the header documents
+(`lib/kpdb.c:1238-1254`, the recursion at `:1168-1171`). The 8-digit write corrupts only lines
+shorter than 9 bytes. Needs a hand-edited or damaged file (the header documents
 manual editing). Reproduced: `dkp -r` crashes with 3 of 4 records left.
 
 ### D-80 KPDB torn tail loses appends
 `KPDBWrite` appends at the end without looking at the last byte, and the lookup from the end needs
-`'\n'` (`lib/kpdb.c:791-851`, `:1000-1003`). After a crash (a half-written record, or a NUL block
-on ext4 or XFS) new records are written, `dkp` exits 0, and no lookup finds them: lost group
-creations. Reproduced. Fix: on write, if the last byte is not `'\n'`, cut back to the last newline
+`'\n'` (`lib/kpdb.c:791-851`, `:1005-1006`). After a crash (a half-written record, or a NUL block
+on ext4 or XFS) the first record appended is glued onto the torn tail, `dkp` exits 0, and no
+lookup finds it (the lookup scans backwards, so later appends that end in `'\n'` are found): a lost
+group creation. Reproduced. Fix: on write, if the last byte is not `'\n'`, cut back to the last newline
 or write one first.
 
 ### D-81 The sample internalfilter line turns the filter off
@@ -644,25 +647,21 @@ sample; maybe make an invalid string a config error.
 
 ### D-82 Long config lines are split
 `diablo.config` is read with `buf[256]` (`lib/config.c:158`, `:190`): a 422-character comment line
-makes every Diablo program exit with "Unknown diablo.config command". The same pattern is in
-`dspool.ctl` (`lib/spool.c:575`) and `dexpire.ctl` (`lib/expire.c:73`, from reading). The
-`diablo.config` case is reproduced.
+makes every Diablo program exit with "Unknown diablo.config command". `dspool.ctl` (`lib/spool.c:575`) and `dexpire.ctl` (`lib/expire.c:73`) use `MAXGNAME+256`
+buffers and split only above about 512 characters (from reading); the 256-byte case is
+`diablo.config`, which is reproduced.
 
 ### D-83 Indented dexpire.ctl line is ignored
 After skipping white space the pattern is copied from `buf` instead of `p` (`lib/expire.c:104`), so
 `   e2e.*:a4000` matches nothing. Reproduced.
 
-### D-84 spoolSizeGb uses a relative path
-`spoolSizeGb()` is called with the relative `so_Path` (`lib/spool.c:465-466`): `statvfs("P.01")`
-fails with ENOENT, the default weight falls back to 1, and weighted allocation ignores partition
-sizes. From reading and a `truss` probe.
 
 ### D-85 dhisexpire treats a read error as end of file
-`n = read()` returning -1 is handled like 0 (`util/dhisexpire.c:328`): an EIO ends the copy, and
+`n = read()` returning -1 is handled like 0 (`util/dhisexpire.c:331`, the `n == 0` test at `:333`): an EIO ends the copy, and
 with `-a` a truncated history is installed (the old one stays as the backup). From reading.
 
 ### D-86 Spool number off by one
-`spool > MAX_SPOOL_OBJECTS` should be `>=` (`lib/spool.c:126`, `:148`); a history record with exp
+`spool > MAX_SPOOL_OBJECTS` should be `>=` (`lib/spool.c:126`, `:150`); a history record with exp
 200 reads `SpoolObjectMap[100]`. From reading.
 
 ## Feature requests
