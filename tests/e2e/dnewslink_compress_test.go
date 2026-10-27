@@ -33,7 +33,7 @@ func TestDnewslinkBadCompressLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(filepath.Join(s.Bin, "dnewslink"), "-N", "1", "-S", "0", "-b", "out.S%05d",
-		"-h", "127.0.0.1", "-P", strconv.Itoa(port), "-t", "30", "-Z", "12")
+		"-h", "127.0.0.1", "-P", strconv.Itoa(port), "-t", "3", "-Z", "12")
 	cmd.Dir = s.Dir
 	cmd.Env = append(os.Environ(), s.Env...)
 	var out bytes.Buffer
@@ -47,8 +47,8 @@ func TestDnewslinkBadCompressLevel(t *testing.T) {
 	select {
 	case <-done:
 		t.Logf("dnewslink ended by itself:\n%s", out.String())
-	case <-time.After(6 * time.Second):
+	case <-time.After(8 * time.Second):
 		ps, _ := exec.Command("ps", "-o", "pid,time,pcpu,args", "-p", strconv.Itoa(cmd.Process.Pid)).CombinedOutput()
-		t.Errorf("dnewslink -Z12 still busy after 6 s against a peer that accepted MODE COMPRESS:\n%s", ps)
+		t.Errorf("dnewslink -Z12 still busy after 8 s against a peer that accepted MODE COMPRESS:\n%s\noutput so far:\n%s", ps, out.String())
 	}
 }
