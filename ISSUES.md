@@ -39,7 +39,7 @@ advisory), #45 with its tests in #56, #53 to #55, #57 to #61, #63 to #65.
 | [D-18](#d-18-debian-gnuhurd-build) | Low | Debian GNU/Hurd build: `PATH_MAX`, `setpgrp`, `db_185.h` | open |
 | [D-19](#d-19-changelog-links-a-missing-document) | Low | CHANGELOG links the missing `BUILD-PORTABLE-MAKE.md` | fixed (#61) |
 | [D-20](#d-20-strncpy-truncation-warning-in-dreaderddnsc) | Low | `strncpy` truncation warning in `dreaderd/dns.c` (GCC 16) | fixed (#65) |
-| [D-21](#d-21-dactivekp-write-errors-now-exit-the-process) | — | dactive.kp write errors now exit the process (#7) | decision |
+| [D-21](#d-21-dactivekp-write-errors-now-exit-the-process) | — | dactive.kp write errors now exit the process (#7) | won't fix (kept on purpose) |
 | [D-22](#d-22-gnu-make-install-ignores-prefix-and-destdir) | High | GNU Make `install`/`uninstall` ignore `PREFIX` and `DESTDIR` (live `/news` used) | fixed (#16) |
 | [D-23](#d-23-feederreader-sample-config-is-ignored) | Medium | `samples/feeder+reader/diablo.config` has no `version 2.0`: every directive ignored | fixed (#26) |
 | [D-24](#d-24-sample-dreaderaccess-allows-1008-not-localhost) | Medium | Sample `dreader.access` allows 1.0.0.0/8, not localhost | fixed (#55) |
@@ -215,6 +215,11 @@ GCC 16 (Fedora 46): `-Wstringop-truncation` at `dreaderd/dns.c:2143`, copying 12
 With #7, `KPDBFatalIO` calls `exit(1)` on any failed dactive.kp write, which is on the
 per-article path of diablo children and dreaderd feeds. A full disk now stops those
 processes instead of silently corrupting the file. Probably intended; needs a decision.
+
+**Decision (maintainer, 2026-10-27): kept.** Data integrity comes first, so a process that cannot
+write `dactive.kp` stops. Run diablo and dreaderd under a supervisor or a restart loop on hosts
+where a full disk is possible, and watch the free space. The full-spool tests on 2026-10-27
+(diablo keeps running and answers 436 when the spool is full) did not exercise this path.
 
 ### D-22 GNU make install ignores PREFIX and DESTDIR
 `install-portable.sh` reads PREFIX, DESTDIR, owner and group as arguments; the GNU `Makefile`
