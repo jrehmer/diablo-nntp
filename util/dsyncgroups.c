@@ -405,7 +405,7 @@ main(int ac, char **av)
 	char *line;
 	char cmd[4096];
 
-	sprintf(cmd, "authinfo user %s",username);
+	snprintf(cmd, sizeof(cmd), "authinfo user %s", username);
 	switch(CommandResponse(cmd, &line)) {
 	    case 381:
 		printf("authinfo accepted: %s\n", line);
@@ -420,7 +420,7 @@ main(int ac, char **av)
 	char *line;
 	char cmd[4096];
 
-	sprintf(cmd, "authinfo pass %s",password);
+	snprintf(cmd, sizeof(cmd), "authinfo pass %s", password);
 	switch(CommandResponse(cmd, &line)) {
 	    case 281:
 		printf("authinfo accepted: %s\n", line);
@@ -461,7 +461,7 @@ main(int ac, char **av)
 	int count = 0;
 	int ok = 0;
 
-	sprintf(cmd, "list active%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
+	snprintf(cmd, sizeof(cmd), "list active%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
 	    while (fgets(cmd, sizeof(cmd), Fi) != NULL) {

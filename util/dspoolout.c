@@ -591,7 +591,7 @@ spool_file(char *spoolFile, int pass, NewslinkInfo *li, int flags)
 	li->li_Port = 119;
     sprintf(portBuf, "%d", li->li_Port);
 
-    sprintf(seqFile, ".%s.seq", spoolFile);
+    snprintf(seqFile, sizeof(seqFile), ".%s.seq", spoolFile);
 
     /*
      * Get beginning and ending sequence numbers

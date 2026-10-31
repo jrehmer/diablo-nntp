@@ -113,7 +113,7 @@ HistoryOpen(const char *fileName, int hflags)
     if (fileName == NULL)
 	fileName = strdup(PatDbExpand(DHistoryPat));
 
-    strcpy(HistoryFileName, fileName);
+    snprintf(HistoryFileName, sizeof(HistoryFileName), "%s", fileName);
 
     HFlags = hflags;
 

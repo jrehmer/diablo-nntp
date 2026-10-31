@@ -696,7 +696,7 @@ GetOverInfo(const char *group)
 
     if (ov == NULL) {
 	struct stat st;
-	char *path;
+	char path[PATH_MAX];
 	int iter = 0;
 	artno_t endNo = 0;
 
@@ -720,15 +720,17 @@ GetOverInfo(const char *group)
 	    KPDBUnlock(KDBActive, rec);
 	}
 
-	path = zalloc(&SysMemPool, strlen(PatExpand(GroupHomePat)) + 48);
 again:
 	{
 	    const char *gfname = GFName(group, GRPFTYPE_OVER, 0, 1, iter,
 						&DOpts.ReaderGroupHashMethod);
 
-	    sprintf(path, "%s/%s", PatExpand(GroupHomePat), gfname);
-	    ov->ov_OFd = -1;
-	    if (MakeGroupDirectory(path) == -1)
+	ov->ov_OFd = -1;
+	if (snprintf(path, sizeof(path), "%s/%s", PatExpand(GroupHomePat),
+				gfname) >= (int)sizeof(path)) {
+	    errno = ENAMETOOLONG;
+	    logit(LOG_ERR, "Overview path too long for group %s", group);
+	} else if (MakeGroupDirectory(path) == -1)
 		logit(LOG_ERR, "Error on overview dir open/create: %s (%s)",
 						path, strerror(errno));
 	    else
@@ -840,7 +842,6 @@ again:
 		ov = NULL;
 	    }
 	}
-	zfree(&SysMemPool, path, strlen(PatExpand(GroupHomePat)) + 48);
     }
     if (ov)
 	++ov->ov_Refs;

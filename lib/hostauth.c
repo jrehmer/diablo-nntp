@@ -221,6 +221,11 @@ convHost(char *host, HostAccess *HA, FILE *fo)
 	    HA->testtype |= TESTTYPE_FQDN;
     }
 
+    if (strlen(host) >= sizeof(HA->entry)) {
+	logit(LOG_ERR, "%s: host entry too long (at most %d characters): %.40s...",
+		PatLibExpand(DNewsfeedsPat), (int)sizeof(HA->entry) - 1, host);
+	return(0);
+    }
     strcpy(HA->entry, host);
     HA->addrst[0] = 0;
 

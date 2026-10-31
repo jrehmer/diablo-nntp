@@ -194,7 +194,7 @@ main(int ac, char **av)
 	char artType[32];
 	char offSize[64];
 	sprintf(artType, "%06x", ArtType);
-	sprintf(offSize, "0,%s", Size);
+	snprintf(offSize, sizeof(offSize), "0,%s", Size);
 
 	printf("Matching:\n");
 	printf("\tNewsgroups: %s\n", Newsgroups);

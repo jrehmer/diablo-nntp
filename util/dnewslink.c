@@ -625,7 +625,7 @@ main(int ac, char **av)
 	logit(LOG_CRIT, "Unable to malloc stats memory");
 	exit(1);
     }
-    strcpy(Stats->hostname, HostName);
+    snprintf(Stats->hostname, sizeof(Stats->hostname), "%s", HostName);
     switch (DOpts.FeederRTStats) {
 	case RTSTATS_NONE:
 	    HostStats = NULL;
