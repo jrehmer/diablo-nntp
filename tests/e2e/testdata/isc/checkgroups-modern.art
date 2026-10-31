@@ -1,0 +1,1923 @@
+Path: archive.usenet.blueworldhosting.com!usenet.blueworldhosting.com!diablo1.usenet.blueworldhosting.com!news.szaf.org!nntp-feed.chiark.greenend.org.uk!ewrotcd!news.xcski.com!news.eyrie.org!bounce-back
+From: group-admin@isc.org
+Newsgroups: news.announce.newgroups,news.groups
+Subject: cmsg checkgroups
+Control: checkgroups
+Approved: group-admin@isc.org
+Date: Thu, 15 Oct 2026 08:00:02 -0700
+Message-ID: <cmsg-20261015150002$12b8@isc.org>
+X-Info: https://www.big-8.org/
+	https://www.eyrie.org/~eagle/big-8/
+X-PGP-Sig: GnuPG Subject,Control,Message-ID,Date,From,Sender
+	iQIzBAEBCgAdFiEEjhgb7wvmOJYsGlyY+v57VQwYyLcFAmrQ6nIACgkQ+v57VQwY
+	yLcQNg//UnLI+TjzVOzwIAlyPwCm4Ka/JV6ybqyMoazoNI4nP/g43jDYJYsiQdEc
+	p+c9+fC3B+kGteeosbLAxunp7JCEChrTnRM09ybbgAE3KW8VUD1P2cC8owPFzveZ
+	YVA3D5nDkuscOt6WBanmNVQLn8sh2O1mJRSDd1i6w8Qw+bHDYHFbq5/QjBMLDkHz
+	YzAxAmz/3idtZg0FIhv8r/jBXbWj+HA68iQBKgsFfyBRfjx1KPydkQvSOWcKDSn2
+	WqWuXVo8nRod9+2OvZ4TKwHZbQTikTaUAH/mSuR5vWV9vdb5IQgWW6JOEmoJTS8B
+	LZUowbSV49jZDImHG9Trot98cK0BAVDNjuj/9MQLyngFeq1wvofztBSVP20V7dyx
+	aE5vW8Dd18DaMOtYFK9onJixcIR6RN5rGeuZ0d94TgI4Tr9L+ZvSKNKXo32We7KR
+	nrtd7TxtoGN9+Jqm4uuVQhuDZtljXiaWDWMrj7hZppX4okXJr2GxdqDD9NW/WZ/W
+	cTUCAqmbefLtMGn7Bx57/FYH8lmpZtu95jNtQQ/2UEgUc+M+V0t6pKdXOchrKaeQ
+	ril7lGsXgBxNwTWG65QjH10+Bfdk0Fb2B9j9SxOl/EkLTSo1oJhnQKeDtRmIi/ZP
+	Oqa0eJKIjDKbd7ZV5AMW3EIzjzLqQ/mSks4r9wuJDnQztHNWBOI=
+	=BpUo
+Xref: archive.usenet.blueworldhosting.com control.checkgroups:2342
+
+comp.admin.policy	Discussions of site administration policies.
+comp.ai			Artificial Intelligence. (Moderated)
+comp.ai.alife		Research about artificial life.
+comp.ai.doc-analysis.misc	General document understanding technologies.
+comp.ai.doc-analysis.ocr	OCR research, algorithms and software.
+comp.ai.edu		Applications of Artificial Intelligence to Education.
+comp.ai.fuzzy		Fuzzy set theory, aka fuzzy logic.
+comp.ai.games		Artificial intelligence in games and game-playing.
+comp.ai.genetic		Genetic algorithms in computing.
+comp.ai.nat-lang	Natural language processing by computers.
+comp.ai.neural-nets	All aspects of neural networks.
+comp.ai.philosophy	Philosophical aspects of Artificial Intelligence.
+comp.ai.shells		Expert systems and other artificial intelligence shells.
+comp.ai.vision		Artificial Intelligence Vision Research. (Moderated)
+comp.answers		Repository for periodic USENET articles. (Moderated)
+comp.apps.spreadsheets	Spreadsheets on various platforms.
+comp.arch		Computer architecture.
+comp.arch.arithmetic	Implementing arithmetic on computers/digital systems.
+comp.arch.embedded	Embedded computer systems topics.
+comp.arch.fpga		Field Programmable Gate Array based computing systems.
+comp.arch.hobbyist	Homebrew digital electronics design. (Moderated)
+comp.arch.storage	Storage system issues, both hardware and software.
+comp.archives.admin	Issues relating to computer archive administration.
+comp.archives.ms-windows.discuss	Discussing Microsoft Windows archives.
+comp.bbs.majorbbs	Support & discussion of The Major BBS from Galacticomm.
+comp.bbs.misc		All aspects of computer bulletin board systems.
+comp.bbs.waffle		The Waffle BBS and USENET system on all platforms.
+comp.benchmarks		Discussion of benchmarking techniques and results.
+comp.binaries.cbm	For the transfer of 8bit Commodore binaries. (Moderated)
+comp.bugs.misc		General UNIX bug reports and fixes (incl V7, uucp).
+comp.cad.autocad	AutoDesk's AutoCAD software.
+comp.cad.cadence	Users of Cadence Design Systems products.
+comp.cad.compass	Compass Design Automation EDA tools.
+comp.cad.i-deas		SDRC I-DEAS Masters Series software.
+comp.cad.microstation	MicroStation CAD software and related products.
+comp.cad.microstation.programmer	Developing software in Microstation CAD.
+comp.cad.pro-engineer	Parametric Technology's Pro/Engineer design package.
+comp.cad.solidworks	SolidWorks newsgroup.
+comp.cad.synthesis	Research and production in the field of logic synthesis.
+comp.client-server	Topics relating to client/server technology.
+comp.cog-eng		Cognitive engineering.
+comp.compilers		Compiler construction, theory, etc. (Moderated)
+comp.compilers.lcc	The lcc C Compiler and related topics.
+comp.compilers.tools.javacc	The Java Compiler Compiler and related topics.
+comp.compression	Data compression algorithms and theory.
+comp.constraints	Constraint processing and related topics.
+comp.data.administration	Manage data as a corporate asset: stds & methds.
+comp.databases		Database and data management issues and theory.
+comp.databases.adabas	ADABAS Database topics in general.
+comp.databases.berkeley-db	The Berkeley DB libraries.
+comp.databases.btrieve	Pervasive Software client/server development.
+comp.databases.filemaker	Technical discussions about FileMaker.
+comp.databases.gupta	Gupta SQLWindows client-server development.
+comp.databases.ibm-db2	Problem resolution with DB2 database products.
+comp.databases.informix	Informix database management software discussions.
+comp.databases.ingres	Issues relating to INGRES products.
+comp.databases.ms-access	MS Windows' relational database system, Access.
+comp.databases.ms-sqlserver	Microsoft's SQL Server and related products.
+comp.databases.mysql	MySQL RDBMS technical discussions.
+comp.databases.object	Object-oriented paradigms in database systems.
+comp.databases.olap	Analytical Processing, Multidimensional DBMS, EIS, DSS.
+comp.databases.oracle.marketplace	Oracle-related jobs, etc.
+comp.databases.oracle.misc	Oracle related topics.
+comp.databases.oracle.server	Oracle database administration/server topics.
+comp.databases.oracle.tools	Oracle software tools/applications.
+comp.databases.paradox	Borland's database for DOS & MS Windows.
+comp.databases.pick	Pick-like, post-relational, database systems.
+comp.databases.postgresql	PGSQL Relational Database Management System.
+comp.databases.progress	The Progress 4GL & RDBMS.
+comp.databases.rdb	The relational database engine RDB from DEC.
+comp.databases.sybase	Implementations of the SQL Server.
+comp.databases.theory	Discussing advances in database technology.
+comp.databases.visual-dbase	Database discussions using Visual dBASE.
+comp.databases.xbase.codebase	CodeBase and its related products.
+comp.databases.xbase.fox	Fox Software's xBase system and compatibles.
+comp.databases.xbase.misc	Discussion of xBase (dBASE-like) products.
+comp.dcom.cabling	Cabling selection, installation and use.
+comp.dcom.cell-relay	Forum for discussion of Cell Relay-based products.
+comp.dcom.fax		Fax hardware, software, and protocols.
+comp.dcom.isdn.capi	CAPI - the Common ISDN Application Interface.
+comp.dcom.lans.ethernet	Discussions of the Ethernet/IEEE 802.3 protocols.
+comp.dcom.lans.misc	Local area network hardware and software.
+comp.dcom.modems	Data communications hardware and software.
+comp.dcom.modems.cable	Cable modems and internet access via cable tv.
+comp.dcom.net-analysis	Network Testing and Analysis Procedures and Results.
+comp.dcom.net-management	Network management methods and applications.
+comp.dcom.sdh-sonet	Discuss the SDH and SONET technology.
+comp.dcom.sys.cisco	Info on Cisco routers and bridges.
+comp.dcom.sys.nortel	Nortel telecommunications products and systems.
+comp.dcom.telecom	Telecommunications digest. (Moderated)
+comp.dcom.telecom.tech	Discussion of technical aspects of telephony.
+comp.dcom.videoconf	Video conference technology and applications.
+comp.dcom.voice-over-ip	Voice Over IP technology.
+comp.dcom.vpn		Virtual Private Network Technology.
+comp.dcom.wan		All topics concerned with wide area networking.
+comp.dcom.xdsl		Discussion area for different DSL technologies.
+comp.distributed	Distributed Resource Sharing and Applications.
+comp.doc.management	Document Management technologies.
+comp.dsp		Digital Signal Processing using computers.
+comp.editors		Topics related to computerized text editing.
+comp.edu		Computer science education.
+comp.edu.languages.natural	Computer assisted languages instruction issues.
+comp.emacs		EMACS editors of different flavors.
+comp.emacs.xemacs	Bug reports, questions and answers about XEmacs.
+comp.emulators.apple2	Emulators of Apple // systems.
+comp.emulators.cbm	Emulators of C-64, C-128, PET, and VIC-20 systems.
+comp.emulators.game-consoles	Emulators of game console systems.
+comp.emulators.misc	Emulators of miscellaneous computer systems.
+comp.emulators.ms-windows.wine	A free MS-Windows emulator under X.
+comp.file-sharing.bittorrent	Distributed file sharing on Bittorrent protocol.
+comp.fonts		Typefonts -- design, conversion, use, etc.
+comp.games.development.design	Designing gameplay and rules systems.
+comp.games.development.industry	Biz news, project management, jobs.
+comp.games.development.programming.algorithms	Abstract algorithms for games.
+comp.games.development.programming.misc	General info on programming games.
+comp.graphics.algorithms	Algorithms used in producing computer graphics.
+comp.graphics.animation	Technical aspects of computer animation.
+comp.graphics.api.misc	Application Programmer Interface issues, methods.
+comp.graphics.api.opengl	The OpenGL 3D application programming interface.
+comp.graphics.apps.alias	3-D graphics software from Alias Research.
+comp.graphics.apps.cinema4d	3D modeling, animation and raytracing package.
+comp.graphics.apps.corel	Corel graphics software applications.
+comp.graphics.apps.gimp	The GNU Image Manipulation Program.
+comp.graphics.apps.gnuplot	The gnuplot interactive function plotter.
+comp.graphics.apps.lightwave	NewTek's Lightwave3D & related topics.
+comp.graphics.apps.pagemaker	Question, answers, tips and suggestions.
+comp.graphics.apps.paint-shop-pro	Paint Shop Pro in general.
+comp.graphics.apps.photoshop	Adobe Photoshop techniques & help.
+comp.graphics.apps.ulead	Ulead graphics software products.
+comp.graphics.misc	Computer graphics miscellany.
+comp.graphics.packages.3dstudio	Autodesk's 3D Studio software.
+comp.graphics.rendering.misc	Rendering comparisons, approaches, methods.
+comp.graphics.rendering.raytracing	Raytracing software, tools and methods.
+comp.graphics.rendering.renderman	RenderMan interface & shading language.
+comp.graphics.visualization	Info on scientific visualization.
+comp.groupware		Software & hardware for shared interactive environments.
+comp.groupware.lotus-notes.admin	Lotus Notes system administration.
+comp.groupware.lotus-notes.apps	Application software for Lotus Notes.
+comp.groupware.lotus-notes.misc	Lotus Notes related discussions.
+comp.groupware.lotus-notes.programmer	Programming for Lotus Notes.
+comp.home.automation	Home automation devices, setup, sources, etc.
+comp.human-factors	Issues related to human-computer interaction (HCI).
+comp.infosystems	Any discussion about information systems.
+comp.infosystems.gis	All aspects of Geographic Information Systems.
+comp.infosystems.gemini	Internet Hypertext System, Privacy, Accessibility.
+comp.infosystems.gopher	Discussion of the Gopher information service.
+comp.infosystems.hyperg	The Hyper-G network hypermedia system and applications.
+comp.infosystems.kiosks	Informational and transactional kiosks. (Moderated)
+comp.infosystems.search	All aspects of search technology.
+comp.infosystems.wais	The Z39.50-based WAIS full-text search system.
+comp.infosystems.www.authoring.html	Writing HTML for the Web.
+comp.infosystems.www.authoring.images	Using images, imagemaps on the Web.
+comp.infosystems.www.authoring.misc	Miscellaneous Web authoring issues.
+comp.infosystems.www.authoring.site-design	Web site design philosophy.
+comp.infosystems.www.authoring.stylesheets	Layout/presentation on the WWW.
+comp.infosystems.www.authoring.tools	Programs to help authoring Websites.
+comp.infosystems.www.browsers.mac	Web browsers for the Macintosh platform.
+comp.infosystems.www.browsers.misc	Web browsers for other platforms.
+comp.infosystems.www.browsers.ms-windows	Web browsers for MS Windows.
+comp.infosystems.www.browsers.x	Web browsers for the X-Window system.
+comp.infosystems.www.misc	Miscellaneous World Wide Web discussion.
+comp.infosystems.www.servers.misc	Web servers for other platforms.
+comp.infosystems.www.servers.ms-windows	Web servers for MS Windows and NT.
+comp.infosystems.www.servers.unix	Web servers for UNIX platforms.
+comp.internet.services.blog.livejournal	LJ blogging service and software.
+comp.internet.services.google	Search, Gmail, Groups, Maps, Picasa, etc.
+comp.internet.services.video.youtube	Internet video for the masses.
+comp.internet.services.wiki	Wikis, such as Wikipedia.
+comp.lang.ada		Discussion about Ada*.
+comp.lang.apl		Discussion about APL.
+comp.lang.asm.x86	Bulletin Board and Q&A for x86 assembly language topics. (Moderated)
+comp.lang.asm370	Programming in IBM System/370 Assembly Language.
+comp.lang.awk		The AWK programming language.
+comp.lang.basic.misc	Other dialects and aspects of BASIC.
+comp.lang.basic.powerbasic	PowerBasic Inc. programming languages.
+comp.lang.basic.realbasic	REALBasic programming discussion.
+comp.lang.basic.visual.database	Database aspects of Visual Basic.
+comp.lang.basic.visual.misc	Visual Basic in general.
+comp.lang.beta		The object-oriented programming language BETA.
+comp.lang.c		Discussion about C.
+comp.lang.c++		The object-oriented C++ language.
+comp.lang.c++.leda	All aspects of the LEDA library.
+comp.lang.c++.misc	Development in C++, libraries, cross and single targets
+comp.lang.c++.moderated	Technical discussion of the C++ language. (Moderated)
+comp.lang.c.moderated	The C programming language. (Moderated)
+comp.lang.clarion	Technical discussion of Clarion programming.
+comp.lang.clipper	Clipper and Visual Objects programming languages.
+comp.lang.clipper.visual-objects	CA-Visual Objects developer system.
+comp.lang.clos		Common Lisp Object System discussions.
+comp.lang.cobol		The COBOL language and software.
+comp.lang.dylan		For discussion of the Dylan language.
+comp.lang.eiffel	The object-oriented Eiffel language.
+comp.lang.forth		Discussion about Forth.
+comp.lang.forth.mac	The CSI MacForth programming environment.
+comp.lang.fortran	Discussion about FORTRAN.
+comp.lang.functional	Discussion about functional languages.
+comp.lang.go		The Go programming language (Golang).
+comp.lang.haskell	Polymorphically-typed lazy purely-functional programming.
+comp.lang.hermes	The Hermes language for distributed applications.
+comp.lang.icon		Topics related to the ICON programming language.
+comp.lang.idl		IDL (Interface Description Language) related topics.
+comp.lang.idl-pvwave	IDL and PV-Wave language discussions.
+comp.lang.java.3d	3D Graphics API's for the Java language.
+comp.lang.java.advocacy	Support for and criticism of the Java System.
+comp.lang.java.beans	Java software components (JavaBeans).
+comp.lang.java.corba	Topics relating to Java and CORBA.
+comp.lang.java.databases	Databases, java.sql, JDBC, ODBC.
+comp.lang.java.gui	GUI toolkits and windowing: AWT, IFC etc.
+comp.lang.java.help	Set-up problems, catch-all first aid.
+comp.lang.java.machine	JVM, native methods, hardware.
+comp.lang.java.programmer	Programming in the Java language.
+comp.lang.java.security	Security issues raised by Java.
+comp.lang.java.softwaretools	IDEs, browsers, compilers, other tools.
+comp.lang.javascript	Netscape Communications Corp.'s JavaScript language.
+comp.lang.labview	Labview Software Discussion Group.
+comp.lang.lisp		Discussion about LISP.
+comp.lang.logo		The Logo teaching and learning language.
+comp.lang.misc		Different computer languages not specifically listed.
+comp.lang.ml		ML languages including Standard ML, CAML, Lazy ML, etc. (Moderated)
+comp.lang.modula2	Discussion about Modula-2.
+comp.lang.modula3	Discussion about the Modula-3 language.
+comp.lang.mumps		The M (MUMPS) language & technology, in general.
+comp.lang.oberon	The Oberon language and system.
+comp.lang.objective-c	The Objective-C language and environment.
+comp.lang.pascal.ansi-iso	Pascal according to ANSI and ISO standards.
+comp.lang.pascal.borland	Borland's Pascal.
+comp.lang.pascal.delphi.components.misc	General component issues.
+comp.lang.pascal.delphi.databases	Database aspects of Borland Delphi.
+comp.lang.pascal.delphi.misc	General issues with Borland Delphi.
+comp.lang.pascal.mac	Macintosh based Pascals.
+comp.lang.pascal.misc	Pascal in general and ungrouped Pascals.
+comp.lang.perl.announce	Announcements about Perl. (Moderated)
+comp.lang.perl.misc	The Perl language in general.
+comp.lang.perl.moderated	Perl language. (Moderated)
+comp.lang.perl.modules	Use and development of Perl modules.
+comp.lang.perl.tk	Using Tk (and X) from Perl.
+comp.lang.php		PHP, server side scripting.
+comp.lang.pl1		PL/I language discussions.
+comp.lang.pop		Pop11 and the Plug user group.
+comp.lang.postscript	The PostScript Page Description Language.
+comp.lang.prolog	Discussion about PROLOG.
+comp.lang.python	The Python computer language.
+comp.lang.python.announce	Announcements about the Python language. (Moderated)
+comp.lang.rexx		The REXX command language.
+comp.lang.ruby		The Ruby dynamic OO programming language.
+comp.lang.scheme	The Scheme Programming language.
+comp.lang.scheme.scsh	SCSH - the Scheme Shell.
+comp.lang.smalltalk	Discussion about Smalltalk 80.
+comp.lang.smalltalk.advocacy	Discussion of Smalltalk Language pros/cons.
+comp.lang.smalltalk.dolphin	The Dolphin variant of the Smalltalk language.
+comp.lang.tcl		The Tcl programming language and related tools.
+comp.lang.verilog	Discussing Verilog and PLI.
+comp.lang.vhdl		VHSIC Hardware Description Language, IEEE 1076/87.
+comp.lang.vrml		Virtual Reality Modeling Language discussion.
+comp.lang.xharbour	xHarbour programming, Clipper, and xBase.
+comp.lsi		Large scale integrated circuits.
+comp.lsi.testing	Testing of electronic circuits.
+comp.mail.elm		Discussion and fixes for the ELM mail system.
+comp.mail.eudora.mac	Eudora email software for Macintosh.
+comp.mail.eudora.ms-windows	Eudora email software for MS Windows.
+comp.mail.headers	Gatewayed from the Internet header-people list.
+comp.mail.imap		Discussion of IMAP-based mail systems.
+comp.mail.list-admin.software	Software used in the running of mailing lists.
+comp.mail.mh		The UCI version of the Rand Message Handling system.
+comp.mail.mime		Multipurpose Internet Mail Extensions of RFC 1341.
+comp.mail.misc		General discussions about computer mail.
+comp.mail.mutt		The Mutt E-Mail Client.
+comp.mail.pegasus-mail.misc	Pegasus Mail for DOS and Macs, and Mercury Mail.
+comp.mail.pegasus-mail.ms-windows	Discussion of Pegasus Mail for Windows.
+comp.mail.pine		The PINE mail user agent.
+comp.mail.sendmail	Configuring and using the BSD sendmail agent.
+comp.mail.uucp		Mail in the uucp network environment.
+comp.misc		General topics about computers not covered elsewhere.
+comp.mobile.android	Discussing Android devices / OS.
+comp.mobile.ipad	Mobile tablet PC running iPhone OS.
+comp.multimedia		Interactive multimedia technologies of all kinds.
+comp.music.midi		Computers as components in MIDI music systems.
+comp.music.misc		Miscellaneous use of computers in music.
+comp.music.research	The use of Computers in Music Research and Composition. (Moderated)
+comp.newprod		Announcements of new products of interest. (Moderated)
+comp.object		Object-oriented programming and languages.
+comp.object.corba	OMG CORBA standard.
+comp.object.logic	Integrating object-oriented and logic programming.
+comp.org.acm		Topics about the Association for Computing Machinery.
+comp.org.ieee		Issues and announcements about the IEEE & its members.
+comp.org.lisp-users	Association of Lisp Users related discussions.
+comp.org.uniforum	UniForum Association activities.
+comp.org.usenix		USENIX Association events and announcements.
+comp.org.usenix.roomshare	Finding lodging during Usenix conferences.
+comp.org.user-groups.meetings	Planning for user group meetings and events.
+comp.org.user-groups.misc	User group discussions in general.
+comp.os.aos		Topics related to Data General's AOS/VS.
+comp.os.coherent	Discussion and support of the Coherent operating system.
+comp.os.cpm		Discussion about the CP/M operating system.
+comp.os.geos.misc	GEOS O/S by Geoworks in general.
+comp.os.geos.programmer	GEOS O/S Programming in general.
+comp.os.linux.advocacy	Benefits of Linux compared to other operating systems.
+comp.os.linux.alpha	Linux on Digital Alpha machines.
+comp.os.linux.announce	Announcements important to the Linux community. (Moderated)
+comp.os.linux.development.apps	Writing Linux applications, porting to Linux.
+comp.os.linux.development.system	Linux kernels, device drivers, modules.
+comp.os.linux.embedded	Linux operating system on embedded hardware.
+comp.os.linux.hardware	Hardware compatibility with the Linux operating system.
+comp.os.linux.m68k	Linux operating system on 680x0 Amiga, Atari, VME.
+comp.os.linux.misc	Linux-specific topics not covered by other groups.
+comp.os.linux.networking	Networking and communications under Linux.
+comp.os.linux.portable	Linux OS on portable PCs.
+comp.os.linux.powerpc	Linux systems running on PowerPC microprocessors.
+comp.os.linux.security	Security and the GNU/Linux Operating System.
+comp.os.linux.setup	Linux installation and system administration.
+comp.os.linux.x		Linux X Window System servers, clients, libs and fonts.
+comp.os.linux.xbox	Linux on Xbox.
+comp.os.lynx		Discussion of LynxOS and Lynx Real-Time Systems.
+comp.os.mach		The MACH OS from CMU & other places.
+comp.os.magic-cap	Everything about General Magic's Magic Cap OS.
+comp.os.minix		Discussion of Tanenbaum's MINIX system.
+comp.os.misc		General OS-oriented discussion not carried elsewhere.
+comp.os.ms-windows.advocacy	Speculation and debate about Microsoft Windows.
+comp.os.ms-windows.apps.financial	MS-Windows financial & tax software.
+comp.os.ms-windows.apps.misc	MS-Windows applications.
+comp.os.ms-windows.apps.utilities.win95	Utility/add-on programs for Win95.
+comp.os.ms-windows.apps.winsock.misc	Other Winsock applications.
+comp.os.ms-windows.apps.word-proc	MS-Windows word-processing applications.
+comp.os.ms-windows.ce	Microsoft Windows CE operating system.
+comp.os.ms-windows.misc	General discussions about Windows issues.
+comp.os.ms-windows.networking.misc	Windows and other networks.
+comp.os.ms-windows.networking.tcp-ip	Windows and TCP/IP networking.
+comp.os.ms-windows.networking.win95	Win95 to Novell, TCP/IP, other nets.
+comp.os.ms-windows.networking.windows	Windows' built-in networking.
+comp.os.ms-windows.nt.admin.misc	Windows NT system administration.
+comp.os.ms-windows.nt.admin.networking	Windows NT network administration.
+comp.os.ms-windows.nt.admin.security	Windows NT Security topics.
+comp.os.ms-windows.nt.misc	General discussion about Windows NT.
+comp.os.ms-windows.nt.setup.misc	Windows NT software setup.
+comp.os.ms-windows.nt.software.backoffice	Windows NT BackOffice.
+comp.os.ms-windows.nt.software.compatibility	Win NT software compatibility.
+comp.os.ms-windows.nt.software.services	Windows NT system services software.
+comp.os.ms-windows.programmer.controls	Controls, dialogs and VBXs.
+comp.os.ms-windows.programmer.graphics	GDI, graphics and printing.
+comp.os.ms-windows.programmer.memory	Memory management issues.
+comp.os.ms-windows.programmer.misc	Programming Microsoft Windows.
+comp.os.ms-windows.programmer.networks	Network programming.
+comp.os.ms-windows.programmer.nt.kernel-mode	Windows NT driver development.
+comp.os.ms-windows.programmer.ole	OLE2, COM and DDE programming.
+comp.os.ms-windows.programmer.tools.mfc	MFC-based development for Windows.
+comp.os.ms-windows.programmer.tools.misc	Windows Development tools.
+comp.os.ms-windows.programmer.tools.winsock	Winsock programming.
+comp.os.ms-windows.programmer.vxd	Windows VxD and driver development.
+comp.os.ms-windows.programmer.win32	32-bit Windows programming interfaces.
+comp.os.ms-windows.video	Video adapters and drivers for Windows.
+comp.os.ms-windows.win95.misc	Miscellaneous Topics about Windows 95.
+comp.os.msdos.4dos	The 4DOS command processor for MS-DOS.
+comp.os.msdos.apps	Discussion of applications that run under MS-DOS.
+comp.os.msdos.desqview	QuarterDeck's Desqview and related products.
+comp.os.msdos.djgpp	DOS GNU C/C++ applications and programming environment.
+comp.os.msdos.misc	Miscellaneous topics about MS-DOS machines.
+comp.os.msdos.programmer	Programming MS-DOS machines.
+comp.os.msdos.programmer.turbovision	Borland's text application libraries.
+comp.os.netware.connectivity	Connectivity products (TCP/IP, SAA, NFS, MAC).
+comp.os.netware.misc	General Netware topics.
+comp.os.os2.advocacy	Supporting and flaming OS/2.
+comp.os.os2.announce	Notable news and announcements related to OS/2. (Moderated)
+comp.os.os2.apps	Discussions of applications under OS/2.
+comp.os.os2.beta	All aspects of beta releases of OS/2 systems software.
+comp.os.os2.bugs	OS/2 system bug reports, fixes and work-arounds.
+comp.os.os2.ecomstation	Serenity Systems operating system eComStation.
+comp.os.os2.games	Running games under OS/2.
+comp.os.os2.mail-news	Mail and news apps/utils (on- & offline) under OS/2.
+comp.os.os2.marketplace	Forsale/wanted; shopping; commercial ads; job postings.
+comp.os.os2.misc	Miscellaneous topics about the OS/2 system.
+comp.os.os2.multimedia	Multi-media on OS/2 systems.
+comp.os.os2.networking.misc	Miscellaneous networking issues of OS/2.
+comp.os.os2.networking.server	Administration of NetWare, Warp Server, etc.
+comp.os.os2.networking.tcp-ip	TCP/IP under OS/2.
+comp.os.os2.networking.www	World Wide Web (WWW) apps/utils under OS/2.
+comp.os.os2.programmer.misc	Programming OS/2 machines.
+comp.os.os2.programmer.porting	Porting software to OS/2 machines.
+comp.os.os2.programmer.tools	Compilers, assemblers, interpreters under OS/2.
+comp.os.os2.setup.misc	Installing/configuring OS/2; misc. hardware/drivers.
+comp.os.os2.setup.storage	Disk/Tape/CD-ROM hardware/drivers under OS/2.
+comp.os.os2.setup.video	Base video hardware/drivers under OS/2.
+comp.os.os2.utilities	General purpose utils (shells/backup/compression/etc).
+comp.os.os9		Microware's OS-9 real-time operating system.
+comp.os.plan9		Plan 9 from Bell Labs. (Moderated)
+comp.os.psos		The realtime operating system pSOS+.
+comp.os.qnx		Using and developing under the QNX operating system.
+comp.os.rsts		Topics related to the PDP-11 RSTS/E operating system.
+comp.os.vms		DEC's VAX* line of computers & VMS.
+comp.os.vxworks		The VxWorks real-time operating system.
+comp.parallel		Massively parallel hardware/software. (Moderated)
+comp.parallel.mpi	Message Passing Interface (MPI).
+comp.parallel.pvm	The PVM system of multi-computer parallelization.
+comp.periphs		Peripheral devices.
+comp.periphs.printers	Information on printers.
+comp.periphs.scanners	Technical discussion of scanners and imaging devices.
+comp.periphs.scsi	Discussion of SCSI-based peripheral devices.
+comp.programming	Programming issues that transcend languages and OSs.
+comp.programming.contests	Announcements & results of programming contests.
+comp.programming.literate	Literate programming and LP tools. (Moderated)
+comp.programming.threads	All issues about multithreaded programming.
+comp.protocols.dicom	Digital Imaging and Communications in Medicine.
+comp.protocols.dns.bind	Berkeley Internet Name Domain (BIND). (Moderated)
+comp.protocols.kerberos	The Kerberos authentication server.
+comp.protocols.kermit.misc	Kermit protocol and software.
+comp.protocols.misc	Various forms and types of protocol.
+comp.protocols.nfs	Discussion about the Network File System protocol.
+comp.protocols.ppp	Discussion of the Internet Point to Point Protocol.
+comp.protocols.smb	SMB file sharing protocol and Samba SMB server/client.
+comp.protocols.snmp	The Simple Network Management Protocol.
+comp.protocols.tcp-ip	TCP and IP network protocols.
+comp.protocols.tcp-ip.domains	Topics related to Domain Style names.
+comp.protocols.tcp-ip.ibmpc	TCP/IP for IBM(-like) personal computers.
+comp.protocols.time.ntp	The network time protocol.
+comp.publish.cdrom.hardware	Hardware used in publishing with CD-ROM.
+comp.publish.cdrom.software	Software used in publishing with CD-ROM.
+comp.publish.electronic.misc	General electronic publishing issues.
+comp.publish.prepress	Electronic prepress.
+comp.realtime		Issues related to real-time computing.
+comp.risks		Risks to the public from computers & users. (Moderated)
+comp.robotics.misc	All aspects of robots and their applications.
+comp.security.firewalls	Anything pertaining to network firewall security.
+comp.security.misc	Security issues of computers and networks.
+comp.security.pgp.discuss	PGP and its implications.
+comp.security.pgp.tech	Use of PGP, bug reports and help.
+comp.security.pgp.test	Testing signing, encryption and decryption using PGP.
+comp.security.ssh	SSH secure remote login and tunneling tools.
+comp.security.unix	Discussion of Unix security.
+comp.simulation		Simulation methods, problems, uses. (Moderated)
+comp.society.futures	Events in technology affecting future computing.
+comp.soft-sys.ace	ACE programming, porting, and systems.
+comp.soft-sys.app-builder.forte	Discussion of Forte development software.
+comp.soft-sys.app-builder.uniface	Uniface Client/Server App Development.
+comp.soft-sys.business.sap	Discussion forum on SAP software.
+comp.soft-sys.dce	The Distributed Computing Environment (DCE).
+comp.soft-sys.gis.esri	ESRI GIS software and system implementation.
+comp.soft-sys.math.maple	Maple computer mathematics discussion group.
+comp.soft-sys.math.mathematica	Mathematica discussion group. (Moderated)
+comp.soft-sys.math.scilab	Scientific software package Scilab.
+comp.soft-sys.matlab	The MathWorks calculation and visualization package.
+comp.soft-sys.octave	GNU Octave, language for numerical computations.
+comp.soft-sys.powerbuilder	Application development tools from PowerSoft.
+comp.soft-sys.ptolemy	The Ptolemy simulation/code generation environment.
+comp.soft-sys.sas	The SAS statistics package.
+comp.soft-sys.stat.spss	The statistical program package SPSS.
+comp.soft-sys.wxwindows	Discussions related to wxWindows framework.
+comp.software-eng	Software Engineering and related topics.
+comp.software.arabic	Arabic script software. (Moderated)
+comp.software.config-mgmt	Configuration management, tools and procedures.
+comp.software.extreme-programming	Extreme Programming discussions.
+comp.software.international	Finding, using, & writing non-English software.
+comp.software.licensing	Software licensing technology.
+comp.software.measurement	Discussions of software metrics.
+comp.software.patterns	Design, organizational and other software patterns.
+comp.software.testing	All aspects of testing computer systems.
+comp.software.year-2000	Year 2000 compliance: projects and issues.
+comp.sources.bugs	Bug reports, fixes, discussion for posted sources.
+comp.sources.d		For any discussion of source postings.
+comp.sources.testers	Finding people to test software.
+comp.sources.wanted	Requests for software and fixes.
+comp.specification.misc	Formal specification methods in general.
+comp.specification.z	Discussion about the formal specification notation Z.
+comp.speech.research	Speech technology research issues.
+comp.speech.users	Issues related with using current speech technology.
+comp.std.announce	Announcements about standards activities. (Moderated)
+comp.std.c		Discussion about C language standards.
+comp.std.c++		Discussion about C++ language, library, standards. (Moderated)
+comp.std.misc		Discussion about various standards.
+comp.sw.components	Software components and related technology.
+comp.sys.3b1		Discussion and support of AT&T 7300/3B1/UnixPC.
+comp.sys.acorn.advocacy	Why Acorn computers and programs are better.
+comp.sys.acorn.announce	Announcements for Acorn and ARM users. (Moderated)
+comp.sys.acorn.apps	Acorn software applications.
+comp.sys.acorn.extra-cpu	Extra CPUs in Acorn computers.
+comp.sys.acorn.games	Discussion of games for Acorn machines.
+comp.sys.acorn.hardware	Acorn hardware.
+comp.sys.acorn.misc	Acorn computing in general.
+comp.sys.acorn.networking	Networking of Acorn computers.
+comp.sys.acorn.programmer	Programming of Acorn computers.
+comp.sys.amiga.advocacy	Why an Amiga is better than XYZ.
+comp.sys.amiga.applications	Miscellaneous applications.
+comp.sys.amiga.audio	Music, MIDI, speech synthesis, other sounds.
+comp.sys.amiga.cd32	Technical and computing talk for Commodore Amiga CD32.
+comp.sys.amiga.emulations	Various hardware & software emulators.
+comp.sys.amiga.games	Discussion of games for the Commodore Amiga.
+comp.sys.amiga.graphics	Charts, graphs, pictures, etc.
+comp.sys.amiga.hardware	Amiga computer hardware, Q&A, reviews, etc.
+comp.sys.amiga.introduction	Group for newcomers to Amigas.
+comp.sys.amiga.marketplace	Where to find it, prices, etc.
+comp.sys.amiga.misc	Discussions not falling in another Amiga group.
+comp.sys.amiga.morphos	All about Amiga-compatible MorphOS.
+comp.sys.amiga.programmer	Developers & hobbyists discuss code.
+comp.sys.amstrad.8bit	Amstrad CPC/PcW/GX4000 software/hardware.
+comp.sys.apollo		Apollo computer systems.
+comp.sys.apple2		Discussion about Apple II micros.
+comp.sys.apple2.marketplace	Buying, selling and trading Apple II equipment.
+comp.sys.apple2.programmer	Programming on the Apple II.
+comp.sys.apple2.usergroups	All about Apple II user groups.
+comp.sys.arm		The ARM processor architecture and support chips.
+comp.sys.atari.8bit	Discussion about 8 bit Atari micros.
+comp.sys.atari.advocacy	Attacking and defending Atari computers.
+comp.sys.atari.announce	Atari related hard/software announcements. (Moderated)
+comp.sys.atari.programmer	Programming on the Atari computer.
+comp.sys.atari.st	Discussion about 16 bit Atari micros.
+comp.sys.atari.st.tech	Technical discussions of Atari ST hard/software.
+comp.sys.att		Discussions about AT&T microcomputers.
+comp.sys.be.help	Help getting your Be{Box,OS} working.
+comp.sys.be.misc	Miscellaneous BeOS/BeBox related topics.
+comp.sys.cbm		Discussion about Commodore micros.
+comp.sys.cdc		Control Data Corporation Computers (e.g., Cybers).
+comp.sys.dec		Discussions about DEC computer systems.
+comp.sys.dec.micro	DEC Micros (Rainbow, Professional 350/380).
+comp.sys.encore		Encore's MultiMax computers.
+comp.sys.handhelds	Handheld computers and programmable calculators.
+comp.sys.hp.apps	Discussion of software and apps on all HP platforms.
+comp.sys.hp.hardware	Discussion of Hewlett Packard system hardware.
+comp.sys.hp.hpux	Issues pertaining to HP-UX & 9000 series computers.
+comp.sys.hp.misc	Issues not covered in any other comp.sys.hp.* group.
+comp.sys.hp.mpe		Issues pertaining to MPE & 3000 series computers.
+comp.sys.hp48		Hewlett-Packard's HP48 and HP28 calculators.
+comp.sys.ibm.as400.misc	IBM AS/400 miscellaneous topics.
+comp.sys.ibm.pc.classic	The "classic" IBM PC and compatibles of the 1980s.
+comp.sys.ibm.pc.demos	Demonstration programs which showcase programmer skill.
+comp.sys.ibm.pc.games.action	Arcade-style games on PCs.
+comp.sys.ibm.pc.games.adventure	Adventure (non-rpg) games on PCs.
+comp.sys.ibm.pc.games.announce	Announcements for all PC gamers. (Moderated)
+comp.sys.ibm.pc.games.flight-sim	Flight simulators on PCs.
+comp.sys.ibm.pc.games.misc	Games not covered by other PC groups.
+comp.sys.ibm.pc.games.naval	PC computer games devoted to naval warfare.
+comp.sys.ibm.pc.games.rpg	Role-playing games on the PC.
+comp.sys.ibm.pc.games.space-sim	PC space flight simulation games.
+comp.sys.ibm.pc.games.sports	Discussion of sports games for the IBM PC.
+comp.sys.ibm.pc.games.strategic	Strategy/planning games on PCs.
+comp.sys.ibm.pc.games.war-historical	Wargames based on historical conflicts.
+comp.sys.ibm.pc.hardware.cd-rom	CD-ROM drives and interfaces for the PC.
+comp.sys.ibm.pc.hardware.chips	Processor, cache, memory chips, etc.
+comp.sys.ibm.pc.hardware.comm	Modems & communication cards for the PC.
+comp.sys.ibm.pc.hardware.misc	Miscellaneous PC hardware topics.
+comp.sys.ibm.pc.hardware.networking	Network hardware & equipment for the PC.
+comp.sys.ibm.pc.hardware.storage	Hard drives & other PC storage devices.
+comp.sys.ibm.pc.hardware.systems	Whole IBM PC computer & clone systems.
+comp.sys.ibm.pc.hardware.video	Video cards & monitors for the PC.
+comp.sys.ibm.pc.misc	Discussion about IBM personal computers.
+comp.sys.ibm.pc.rt	Topics related to IBM's RT computer.
+comp.sys.ibm.pc.soundcard.games	Questions about using soundcards with games.
+comp.sys.ibm.pc.soundcard.misc	Soundcards in general.
+comp.sys.ibm.pc.soundcard.music	Music and sound questions using soundcards.
+comp.sys.ibm.pc.soundcard.tech	Technical questions about pc soundcards.
+comp.sys.ibm.ps2.hardware	Microchannel hardware, any vendor.
+comp.sys.ibm.sys3x.misc	IBM System/34, System/36, System/38 diverse topics.
+comp.sys.intel		Discussions about Intel systems and parts.
+comp.sys.laptops	Laptop (portable) computers.
+comp.sys.laptops.thinkpad	IBM/Lenovo line of laptop computers.
+comp.sys.m6809		Discussion about 6809's.
+comp.sys.m68k		Discussion about 68k's.
+comp.sys.m88k		Discussion about 88k-based computers.
+comp.sys.mac.advocacy	The Macintosh computer family compared to others.
+comp.sys.mac.apps	Discussions of Macintosh applications.
+comp.sys.mac.comm	Discussion of Macintosh communications.
+comp.sys.mac.databases	Database systems for the Apple Macintosh.
+comp.sys.mac.games.action	Action games for the Macintosh.
+comp.sys.mac.games.flight-sim	Flight simulator gameplay on the Mac.
+comp.sys.mac.games.marketplace	Macintosh games for sale and trade.
+comp.sys.mac.games.misc	Macintosh games not covered in other groups.
+comp.sys.mac.games.strategic	Strategy/planning games on the Macintosh.
+comp.sys.mac.graphics	Macintosh graphics: paint, draw, 3D, CAD, animation.
+comp.sys.mac.hardware.misc	General Mac hardware topics not already covered.
+comp.sys.mac.hardware.storage	All forms of Mac storage hardware and media.
+comp.sys.mac.hardware.video	Video input and output hardware on the Mac.
+comp.sys.mac.hypercard	The Macintosh Hypercard: info & uses.
+comp.sys.mac.misc	General discussions about the Apple Macintosh.
+comp.sys.mac.oop.misc	Object oriented programming issues on the Mac.
+comp.sys.mac.portables	Discussion particular to laptop Macintoshes.
+comp.sys.mac.printing	All about printing hardware and software on the Mac.
+comp.sys.mac.programmer.help	Help with Macintosh programming.
+comp.sys.mac.programmer.misc	Other issues of Macintosh programming.
+comp.sys.mac.programmer.tools	Macintosh programming tools.
+comp.sys.mac.scitech	Using the Macintosh in scientific & technological work.
+comp.sys.mac.system	Discussions of Macintosh system software.
+comp.sys.mac.vintage	Unsupported Macintosh hardware and software.
+comp.sys.mac.wanted	Postings of "I want XYZ for my Mac."
+comp.sys.mentor		Mentor Graphics products & the Silicon Compiler System.
+comp.sys.mips		Systems based on MIPS chips.
+comp.sys.misc		Discussion about computers of all kinds.
+comp.sys.msx		The MSX home computer system.
+comp.sys.ncr		Discussion about NCR computers.
+comp.sys.net-computer.misc	Network Computers and related topics.
+comp.sys.newton.marketplace	Newton-specific forsale, wanted & jobs.
+comp.sys.newton.misc	Miscellaneous discussion about Newton systems.
+comp.sys.newton.programmer	Discussion of Newton software development.
+comp.sys.next.hardware	Discussing the physical aspects of NeXT computers.
+comp.sys.next.marketplace	NeXT hardware, software and jobs.
+comp.sys.next.misc	General discussion about the NeXT computer system.
+comp.sys.next.programmer	NeXT related programming issues.
+comp.sys.next.software	Function, use and availability of NeXT programs.
+comp.sys.next.sysadmin	Discussions related to NeXT system administration.
+comp.sys.northstar	Northstar microcomputer users.
+comp.sys.oric		Oric computers (Oric1, Atmos, Telestrat, et cetera).
+comp.sys.palmtops	Super-powered calculators in the palm of your hand.
+comp.sys.palmtops.pilot	The Pilot handheld computer.
+comp.sys.pen		Interacting with computers through pen gestures.
+comp.sys.powerpc.advocacy	Why the PowerPC is Good/Evil (delete one).
+comp.sys.powerpc.misc	Miscellaneous questions about PowerPC processors.
+comp.sys.powerpc.tech	Programming and architecture of PowerPC processors.
+comp.sys.prime		Prime Computer products.
+comp.sys.psion.apps	Discussion about Psion specific programs.
+comp.sys.psion.misc	Discussion about miscellaneous Psion related topics.
+comp.sys.psion.programmer	Discussion about Psion programming.
+comp.sys.pyramid	Pyramid 90x computers.
+comp.sys.raspberry-pi	Raspberry Pi computers & related hardware and software.
+comp.sys.sgi.admin	System administration on Silicon Graphics's Irises.
+comp.sys.sgi.apps	Applications which run on the Iris.
+comp.sys.sgi.bugs	Bugs found in the IRIX operating system.
+comp.sys.sgi.hardware	Base systems and peripherals for Iris computers.
+comp.sys.sgi.marketplace	SGI-specific for sale, wanted and jobs.
+comp.sys.sgi.misc	General discussion about Silicon Graphics's machines.
+comp.sys.sinclair	Sinclair computers, eg. the ZX81, Spectrum and QL.
+comp.sys.stratus	Stratus products, incl. System/88, CPS-32, VOS and FTX.
+comp.sys.sun.admin	Sun system administration issues and questions.
+comp.sys.sun.apps	Software applications for Sun computer systems.
+comp.sys.sun.hardware	Sun Microsystems hardware.
+comp.sys.sun.misc	Miscellaneous discussions about Sun products.
+comp.sys.sun.wanted	People looking for Sun products and support.
+comp.sys.super		Supercomputers.
+comp.sys.tandem		Tandem computers and related environments.
+comp.sys.tandy		Discussion about Tandy computers: new & old.
+comp.sys.ti		Discussion about Texas Instruments.
+comp.sys.transputer	The Transputer computer and OCCAM language.
+comp.sys.unisys		Sperry, Burroughs, Convergent and Unisys* systems.
+comp.sys.wearables	Wearable computers and their applications. (Moderated)
+comp.sys.xerox		Xerox 1100 workstations and protocols.
+comp.sys.zenith.z100	Heath & Zenith computers, Z-100 series and others.
+comp.terminals		All sorts of terminals.
+comp.text		Text processing issues and methods.
+comp.text.frame		Desktop publishing with FrameMaker.
+comp.text.interleaf	Applications and use of Interleaf software.
+comp.text.pdf		Adobe Acrobat and Portable Document Format technology.
+comp.text.sgml		ISO 8879 SGML, structured documents, markup languages.
+comp.text.tex		Discussion about the TeX and LaTeX systems & macros.
+comp.text.xml		The Extensible Markup Language (XML).
+comp.theory		Theoretical Computer Science.
+comp.theory.cell-automata	Discussion of all aspects of cellular automata.
+comp.unix.admin		Administering a Unix-based system.
+comp.unix.aix		IBM's version of UNIX.
+comp.unix.amiga		Minix, SYSV4 and other *nix on an Amiga.
+comp.unix.aux		The version of UNIX for Apple Macintosh II computers.
+comp.unix.bsd.386bsd.misc	386BSD operating system.
+comp.unix.bsd.bsdi.misc	BSD/OS operating system.
+comp.unix.bsd.freebsd.announce	Announcements pertaining to FreeBSD. (Moderated)
+comp.unix.bsd.freebsd.misc	FreeBSD operating system.
+comp.unix.bsd.misc	BSD operating systems.
+comp.unix.bsd.netbsd.misc	NetBSD operating system.
+comp.unix.bsd.openbsd.announce	OpenBSD announcements. (Moderated)
+comp.unix.bsd.openbsd.misc	The OpenBSD operating system.
+comp.unix.cray		Cray computers and their operating systems.
+comp.unix.dos-under-unix	MS-DOS running under UNIX by whatever means.
+comp.unix.internals	Discussions on hacking UNIX internals.
+comp.unix.misc		Various topics that don't fit other groups.
+comp.unix.programmer	Q&A for people programming under Unix.
+comp.unix.questions	UNIX neophytes group.
+comp.unix.sco.misc	SCO Unix, Systems, and Environments.
+comp.unix.sco.programmer	Programming in and for SCO Environments.
+comp.unix.shell		Using and programming the Unix shell.
+comp.unix.solaris	Discussions about the Solaris operating system.
+comp.unix.sys5.misc	Versions of System V which predate Release 3.
+comp.unix.sys5.r4	Discussing System V Release 4.
+comp.unix.tru64		Running, owning and administering Tru64 UNIX.
+comp.unix.ultrix	Discussions about DEC's Ultrix.
+comp.unix.unixware.misc	Products of Novell's Unix Systems Group.
+comp.unix.user-friendly	Discussion of UNIX user-friendliness.
+comp.unix.xenix.misc	General discussions regarding XENIX (except SCO).
+comp.windows.misc	Various issues about windowing systems.
+comp.windows.ui-builders.uimx	Using and augmenting the UIM/X UI Builder.
+comp.windows.x		Discussion about the X Window System.
+comp.windows.x.apps	Getting and using, not programming, applications for X.
+comp.windows.x.intrinsics	Discussion of the X toolkit.
+comp.windows.x.kde	The K Desktop Environment.
+comp.windows.x.motif	The Motif GUI for the X Window System.
+humanities.answers	Repository for periodic USENET articles. (Moderated)
+humanities.classics	Discussion of ancient Greece and Rome.
+humanities.design.misc	Theory, practice, history & aesthetic issues in design.
+humanities.language.sanskrit	The Sanskrit language and related topics.
+humanities.lit.authors.shakespeare	Poetry, plays, history of Shakespeare.
+humanities.misc		General topics in the arts & humanities.
+humanities.music.composers.wagner	The life and works of Richard Wagner.
+misc.answers		Repository for periodic USENET articles. (Moderated)
+misc.books.technical	Discussion of books about technical topics.
+misc.business.records-mgmt	All aspects of professional records management.
+misc.consumers		Consumer interests, product reviews, etc.
+misc.consumers.frugal-living	Practicing a frugal lifestyle.
+misc.consumers.house	Discussion about owning and maintaining a house.
+misc.consumers.house.homeowner-assn	Common interest housing developments.
+misc.creativity		Promoting the use of creativity in all human endeavors.
+misc.education		Discussion of the educational system.
+misc.education.adult	Adult education and adult literacy practice/research.
+misc.education.home-school.christian	Christian home-schooling.
+misc.education.home-school.misc	Almost anything about home-schooling.
+misc.education.language.english	Teaching English to speakers of other languages.
+misc.education.medical	Issues related to medical education.
+misc.education.science	Issues related to science education.
+misc.emerg-services	Forum for paramedics & other first responders.
+misc.entrepreneurs	Discussion on operating a business.
+misc.facts.straight-dope	The Straight Dope column and related topics.
+misc.fitness.aerobic	All forms of aerobic activity.
+misc.fitness.misc	All other general fitness topics.
+misc.fitness.walking	Fitness walking: help, instruction, events.
+misc.fitness.weights	Bodybuilding, weightlifting, resistance.
+misc.forsale.computers.mac-specific.cards.misc	Macintosh expansion cards.
+misc.forsale.computers.mac-specific.misc	Other Macintosh equipment.
+misc.forsale.computers.mac-specific.software	Macintosh software.
+misc.forsale.computers.memory	Memory chips and modules for sale and wanted.
+misc.forsale.computers.modems	Modems for sale and wanted.
+misc.forsale.computers.net-hardware	Networking hardware for sale and wanted.
+misc.forsale.computers.other.misc	Miscellaneous other equipment.
+misc.forsale.computers.other.software	Software for other systems.
+misc.forsale.computers.pc-specific.cards.misc	PC expansion cards.
+misc.forsale.computers.pc-specific.misc	Other PC-specific equipment.
+misc.forsale.computers.pc-specific.portables	Portable PC systems.
+misc.forsale.computers.pc-specific.software	PC software.
+misc.forsale.computers.pc-specific.systems	Complete PC systems.
+misc.forsale.computers.storage	Disk, CDROM and tape drives for sale and wanted.
+misc.forsale.computers.workstation	Workstation related computer items.
+misc.forsale.non-computer	Non-computer items for sale and wanted.
+misc.handicap		Discussions of interest to persons with disabilities.
+misc.headlines		Current interest: drug testing, terrorism, etc.
+misc.health.aids	AIDS issues and support.
+misc.health.alternative	Alternative, complementary and holistic health care.
+misc.health.arthritis	Arthritis and related disorders.
+misc.health.diabetes	Discussion of diabetes management in day to day life.
+misc.health.infertility	Treatment & support of infertility.
+misc.health.injuries.rsi.misc	All about Repetitive Strain Injuries.
+misc.health.therapy.occupational	All areas of occupational therapy.
+misc.immigration.australia+nz	Migration forum for Australia and New Zealand.
+misc.immigration.canada	Canada immigration issues.
+misc.immigration.misc	Miscellaneous countries immigration issues.
+misc.immigration.usa	USA immigration issues.
+misc.industry.electronics.marketplace	Electronics products & services.
+misc.industry.quality	Quality standards and other issues.
+misc.industry.utilities.electric	The electric utility industry.
+misc.int-property	Discussion of intellectual property rights.
+misc.invest.canada	Investing in Canadian financial markets.
+misc.invest.futures	Physical commodity and financial futures markets.
+misc.invest.marketplace	All other ads/promotions.
+misc.invest.misc	Investments not in other misc.invest.* groups.
+misc.invest.mutual-funds	Mutual Funds.
+misc.invest.options	Financial options on stocks and futures.
+misc.invest.real-estate	Property investments.
+misc.invest.stocks	Forum for sharing info about stocks and options.
+misc.invest.technical	Analyzing market trends with technical methods.
+misc.jobs.contract	Discussions about contract labor.
+misc.jobs.fields.chemistry	Employment in the chemical sciences.
+misc.jobs.misc		Discussion about employment, workplaces, careers.
+misc.jobs.resumes	Postings of resumes and "situation wanted" articles.
+misc.kids		Children, their behavior and activities.
+misc.kids.breastfeeding	Information, support, and decisions re breastfeeding.
+misc.kids.computer	The use of computers by children.
+misc.kids.health	Children's health.
+misc.kids.pregnancy	Pre-pregnancy planning, pregnancy, childbirth.
+misc.kids.vacation	Discussion on all forms of family-oriented vacationing.
+misc.legal		Legalities and the ethics of law.
+misc.legal.computing	Discussing the legal climate of the computing world.
+misc.legal.moderated	All aspects of law. (Moderated)
+misc.metric-system	The International System of Units.
+misc.misc		Various discussions not fitting in any other group.
+misc.news.internet.discuss	Discussion of news bulletins from the Net.
+misc.phone.mobile	Cellular telephones.
+misc.phone.mobile.iphone	Apple's iPhone.
+misc.rural		Devoted to issues concerning rural living.
+misc.survivalism	Disaster and long-term survival techniques and theory.
+misc.taxes		Tax laws and advice.
+misc.taxes.moderated	Tax professionals meeting place and answers to queries. (Moderated)
+misc.test		For testing of network software.  Very boring.
+misc.test.moderated	Testing of posting to moderated groups. (Moderated)
+misc.transport.marine	Maritime and inland waterways transportation.
+misc.transport.misc	General transportation issues.
+misc.transport.rail.americas	Railroads & railways in North & South America.
+misc.transport.rail.australia-nz	Railways in Australia & New Zealand.
+misc.transport.rail.europe	Railroads & railways in all of Europe.
+misc.transport.rail.misc	Rail issues not in other geographic groups.
+misc.transport.road	Road and highway transportation.
+misc.transport.trucking	Commercial trucking related issues.
+misc.transport.urban-transit	Metropolitan public transportation systems.
+misc.wanted		Requests for things that are needed (NOT software).
+misc.writing		Discussion of writing in all of its forms.
+misc.writing.screenplays	Aspects of writing and selling screenplays.
+news.admin.announce	Announcements for news administrators. (Moderated)
+news.admin.censorship	Censorship issues in news administration.
+news.admin.hierarchies	Network news hierarchies.
+news.admin.misc		General topics of network news administration.
+news.admin.moderation	Technical and social issues of newsgroup moderation. (Moderated)
+news.admin.net-abuse.email	Discussion of abuse of email systems.
+news.admin.net-abuse.misc	Network facility abuse, including spamming.
+news.admin.net-abuse.usenet	Discussion of abuse of the Usenet system.
+news.admin.peering	Article flow, server peering requests, & offers.
+news.admin.technical	Technical aspects of maintaining network news. (Moderated)
+news.announce.important	General announcements of interest to all. (Moderated)
+news.announce.newgroups	Calls for newgroups & announcements of same. (Moderated)
+news.announce.newusers	Explanatory postings for new users. (Moderated)
+news.answers		Repository for periodic USENET articles. (Moderated)
+news.groups		Discussions and lists of newsgroups.
+news.groups.proposals	Development of Big 8 proposals. (Moderated)
+news.groups.questions	Where can I find talk about topic X?
+news.lists.filters	Notices for automated news filtering systems.
+news.lists.misc		News-related statistics and lists. (Moderated)
+news.misc		Discussions of USENET itself.
+news.newusers.questions	Q & A for new users of Usenet. (Moderated)
+news.software.b		Discussion about Usenet B-news-compatible software.
+news.software.misc	Usenet-related software other than readers and servers.
+news.software.nn	Discussion about the "nn" Usenet news reader package.
+news.software.nntp	The Network News Transfer Protocol.
+news.software.readers	Discussing software for reading network news (Usenet).
+rec.animals.wildlife	Wildlife related discussions/information.
+rec.answers		Repository for periodic USENET articles. (Moderated)
+rec.antiques		Discussing antiques and vintage items.
+rec.antiques.bottles	Antique Bottle Collecting.
+rec.antiques.marketplace	Buying/selling/trading antiques.
+rec.antiques.radio+phono	Audio devices and materials of yesteryear.
+rec.aquaria.freshwater.cichlids	Care and keeping of freshwater cichlids.
+rec.aquaria.freshwater.goldfish	Care and keeping of goldfish, koi, carp.
+rec.aquaria.freshwater.misc	Freshwater aquaria in general.
+rec.aquaria.freshwater.plants	Keeping of freshwater aquarium plants.
+rec.aquaria.marine.misc	Marine aquaria in general.
+rec.aquaria.marine.reefs	Marine Reef aquaria.
+rec.aquaria.marketplace	Aquarium advertising & announcements.
+rec.aquaria.misc	Closed System aquaria in general.
+rec.aquaria.tech	Aquarium related technology and equipment.
+rec.arts.animation	Discussion of various kinds of animation.
+rec.arts.anime.creative	Original works by fans, related to anime/manga. (Moderated)
+rec.arts.anime.fandom	Important issues concerning Japanese animation fans.
+rec.arts.anime.marketplace	Things for sale in the Japanese animation world.
+rec.arts.anime.misc	Japanese animation fan discussions.
+rec.arts.bodyart	Tattoos and body decoration discussions.
+rec.arts.bonsai		Dwarfish trees and shrubbery.
+rec.arts.books		Books of all genres, and the publishing industry.
+rec.arts.books.childrens	All aspects of children's literature.
+rec.arts.books.hist-fiction	Historical fictions (novels) in general.
+rec.arts.books.marketplace	Buying and selling of books.
+rec.arts.books.tolkien	The works of J.R.R. Tolkien.
+rec.arts.comics.creative	Comics-related original creative writing. (Moderated)
+rec.arts.comics.dc.lsh	The Legion of Super-Heroes and related characters.
+rec.arts.comics.dc.universe	DC Comics' shared universe and characters.
+rec.arts.comics.dc.vertigo	Comics from the Vertigo imprint.
+rec.arts.comics.marketplace	The exchange of comics and comic related items.
+rec.arts.comics.marvel.universe	Marvel Comics' shared universe and characters.
+rec.arts.comics.marvel.xbooks	The Mutant Universe of Marvel Comics.
+rec.arts.comics.misc	Comic books, graphic novels, sequential art.
+rec.arts.comics.strips	Discussion of short-form comics.
+rec.arts.dance		Any aspects of dance not covered in another newsgroup.
+rec.arts.disney.animation	Animated features, cartoons, short subjects.
+rec.arts.disney.merchandise	Toys, videos, music, books, art, collectibles.
+rec.arts.disney.misc	General topics pertinent to the Disney Company.
+rec.arts.disney.parks	Parks, resorts, dining, attractions, vacations.
+rec.arts.drwho		Discussion about Dr. Who.
+rec.arts.fine		Fine arts & artists.
+rec.arts.henson+muppets	The Muppets and other Jim Henson works.
+rec.arts.horror.marketplace	All horror-related commercial messages.
+rec.arts.horror.misc	The horror genre in miscellaneous media.
+rec.arts.horror.movies	The horror genre in movies.
+rec.arts.horror.tv	The horror genre in television shows.
+rec.arts.horror.written	The horror genre in written form.
+rec.arts.int-fiction	Discussions about interactive fiction.
+rec.arts.manga		All aspects of the Japanese storytelling art form.
+rec.arts.marching.band.college	College marching bands.
+rec.arts.marching.band.high-school	High school marching bands.
+rec.arts.marching.colorguard	Competitive color guard activity.
+rec.arts.marching.drumcorps	Drum and bugle corps.
+rec.arts.marching.misc	Marching-related performance activities.
+rec.arts.marching.percussion	Marching percussion.
+rec.arts.misc		Discussions about the arts not in other groups.
+rec.arts.movies.current-films	The latest movie releases.
+rec.arts.movies.international	Non-American art films.
+rec.arts.movies.lists+surveys	Top-N lists and general surveys.
+rec.arts.movies.local.indian	Indian movies and the Indian film industry.
+rec.arts.movies.misc	General aspects of movies not covered by other groups.
+rec.arts.movies.movie-going	Going-to-movies experiences.
+rec.arts.movies.past-films	Past movies.
+rec.arts.movies.people	People in the movie business.
+rec.arts.movies.production	Filmmaking, amateur and professional.
+rec.arts.movies.production.sound	Movie, TV & Video sound.
+rec.arts.movies.reviews	Reviews of movies. (Moderated)
+rec.arts.movies.tech	Technical aspects of movies.
+rec.arts.mystery	Mystery and crime books, plays and films.
+rec.arts.origami	Ancient Asian Paper Sculpture.
+rec.arts.poems		For the posting of poems.
+rec.arts.prose		Short works of prose fiction and followup discussion.
+rec.arts.puppetry	For discussion of puppets in any form or venue.
+rec.arts.sf.composition	The writing and publishing of speculative fiction.
+rec.arts.sf.fandom	Discussions of SF fan activities.
+rec.arts.sf.marketplace	Personal forsale notices of SF materials.
+rec.arts.sf.misc	Science fiction lovers' newsgroup.
+rec.arts.sf.movies	Discussing SF motion pictures.
+rec.arts.sf.science	Real and speculative aspects of SF science.
+rec.arts.sf.starwars.collecting.misc	Discussion of all Star Wars collecting.
+rec.arts.sf.starwars.collecting.vintage	Star Wars items made before 1990.
+rec.arts.sf.starwars.games	Star Wars games:  RPG, computer, card, etc.
+rec.arts.sf.starwars.misc	Miscellaneous topics pertaining to Star Wars.
+rec.arts.sf.superman	Discussion of Superman in any medium.
+rec.arts.sf.tv		Discussing general television SF.
+rec.arts.sf.tv.babylon5	Babylon 5 creators meet Babylon 5 fans.
+rec.arts.sf.tv.babylon5.moderated	Babylon 5 creators meet Babylon 5 fans. (Moderated)
+rec.arts.sf.tv.jericho	A small US town copes after a nationwide nuclear attack.
+rec.arts.sf.written	Discussion of written science fiction and fantasy.
+rec.arts.sf.written.robert-jordan	Books by author Robert Jordan.
+rec.arts.startrek.current	New Star Trek shows, movies and books.
+rec.arts.startrek.fandom	Star Trek conventions and memorabilia.
+rec.arts.startrek.misc	General discussions of Star Trek.
+rec.arts.startrek.tech	Star Trek's depiction of future technologies.
+rec.arts.theatre.misc	Miscellaneous topics and issues in theatre.
+rec.arts.theatre.musicals	Musical theatre around the world.
+rec.arts.theatre.plays	Dramaturgy and discussion of plays.
+rec.arts.theatre.stagecraft	Issues in stagecraft and production.
+rec.arts.tv		The boob tube, its history, and past and current shows.
+rec.arts.tv.comedy.colbert-report	Stephen Colbert tells it like it is!
+rec.arts.tv.comedy.the-office	The Office, both US and UK Version.
+rec.arts.tv.dancing	All reality-tv celebrity dance shows.
+rec.arts.tv.interactive	Developments in interactive television.
+rec.arts.tv.mst3k.announce	Mystery Science Theater 3000 announcements. (Moderated)
+rec.arts.tv.mst3k.misc	For fans of Mystery Science Theater 3000.
+rec.arts.tv.news.oreilly-factor	Fox News' The O'Reilly Factor.
+rec.arts.tv.soaps.abc	Soap operas produced by or for the ABC network.
+rec.arts.tv.soaps.cbs	Soap operas produced by or for the CBS network.
+rec.arts.tv.soaps.misc	Postings of interest to all soap opera viewers.
+rec.arts.tv.uk.comedy	Regarding UK-based comedy shows.
+rec.arts.tv.uk.coronation-st	Regarding the UK based show Coronation Street.
+rec.arts.tv.uk.eastenders	Regarding the UK based show Eastenders.
+rec.arts.tv.uk.emmerdale	All about the British soap, Emmerdale.
+rec.arts.tv.uk.misc	Miscellaneous topics about UK-based television.
+rec.arts.tv.x-factor	Simon Cowell's singing competition talent show.
+rec.arts.wobegon	"A Prairie Home Companion" radio show discussion.
+rec.audio.car		Discussions of automobile audio systems.
+rec.audio.high-end	High-end audio systems. (Moderated)
+rec.audio.marketplace	Buying and selling of home audio equipment.
+rec.audio.misc		Post about audio here if you can't post anywhere else.
+rec.audio.opinion	Everybody's two bits on audio in your home.
+rec.audio.pro		Professional audio recording and studio engineering.
+rec.audio.tech		Theoretical, factual, and DIY topics in home audio.
+rec.audio.tubes		Electronic audio circuits which use vacuum tubes.
+rec.autos.4x4		The on and off-road four wheel drive vehicle.
+rec.autos.antique	Discussing all aspects of automobiles over 25 years old.
+rec.autos.driving	Driving automobiles.
+rec.autos.makers.chrysler	Dodge, Plymouth, Jeep, Eagle, etc info/talk.
+rec.autos.makers.ford.explorer	1991+ Ford Explorer SUV.
+rec.autos.makers.ford.mustang	Ford Mustangs in all their flavours.
+rec.autos.makers.honda	Honda automobiles.
+rec.autos.makers.jeep+willys	discussions on Jeep and Willys vehicles.
+rec.autos.makers.mazda.miata	Mazda MX-5 Miata Forum.
+rec.autos.makers.saturn	All about Saturn cars, fans and company.
+rec.autos.makers.vw.aircooled	Bug, Bus, Ghia, Squareback, Thing, etc.
+rec.autos.makers.vw.watercooled	Golf, Jetta, Corrado, Vanagon, new models, etc.
+rec.autos.marketplace	Buy/Sell/Trade automobiles, parts, tools, accessories.
+rec.autos.misc		Miscellaneous discussion about automobiles.
+rec.autos.rod-n-custom	High performance automobiles.
+rec.autos.rotary	Rotary engines & vehicles using them.
+rec.autos.simulators	Discussion of automotive simulators.
+rec.autos.sport.cart	Championship Auto Racing Teams.
+rec.autos.sport.f1	Formula 1 motor racing.
+rec.autos.sport.indy	Indy Car motor racing.
+rec.autos.sport.misc	Organized, legal auto competitions.
+rec.autos.sport.nascar	NASCAR and other professional stock car racing.
+rec.autos.sport.tech	Technical aspects & technology of auto racing.
+rec.autos.tech		Technical aspects of automobiles, et. al.
+rec.aviation.aerobatics	Aerobatics and unusual attitude flying.
+rec.aviation.balloon	Hot air and gas balloons and airships.
+rec.aviation.hang-gliding	Hang-gliding, paragliding, foot-launched flight.
+rec.aviation.homebuilt	Selecting, designing, building, and restoring aircraft.
+rec.aviation.ifr	Flying under Instrument Flight Rules.
+rec.aviation.marketplace	Aviation classifieds.
+rec.aviation.military	Military aircraft of the past, present and future.
+rec.aviation.military.naval	Discussion of Naval Aviation subjects.
+rec.aviation.misc	Miscellaneous topics in aviation.
+rec.aviation.owning	Information on owning airplanes.
+rec.aviation.piloting	General discussion for aviators.
+rec.aviation.powerchutes	Safety and operation of powered parachutes.
+rec.aviation.products	Reviews and discussion of products useful to pilots.
+rec.aviation.restoration	Forum for debate on aircraft restoration.
+rec.aviation.rotorcraft	Helicopters and other rotary wing aircraft.
+rec.aviation.simulators	Flight simulation on all levels.
+rec.aviation.soaring	All aspects of sailplanes and hang-gliders.
+rec.aviation.stories	Anecdotes of flight experiences. (Moderated)
+rec.aviation.student	Learning to fly.
+rec.aviation.ultralight	Light aircraft in general, all topics.
+rec.backcountry		Activities in the Great Outdoors.
+rec.bicycles.marketplace	Buying, selling & reviewing items for cycling.
+rec.bicycles.misc	General discussion of bicycling.
+rec.bicycles.racing	Bicycle racing techniques, rules and results.
+rec.bicycles.rides	Discussions of tours and training or commuting routes.
+rec.bicycles.soc	Societal issues of bicycling.
+rec.bicycles.tech	Cycling product design, construction, maintenance, etc.
+rec.birds		Hobbyists interested in bird watching.
+rec.boats		Hobbyists interested in boating.
+rec.boats.building	Boat building, design, restoration, and repair.
+rec.boats.cruising	Cruising in boats.
+rec.boats.electronics	Electronics, hardware, software on boats.
+rec.boats.paddle	Talk about any boats with oars, paddles, etc.
+rec.boats.paddle.touring	Flatwater paddling and touring.
+rec.boats.paddle.whitewater	Whitewater paddling.
+rec.boats.racing	Boat racing.
+rec.boats.racing.power	Speed-based competition of all motorized watercraft.
+rec.climbing		Climbing techniques, competition announcements, etc.
+rec.collecting		Discussion among collectors of many things.
+rec.collecting.books	Issues related to collecting books of all types.
+rec.collecting.cards.discuss	Discussion of sports and non-sports cards.
+rec.collecting.cards.non-sports	Non-sports cards.
+rec.collecting.coins	Coin, currency, medal, etc. collecting forum.
+rec.collecting.dolls	Doll and bear collecting and crafting.
+rec.collecting.paper-money	Paper money and related collecting.
+rec.collecting.phonecards	Info and Marketplace group for phonecards.
+rec.collecting.pins	All aspects of collecting and trading pins.
+rec.collecting.postal-history	Study of the movement of the mails worldwide.
+rec.collecting.sport.baseball	Baseball memorabilia (cards, photos, etc).
+rec.collecting.sport.basketball	Basketball memorabilia (cards, photos, etc).
+rec.collecting.sport.football	Football memorabilia (cards, photos, etc).
+rec.collecting.sport.hockey	Hockey memorabilia (cards, photos, etc).
+rec.collecting.sport.misc	Sports memorabilia not in any other group.
+rec.collecting.stamps.discuss	Discussion of stamps and philately.
+rec.collecting.stamps.marketplace	All philatelic advertising.
+rec.collecting.villages	Collectible houses, cottages, villages, and accessories.
+rec.crafts.beads	Making, collecting, and using beads.
+rec.crafts.brewing	The art of making beers and meads.
+rec.crafts.carving	Exchange of information on carving and its techniques.
+rec.crafts.distilling	Discussion of distilling alcohol and other substances.
+rec.crafts.glass	All aspects of glassworking and glass.
+rec.crafts.knots	Discussion on knots, how to tie and where to use them.
+rec.crafts.marketplace	Small-scale ads for craft products of all kinds.
+rec.crafts.meadmaking	The art and lore of making mead.
+rec.crafts.metalworking	All aspects of working with metal.
+rec.crafts.misc		Handiwork arts not covered elsewhere.
+rec.crafts.polymer-clay	Techniques & resources relating to polymer clay.
+rec.crafts.pottery	The ancient art of making clay pots.
+rec.crafts.rubberstamps	The rubberstamp craft- tips, supplies, swaps.
+rec.crafts.scrapbooks	The art of scrapbooking and its techniques.
+rec.crafts.textiles.machine-knit	Discussion of machine knitting.
+rec.crafts.textiles.marketplace	Ads for textile products.
+rec.crafts.textiles.misc	Fiber and textile crafts not covered elsewhere.
+rec.crafts.textiles.needlework	Any form of decorative stitching done by hand.
+rec.crafts.textiles.quilting	All about quilts and other quilted items.
+rec.crafts.textiles.sewing	Sewing: clothes, furnishings, costumes, etc.
+rec.crafts.textiles.yarn	Yarn making & use: spin, dye, knit, weave etc.
+rec.crafts.winemaking	The tasteful art of making wine.
+rec.crafts.woodturning	Woodturning and turned objects.
+rec.drugs.cannabis	The drug cannabis (marijuana).
+rec.drugs.chemistry	Chemistry, pharmacology and related issues.
+rec.drugs.misc		Stimulants, sedatives, smart drugs, et cetera.
+rec.drugs.psychedelic	LSD, Ecstasy, magic mushrooms and the like.
+rec.drugs.smart		Smart drugs (nootropics).
+rec.equestrian		Discussion of things equestrian.
+rec.folk-dancing	Folk dances, dancers, and dancing.
+rec.food.baking		Baking and baked goods, e.g. bread, pastries.
+rec.food.chocolate	Chocolate.
+rec.food.cooking	Food, cooking, cookbooks, and recipes.
+rec.food.drink		Wines and spirits.
+rec.food.drink.beer	All things beer.
+rec.food.drink.coffee	The making and drinking of coffee.
+rec.food.drink.tea	Tea as beverage and culture.
+rec.food.equipment	Food-related equipment, appliances, utensils.
+rec.food.historic	The history of food making arts.
+rec.food.marketplace	Buying and selling food-related items.
+rec.food.preserving	Preserving foodstuffs, herbs, and medicinals.
+rec.food.restaurants	Discussion of dining out.
+rec.food.sourdough	Making and baking with sourdough.
+rec.food.veg		Vegetarians.
+rec.food.veg.cooking	Vegetarian recipes, cooking, nutrition. (Moderated)
+rec.gambling.blackjack	Analysis of and strategy for blackjack, aka 21.
+rec.gambling.craps	Analysis of and strategy for the dice game craps.
+rec.gambling.lottery	Strategy and news of lotteries and sweepstakes.
+rec.gambling.misc	All other gambling topics including travel.
+rec.gambling.other-games	Gambling games not covered elsewhere.
+rec.gambling.poker	Analysis and strategy of live poker games.
+rec.gambling.racing	Wagering on animal races.
+rec.gambling.sports	Wagering on human sporting events.
+rec.games.abstract	Perfect information, pure strategy games.
+rec.games.backgammon	Discussion of the game of backgammon.
+rec.games.board		Discussion and hints on board games.
+rec.games.board.ce	The Cosmic Encounter board game.
+rec.games.board.marketplace	Trading and selling of board games.
+rec.games.bridge	Hobbyists interested in bridge.
+rec.games.bridge.okbridge	Okbridge forum.
+rec.games.chess.analysis	Analysis of openings/middlegames/endgames.
+rec.games.chess.computer	Reports on game servers, databases, software.
+rec.games.chess.misc	Forum for news/discussion related to chess.
+rec.games.chess.play-by-email	Reports/discussions regarding email chess.
+rec.games.chess.politics	News of nat'l/international chess organizations.
+rec.games.chinese-chess	Discussion of the game of Chinese chess, Xiangqi.
+rec.games.computer.doom.editing	Editing and hacking DOOM-related files.
+rec.games.computer.doom.help	DOOM Help Service (new players welcome).
+rec.games.computer.doom.misc	Talking about DOOM and id Software.
+rec.games.computer.doom.playing	Playing DOOM and user-created levels.
+rec.games.computer.everquest	The Online RPG EverQuest.
+rec.games.computer.planetarion	The Planetarion Game in general.
+rec.games.computer.puzzle	Puzzle-solving computer games.
+rec.games.computer.quake.misc	General discussion of Quake.
+rec.games.computer.quake.servers	Setup and maintenance of servers.
+rec.games.computer.stars	The strategy game "Stars!".
+rec.games.computer.ultima.dragons	The Ultima Dragons Internet Chapter.
+rec.games.computer.ultima.online	The multi-player game Ultima Online.
+rec.games.computer.ultima.series	Forum for fans of the Ultima games.
+rec.games.computer.xpilot	About the X11 game XPilot.
+rec.games.corewar	The Core War computer challenge.
+rec.games.design	Discussion of game design related issues.
+rec.games.diplomacy	The conquest game Diplomacy.
+rec.games.empire	Discussion and hints about Empire.
+rec.games.frp.advocacy	Flames and rebuttals about various role-playing systems.
+rec.games.frp.announce	Announcements of happenings in the role-playing world. (Moderated)
+rec.games.frp.cyber	Discussions of cyberpunk related roleplaying games.
+rec.games.frp.dnd	Fantasy role-playing with TSR's Dungeons and Dragons.
+rec.games.frp.gurps	The GURPS role playing game.
+rec.games.frp.live-action	Live-action roleplaying games.
+rec.games.frp.marketplace	Role-playing game materials wanted and for sale.
+rec.games.frp.misc	General discussions of role-playing games.
+rec.games.frp.super-heroes	Super-hero role playing games.
+rec.games.go		Discussion about Go.
+rec.games.int-fiction	All aspects of interactive fiction games.
+rec.games.mahjong	Mahjong related discussion and posting.
+rec.games.mecha		Giant robot games. (Moderated)
+rec.games.miniatures.historical	Historical and modern tabletop wargaming.
+rec.games.miniatures.misc	Miniatures and various tabletop wargames.
+rec.games.miniatures.warhammer	Wargaming in the Warhammer Universe.
+rec.games.misc		Games and computer games.
+rec.games.mud.admin	Administrative issues of multiuser dungeons.
+rec.games.mud.announce	Informational articles about multiuser dungeons. (Moderated)
+rec.games.mud.diku	All about DikuMuds.
+rec.games.mud.lp	Discussions of the LPMUD computer role playing game.
+rec.games.mud.misc	Various aspects of multiuser computer games.
+rec.games.mud.tiny	Discussion about Tiny muds, like MUSH, MUSE and MOO.
+rec.games.netrek	Discussion of the X window system game Netrek (XtrekII).
+rec.games.pbm		Discussion about Play by Mail games.
+rec.games.pinball	Discussing pinball-related issues.
+rec.games.playing-cards	Recreational (non-gambling) card playing.
+rec.games.roguelike.adom	The computer game ADOM.
+rec.games.roguelike.angband	The computer game Angband.
+rec.games.roguelike.announce	Major info about rogue-styled games. (Moderated)
+rec.games.roguelike.development	Design and programming of Roguelike games.
+rec.games.roguelike.misc	Rogue-style dungeon games without other groups.
+rec.games.roguelike.moria	The computer game Moria.
+rec.games.roguelike.nethack	The computer game Nethack.
+rec.games.roguelike.rogue	The computer game Rogue.
+rec.games.trading-cards.jyhad	Jyhad trading card game discussions.
+rec.games.trading-cards.magic.misc	General "Magic: the Gathering" postings.
+rec.games.trading-cards.magic.rules	"Magic: the Gathering" rules Q&A.
+rec.games.trading-cards.magic.strategy	"Magic: the Gathering" strategy.
+rec.games.trading-cards.marketplace.magic.auctions	Auctions of Magic cards.
+rec.games.trading-cards.marketplace.magic.sales	Selling Magic cards.
+rec.games.trading-cards.marketplace.misc	Trading trading card stuff.
+rec.games.trading-cards.misc	Other trading card game discussions.
+rec.games.trivia	Discussion about trivia.
+rec.games.vectrex	The Vectrex game system.
+rec.games.video.3do	Discussion of 3DO video game systems.
+rec.games.video.advocacy	Debate on merits of various video game systems.
+rec.games.video.arcade	Discussions about coin-operated video games.
+rec.games.video.arcade.collecting	Collecting, converting, repairing etc.
+rec.games.video.arcade.marketplace	Commerce and requests for arcade games.
+rec.games.video.atari	Discussion of Atari's video game systems.
+rec.games.video.classic	Older home video entertainment systems.
+rec.games.video.marketplace	Home video game stuff for sale or trade.
+rec.games.video.microsoft.xbox360	Microsoft XBox360 console.
+rec.games.video.misc	General discussion about home video games.
+rec.games.video.nintendo	All Nintendo video game systems and software.
+rec.games.video.nintendo.wii	Nintendo Wii gaming console.
+rec.games.video.sega	All Sega video game systems and software.
+rec.games.video.sony	Sony game hardware and software.
+rec.games.video.sony.playstation3	Sony PS3 comsole.
+rec.gardens		Gardening, methods and results.
+rec.gardens.bamboo	All aspects of bamboo growing and uses.
+rec.gardens.edible	Edible gardening topics.
+rec.gardens.orchids	Growing, hybridizing, and general care of orchids.
+rec.gardens.roses	Gardening information related to roses.
+rec.guns		Discussions about firearms. (Moderated)
+rec.heraldry		Discussion of coats of arms.
+rec.humor		Jokes and the like.  May be somewhat offensive.
+rec.humor.d		Discussions on the content of rec.humor articles.
+rec.humor.funny		Jokes that are funny (in the moderator's opinion). (Moderated)
+rec.humor.funny.reruns	Reposts of rec.humor.funny archive material. (Moderated)
+rec.humor.oracle	Sagacious advice from the USENET Oracle. (Moderated)
+rec.humor.oracle.d	Comments about the USENET Oracle's comments.
+rec.hunting		Discussions about hunting. (Moderated)
+rec.juggling		Juggling techniques, equipment and events.
+rec.kites		Talk about kites and kiting.
+rec.knives		Anything that goes cut or has an edge.
+rec.mag			Magazine summaries, tables of contents, etc.
+rec.mag.dargon		DargonZine fantasy fiction emag issues and discussion.
+rec.martial-arts	Discussion of the various martial art forms.
+rec.media.players.portable	Portable media players.
+rec.media.players.portable.ipod	Apple's iPod media players.
+rec.misc		General topics about recreational/participant sports.
+rec.models.railroad	Model railroads of all scales.
+rec.models.rc.air	Radio-controlled air models.
+rec.models.rc.helicopter	Model helicopter flying, construction, and tips.
+rec.models.rc.land	Radio-controlled land models.
+rec.models.rc.misc	Radio-controlled miscellaneous items.
+rec.models.rc.soaring	Building and flying radio controlled gliders.
+rec.models.rc.water	Radio-controlled water models.
+rec.models.rockets	Model rockets for hobbyists.
+rec.models.scale	Construction of models.
+rec.motorcycles		Motorcycles and related products and laws.
+rec.motorcycles.dirt	Riding motorcycles and ATVs off-road.
+rec.motorcycles.harley	All aspects of Harley-Davidson motorcycles.
+rec.motorcycles.racing	Discussion of all aspects of racing motorcycles.
+rec.motorcycles.tech	Motorcycle Technical Discussion.
+rec.motorcycles.victory	Polaris Victory motorcycle rides, tech, resources.
+rec.music.a-cappella	Vocal music without instrumental accompaniment.
+rec.music.afro-latin	Music with Afro-Latin, African and Latin influences.
+rec.music.ambient	Ambient music and artists.
+rec.music.arabic	All aspects of the music of the Arab world.
+rec.music.artists.amy-grant	All aspects of Amy Grant's career.
+rec.music.artists.beach-boys	The Beach Boys' music & the effect they've had.
+rec.music.artists.bruce-hornsby	The music of Bruce Hornsby.
+rec.music.artists.debbie-gibson	The music of Deborah Gibson.
+rec.music.artists.emmylou-harris	Emmylou Harris, her music, her friends.
+rec.music.artists.extreme	The band Extreme and members' post-breakup work.
+rec.music.artists.kings-x	Gretchen Goes to Usenet.
+rec.music.artists.kiss	The rock band KISS and related projects.
+rec.music.artists.little-feat	The Little Feat Newsgroup.
+rec.music.artists.mariah-carey	Mariah Carey and her music.
+rec.music.artists.paul-mccartney	Paul McCartney's music and life.
+rec.music.artists.queensryche	The Thinking Mind's Metal Band.
+rec.music.artists.reb-st-james	All aspects of Rebecca St. James' career.
+rec.music.artists.springsteen	Forum for fans of Bruce Springsteen's music.
+rec.music.barbershop	Barbershop quartet and chorus singing.
+rec.music.beatles	Postings about the Fab Four & their music.
+rec.music.bluenote	Discussion of jazz, blues, and related types of music.
+rec.music.bluenote.blues	The Blues in all forms and all aspects.
+rec.music.brazilian	All aspects of brazilian music.
+rec.music.celtic	Traditional and modern music with a Celtic flavor.
+rec.music.christian	Christian music, both contemporary and traditional.
+rec.music.classical	Discussion about classical music.
+rec.music.classical.contemporary	Contemporary classical music.
+rec.music.classical.guitar	Classical music performed on guitar.
+rec.music.classical.performing	Performing classical (including early) music.
+rec.music.classical.recordings	Classical music on CD, vinyl, cassette, etc.
+rec.music.collecting.cd	Compact discs of collector value (NO wanted or forsale).
+rec.music.collecting.misc	Memorabilia (NO wanted, forsale, CD or vinyl).
+rec.music.collecting.vinyl	Collecting vinyl records (NO wanted or forsale).
+rec.music.compose	Creating musical and lyrical works.
+rec.music.country.old-time	Southern fiddle/banjo music and beyond.
+rec.music.country.western	C&W music, performers, performances, etc.
+rec.music.dementia	Discussion of comedy and novelty music.
+rec.music.dylan		Discussion of Bob's works & music.
+rec.music.early		Discussion of pre-classical European music.
+rec.music.experimental	For the discussion of experimental music.
+rec.music.filipino	All types and forms of Filipino music.
+rec.music.filk		Music genre originated in the sf/fantasy fan community.
+rec.music.folk		Folks discussing folk music of various sorts.
+rec.music.folk.tablature	Folk Music Tune Discussion and Trade.
+rec.music.funky		Funk, soul, rhythm & blues and related.
+rec.music.gdead		A group for (Grateful) Dead-heads.
+rec.music.hip-hop	Hip-Hop music and culture in general.
+rec.music.indian.classical	Hindustani and Carnatic Indian classical music.
+rec.music.indian.misc	Discussing Indian music in general.
+rec.music.industrial	Discussion of all industrial-related music styles.
+rec.music.makers	For performers and their discussions.
+rec.music.makers.bagpipe	Music and playing of all types of bagpipes.
+rec.music.makers.bands	For musicians who play in groups with others.
+rec.music.makers.bass	Upright bass and bass guitar techniques and equipment.
+rec.music.makers.bowed-strings	Violin family (current & old) performance.
+rec.music.makers.builders	Design, building, repair of musical instruments.
+rec.music.makers.chamber-music	All aspects of chamber music.
+rec.music.makers.choral	Choral groups and choral music.
+rec.music.makers.dulcimer	Dulcimers and related instruments.
+rec.music.makers.french-horn	About horn players and playing.
+rec.music.makers.guitar	Electric and acoustic guitar techniques and equipment.
+rec.music.makers.guitar.acoustic	Discussion of acoustic guitar playing.
+rec.music.makers.guitar.jazz	All aspects of jazz guitar.
+rec.music.makers.jazz	Discussion by and for musicians on the making of jazz.
+rec.music.makers.marketplace	Buying & selling used music-making equipment.
+rec.music.makers.percussion	Drum & other percussion techniques & equipment.
+rec.music.makers.percussion.hand-drum	All aspects of hand drumming.
+rec.music.makers.piano	Piano music, performing, composing, learning, styles.
+rec.music.makers.saxophone	All aspects of the saxophone and its music.
+rec.music.makers.songwriting	All about songwriting.
+rec.music.makers.squeezebox	Accordions, concertinas, and related free reeds.
+rec.music.makers.synth	Synthesizers and computer music.
+rec.music.makers.trumpet	The exchange of trumpet related information.
+rec.music.marketplace.cd	Buying and selling collectible compact discs.
+rec.music.marketplace.misc	Buying and selling non-vinyl/CD music.
+rec.music.marketplace.vinyl	Buying and selling collectible vinyl records.
+rec.music.misc		Music lovers' group.
+rec.music.movies	Music for movies and television.
+rec.music.newage	"New Age" music discussions.
+rec.music.opera		All aspects of opera.
+rec.music.phish		Discussing the musical group Phish.
+rec.music.progressive	Symphonic rock, art rock, fusion, Canterbury, RIO, etc.
+rec.music.ragtime	Ragtime and related music styles.
+rec.music.reggae	Roots, Rockers, Dancehall Reggae.
+rec.music.rem		The musical group R.E.M.
+rec.music.rock-pop-r+b.1950s	1950s Rock, Pop, and Rhythm & Blues music.
+rec.music.rock-pop-r+b.1960s	1960s Rock, Pop, and Rhythm & Blues music.
+rec.music.rock-pop-r+b.1970s	1970s Rock, Pop, Soul, and Rhythm & Blues music.
+rec.music.theory	A forum for discussion of music theory.
+rec.music.tori-amos	Discussion of the female singer/songwriter Tori Amos.
+rec.music.video		Discussion of music videos and music video software.
+rec.nude		Hobbyists interested in naturist/nudist activities.
+rec.org.mensa		Talking with members of the high IQ society Mensa.
+rec.org.sca		Society for Creative Anachronism.
+rec.outdoors.camping	General camping, any camping you could do by auto.
+rec.outdoors.fishing	All aspects of sport and commercial fishing.
+rec.outdoors.fishing.bass	Freshwater bass.
+rec.outdoors.fishing.fly	Fly fishing in general.
+rec.outdoors.fishing.fly.tying	Issues relating to tying flies for flyfishing.
+rec.outdoors.fishing.saltwater	Saltwater fishing, methods, gear, Q&A.
+rec.outdoors.marketplace	All business related to the outdoors.
+rec.outdoors.national-parks	Activities and politics in national parks.
+rec.outdoors.rv-travel	Discussions related to recreational vehicles.
+rec.pets		Pets, pet care, and household animals in general.
+rec.pets.birds		The culture and care of indoor birds.
+rec.pets.birds.pigeons	Racing Pigeons, Show Pigeons, and related material.
+rec.pets.cats.anecdotes	Stories about our cats.
+rec.pets.cats.community	Feline/human conversations and related topics.
+rec.pets.cats.health+behav	Feline health and behavior.
+rec.pets.cats.misc	General feline topics.
+rec.pets.cats.rescue	Discussion of feline rescue organizations and methods.
+rec.pets.dogs.activities	Dog events: showing, obedience, agility, etc.
+rec.pets.dogs.behavior	Behaviors and problems: housetraining, chewing, etc.
+rec.pets.dogs.breeds	Breed specific -- breed traits, finding breeders, etc.
+rec.pets.dogs.health	Info about health problems & how to care for dogs.
+rec.pets.dogs.misc	All other topics, chat, humor, etc.
+rec.pets.dogs.rescue	Information about breed rescue, placing and adopting.
+rec.pets.herp		Reptiles, amphibians and other exotic vivarium pets.
+rec.photo.darkroom	Developing, printing and other darkroom issues.
+rec.photo.digital	Digital cameras, scanners, printers, software, PhotoCD.
+rec.photo.digital.point+shoot	Point-and-shoot digital cameras.
+rec.photo.digital.rangefinder	Digital rangefinder camera systems.
+rec.photo.digital.slr-systems	Digital SLR (single lens reflex) camera systems.
+rec.photo.digital.zlr	Digital cameras w/ fixed zoom lenses & manual controls.
+rec.photo.equipment.35mm	35mm cameras and lenses.
+rec.photo.equipment.aps	Discussion of APS equipment.
+rec.photo.equipment.large-format	Large format cameras and lenses.
+rec.photo.equipment.medium-format	Medium format cameras and lenses.
+rec.photo.equipment.misc	Other formats, tripods, projectors, bags etc.
+rec.photo.film+labs	Film and commercial photofinishing.
+rec.photo.marketplace	Trading of personal photographic equipment.
+rec.photo.marketplace.35mm	Trading 35mm equipment.
+rec.photo.marketplace.darkroom	Trading darkroom equipment & supplies.
+rec.photo.marketplace.digital	Trading digital photographic equipment.
+rec.photo.marketplace.large-format	Trading large-format equipment.
+rec.photo.marketplace.medium-format	Trading medium-format equipment.
+rec.photo.misc		General issues related to photography.
+rec.photo.moderated	The art and science of photography. (Moderated)
+rec.photo.technique.art	Issues of fine art, framing, display.
+rec.photo.technique.misc	Other non-equipment posts about technique.
+rec.photo.technique.nature	Wildlife, landscapes, travel tips etc.
+rec.photo.technique.people	Portraits, figure studies, weddings etc.
+rec.ponds		Pond issues:  plants, fish, design, maintenance.
+rec.puzzles		Puzzles, problems, and quizzes.
+rec.puzzles.crosswords	Making and playing gridded word puzzles.
+rec.pyrotechnics	Fireworks, rocketry, safety, & other topics.
+rec.radio.amateur.antenna	Antennas: theory, techniques and construction.
+rec.radio.amateur.boatanchors	Vacuum tube-based amateur radio equipment.
+rec.radio.amateur.digital.misc	Packet radio and other digital radio modes.
+rec.radio.amateur.dx	Discussion, tips, notices and news for DXers.
+rec.radio.amateur.equipment	All about production amateur radio hardware.
+rec.radio.amateur.homebrew	Amateur radio construction and experimentation.
+rec.radio.amateur.misc	Amateur radio practices, contests, events, rules, etc.
+rec.radio.amateur.moderated	Amateur radio practices, rules, etc. (Moderated)
+rec.radio.amateur.policy	Radio use & regulation policy.
+rec.radio.amateur.space	Amateur radio transmissions through space.
+rec.radio.cb		Citizen-band radio.
+rec.radio.info		Informational postings related to radio. (Moderated)
+rec.radio.scanner	"Utility" broadcasting traffic above 30 MHz.
+rec.radio.shortwave	Shortwave radio enthusiasts.
+rec.radio.swap		Offers to trade and swap radio equipment.
+rec.roller-coaster	Roller coasters and other amusement park rides.
+rec.running		Running for enjoyment, sport, exercise, etc.
+rec.scouting.issues	Issues related to scouting policy.
+rec.scouting.misc	General and international guiding and scouting topics.
+rec.scouting.usa	USA specific scouting and guiding topics.
+rec.scuba		Hobbyists interested in SCUBA diving.
+rec.scuba.equipment	Scuba equipment, purchase, pros/cons, use.
+rec.scuba.locations	Scuba travel, location questions.
+rec.skiing.alpine	Downhill skiing technique, equipment, etc.
+rec.skiing.backcountry	Backcountry skiing.
+rec.skiing.marketplace	Items for sale/wanted.
+rec.skiing.nordic	Cross-country skiing technique, equipment, etc.
+rec.skiing.resorts.europe	Skiing in Europe.
+rec.skiing.resorts.misc	Skiing in other than Europe and North America.
+rec.skiing.resorts.north-america	Skiing in North America.
+rec.skiing.snowboard	Snowboarding technique, equipment, etc.
+rec.skydiving		Hobbyists interested in skydiving.
+rec.sport.archery	All aspects of archery for archers of any skill level.
+rec.sport.baseball	Discussion about baseball.
+rec.sport.baseball.college	Baseball on the collegiate level.
+rec.sport.baseball.data	Raw baseball data (Stats, birthdays, scheds).
+rec.sport.baseball.fantasy	Rotisserie (fantasy) baseball play.
+rec.sport.basketball.college	Hoops on the collegiate level.
+rec.sport.basketball.europe	A European basketball forum.
+rec.sport.basketball.misc	Discussion about basketball.
+rec.sport.basketball.pro	Talk of professional basketball.
+rec.sport.billiard	Billiard sports, including pool, snooker, carom games.
+rec.sport.boxing	Boxing in all its pugilistic facets and forms.
+rec.sport.cricket	Discussion about the sport of cricket.
+rec.sport.curling	All aspects of the Sport Curling.
+rec.sport.disc		Discussion of flying disc based sports.
+rec.sport.fencing	All aspects of swordplay.
+rec.sport.football.australian	Discussion of Australian (Rules) Football.
+rec.sport.football.canadian	All about Canadian rules football.
+rec.sport.football.college	US-style college football.
+rec.sport.football.fantasy	Rotisserie (fantasy) football play.
+rec.sport.football.misc	Discussion about American-style football.
+rec.sport.football.pro	US-style professional football.
+rec.sport.golf		Discussion about all aspects of golfing.
+rec.sport.hockey	Discussion about ice hockey.
+rec.sport.hockey.field	Discussion of the sport of field hockey.
+rec.sport.jetski	Using Personal Water Craft, aka "jet skiing".
+rec.sport.misc		Spectator sports.
+rec.sport.officiating	Sports officials and officiating athletic contests.
+rec.sport.olympics	All aspects of the Olympic Games.
+rec.sport.paintball	Discussing all aspects of the survival game paintball.
+rec.sport.pro-wrestling	Discussion about professional wrestling.
+rec.sport.pro-wrestling.fantasy	Rotisserie league professional wrestling.
+rec.sport.pro-wrestling.info	Informational postings about wrestling. (Moderated)
+rec.sport.pro-wrestling.moderated	Sports Entertainment. (Moderated)
+rec.sport.rodeo		Anything dealing with the sport of rodeo.
+rec.sport.rowing	Crew for competition or fitness.
+rec.sport.rugby.league	Everything related to playing/supporting Rugby League.
+rec.sport.rugby.union	Everything related to playing/supporting Rugby Union.
+rec.sport.skating.ice.figure	Figure/artistic skating.
+rec.sport.skating.ice.recreational	Recreational ice skating.
+rec.sport.skating.inline	Inline skating, aka Rollerblading.
+rec.sport.skating.misc	Miscellaneous skating topics.
+rec.sport.skating.racing	Racing and speed skating.
+rec.sport.snowmobiles	Snowmobiling and related issues.
+rec.sport.soccer	Discussion about soccer (Association Football).
+rec.sport.softball	All aspects of fastpitch and slowpitch softball.
+rec.sport.squash	Forum for all apects of squash.
+rec.sport.sumo		This group is dedicated to the Japanese sport Sumo.
+rec.sport.swimming	Training for and competing in swimming events.
+rec.sport.table-soccer	Table-soccer of all types: foosball and subbuteo.
+rec.sport.table-tennis	Things related to table tennis (aka Ping Pong).
+rec.sport.tennis	Things related to the sport of tennis.
+rec.sport.triathlon	Discussing all aspects of multi-event sports.
+rec.sport.unicycling	All sorts of fun on one wheel.
+rec.sport.volleyball	Discussion about volleyball.
+rec.sport.water-polo	Discussion of water polo.
+rec.sport.waterski	Waterskiing and other boat-towed activities.
+rec.toys.action-figures.discuss	Discussion of action figure toys.
+rec.toys.action-figures.marketplace	Buying, selling, trading and auctions.
+rec.toys.cars		Toy car collecting.
+rec.toys.lego		Discussion of Lego, Duplo (and compatible) toys.
+rec.toys.misc		Discussion of toys that lack a specific newsgroup.
+rec.toys.transformers.marketplace	Buy/sell/trade/auctioning Transformers.
+rec.toys.vintage	Toys older than 20 years valued as historic/memorabilia.
+rec.travel.africa	Travel on the African continent.
+rec.travel.air		Airline travel around the world.
+rec.travel.asia		Travel in Asia.
+rec.travel.australia+nz	Travel Information for Australia and New Zealand.
+rec.travel.budget.backpack	Backpack travel discussion group.
+rec.travel.caribbean	Travel to the islands of the Caribbean, sans pirates.
+rec.travel.cruises	Travel by cruise ship.
+rec.travel.europe	Travel in Europe.
+rec.travel.latin-america	Travel in Central and South America.
+rec.travel.marketplace	Tickets and accomodations wanted and for sale.
+rec.travel.misc		Everything and anything about travel.
+rec.travel.usa-canada	Travel in the United States and Canada.
+rec.video		Video and video components.
+rec.video.cable-tv	Technical and regulatory issues of cable television.
+rec.video.desktop	Amateur, computer-based video editing and production.
+rec.video.desktop.toaster	The Video Toaster and Flyer systems.
+rec.video.dvd.marketplace	DVD-Video forsale/wanted posts.
+rec.video.dvd.misc	DVD-Video miscellaneous issues.
+rec.video.dvd.players	DVD-Video players and other hardware.
+rec.video.dvd.tech	DVD-Video in-depth technical issues.
+rec.video.dvd.titles	DVD-Video titles and other software.
+rec.video.marketplace	Video equipment marketplace.
+rec.video.production	Making professional quality video productions.
+rec.video.releases	Pre-recorded video releases on laserdisc and videotape.
+rec.video.satellite.dbs	DBS systems and technologies.
+rec.video.satellite.europe	European satellite broadcasting.
+rec.video.satellite.misc	Non-TVRO and non-DBS satellite information.
+rec.video.satellite.tvro	"Large Dish" ("BUD") systems and technologies.
+rec.windsurfing		Riding the waves as a hobby.
+rec.woodworking		Hobbyists interested in woodworking.
+sci.agriculture		Farming, agriculture and related topics.
+sci.agriculture.beekeeping	Beekeeping, bee-culture and hive products.
+sci.agriculture.fruit	Agricultural techniques for fruit, berries & nuts.
+sci.agriculture.poultry	Chickens, ducks, geese, and other poultry.
+sci.agriculture.ratites	Ostrich, emu, rhea, or cassowary ranching.
+sci.answers		Repository for periodic USENET articles. (Moderated)
+sci.anthropology	All aspects of studying humankind.
+sci.anthropology.paleo	Evolution of man and other primates.
+sci.archaeology		Studying antiquities of the world.
+sci.archaeology.mesoamerican	The field of mesoamerican archaeology.
+sci.astro		Astronomy discussions and information.
+sci.astro.amateur	Amateur astronomy equipment, techniques, info, etc.
+sci.astro.ccd-imaging	Astronomical digital image capture and processing.
+sci.astro.fits		Issues related to the Flexible Image Transport System.
+sci.astro.hubble	Processing Hubble Space Telescope data. (Moderated)
+sci.astro.planetarium	Discussion of planetariums.
+sci.astro.research	Forum in astronomy/astrophysics research. (Moderated)
+sci.astro.satellites.visual-observe	Visually observing artificial satellite.
+sci.astro.seti		The Search for Extra-Terrestrial Intelligence.
+sci.bio.botany		The scientific study of plants.
+sci.bio.ecology		Ecological research.
+sci.bio.entomology.homoptera	Research on homopteran (sap-sucking) insects.
+sci.bio.entomology.lepidoptera	Lepidoptera: butterflies & moths.
+sci.bio.entomology.misc	General insect study and related issues.
+sci.bio.ethology	Animal behavior and behavioral ecology.
+sci.bio.fisheries	All aspects of fisheries science and fish biology.
+sci.bio.food-science	Topics related to food science and technology.
+sci.bio.herp		Biology of amphibians and reptiles.
+sci.bio.immunocytochem	Immuno-labelling of biological material.
+sci.bio.microbiology	Protists, fungi, algae, other microscopic organisms.
+sci.bio.misc		Biology and related sciences.
+sci.bio.paleontology	Life of the past (but no creation vs evolution!).
+sci.bio.systematics	Systematics, taxonomy, and the tree of life.
+sci.bio.technology	Any topic relating to biotechnology.
+sci.chem		Chemistry and related sciences.
+sci.chem.analytical	Analytical chemistry.
+sci.chem.coatings	Paints and Coatings practitioners.
+sci.chem.electrochem	The field of electrochemistry.
+sci.chem.electrochem.battery	Analyzing all aspects of all types of batteries.
+sci.chem.labware	Chemical laboratory equipment.
+sci.chem.organomet	Organometallic chemistry.
+sci.cognitive		Perception, memory, judgement and reasoning.
+sci.comp-aided		The use of computers as tools in scientific research.
+sci.cryonics		Theory and practice of biostasis, suspended animation.
+sci.crypt		Different methods of data en/decryption.
+sci.crypt.random-numbers	Generating cryptographic strength randomness.
+sci.crypt.research	Cryptography, cryptanalysis, and related issues. (Moderated)
+sci.data.formats	Modelling, storage and retrieval of scientific data.
+sci.econ		The science of economics.
+sci.edu			The science of education.
+sci.electronics.basics	Elementary questions about electronics.
+sci.electronics.cad	Schematic drafting, printed circuit layout, simulation.
+sci.electronics.components	Integrated circuits, resistors, capacitors.
+sci.electronics.design	Electronic circuit design.
+sci.electronics.equipment	Test, lab, & industrial electronic products.
+sci.electronics.misc	General discussions of the field of electronics.
+sci.electronics.repair	Fixing electronic equipment.
+sci.energy		Discussions about energy, science & technology.
+sci.energy.hydrogen	All about hydrogen as an alternative fuel.
+sci.engr		Technical discussions about engineering tasks.
+sci.engr.analysis	All aspects of engineering analysis.
+sci.engr.biomed		Discussing the field of biomedical engineering.
+sci.engr.chem		All aspects of chemical engineering.
+sci.engr.civil		Topics related to civil engineering.
+sci.engr.color		The art, science, and industry of coloring.
+sci.engr.control	The engineering of control systems.
+sci.engr.electrical.compliance	Laws, regulations and design for EMC, safety.
+sci.engr.electrical.sys-protection	Power system protection.
+sci.engr.geomechanics	Geomechanics issues and related topics.
+sci.engr.heat-vent-ac	Heating, ventilating, air conditioning & refrigeration.
+sci.engr.joining.misc	Joining of materials for manufacture & repair.
+sci.engr.joining.welding	Welding of materials for manufacture & repair.
+sci.engr.lighting	Light, vision & color in architecture, media, etc.
+sci.engr.manufacturing	Manufacturing technology.
+sci.engr.mech		The field of mechanical engineering.
+sci.engr.metallurgy	Metallurgical Engineering.
+sci.engr.micromachining	Devices enabled by micromachined structures.
+sci.engr.mining		Mining engineering and mining technical topics.
+sci.engr.radar+sonar	Radar & sonar systems.
+sci.engr.safety		All aspects of the safety of engineered systems.
+sci.engr.semiconductors	Semiconductor devices, processes, materials, physics.
+sci.engr.surveying	Measurement and mapping of the earth surface.
+sci.engr.television.advanced	HDTV/DATV standards, equipment, practices, etc.
+sci.engr.television.broadcast	Broadcast facility equipment and practices.
+sci.environment		Discussions about the environment and ecology.
+sci.environment.waste	Impact of Wastes and Waste Management Methods.
+sci.fractals		Objects of non-integral dimension and other chaos.
+sci.geo.cartography	Maps, grids, coordinates, projections, datums.
+sci.geo.earthquakes	For discussion of earthquakes and related matters.
+sci.geo.eos		NASA's Earth Observation System (EOS).
+sci.geo.fluids		Discussion of geophysical fluid dynamics.
+sci.geo.geology		Discussion of solid earth sciences.
+sci.geo.hydrology	Surface and groundwater hydrology.
+sci.geo.meteorology	Discussion of meteorology and related topics.
+sci.geo.mineralogy	Mineralogy, rock hounding and related topics.
+sci.geo.oceanography	Oceanography, oceanology and marine science.
+sci.geo.petroleum	All aspects of petroleum and the petroleum industry.
+sci.geo.rivers+lakes	Science of rivers and lakes.
+sci.geo.satellite-nav	Satellite navigation systems, especially GPS.
+sci.image.processing	Scientific image processing and analysis.
+sci.lang		Natural languages, communication, etc.
+sci.lang.japan		The Japanese language, both spoken and written.
+sci.lang.translation	Problems and concerns of translators/interpreters.
+sci.lang.translation.marketplace	Professional translators' marketplace.
+sci.life-extension	Slowing, stopping or reversing the ageing process.
+sci.logic		Logic -- math, philosophy & computational aspects.
+sci.materials		All aspects of materials engineering.
+sci.materials.ceramics	Ceramic science.
+sci.math		Mathematical discussions and pursuits.
+sci.math.num-analysis	Numerical Analysis.
+sci.math.research	Discussion of current mathematical research. (Moderated)
+sci.math.symbolic	Symbolic algebra discussion.
+sci.mech.fluids		All aspects of fluid mechanics.
+sci.med			Medicine and its related products and regulations.
+sci.med.cannabis	Discussion of medical cannabis.
+sci.med.cardiology	All aspects of cardiovascular diseases.
+sci.med.dentistry	Dentally related topics; all about teeth.
+sci.med.diseases.als	Amyotrophic Lateral Sclerosis research and care.
+sci.med.diseases.cancer	Diagnosis, treatment, and prevention of cancer.
+sci.med.diseases.hepatitis	Hepatitis diseases.
+sci.med.diseases.lyme	Lyme Disease: patient support, research & information.
+sci.med.diseases.osteoporosis	Osteoporosis information exhange.
+sci.med.immunology	Medical/scientific aspects of immune illness.
+sci.med.informatics	Computer applications in medical care.
+sci.med.laboratory	All aspects of laboratory medicine and management.
+sci.med.nursing		Nursing questions and discussion.
+sci.med.nutrition	Physiological impacts of diet.
+sci.med.pathology	Pathology and laboratory medicine.
+sci.med.pharmacy	The teaching and practice of pharmacy.
+sci.med.physics		Issues of physics in medical testing/care.
+sci.med.prostate.bph	Benign prostatic hypertrophy.
+sci.med.prostate.cancer	Prostate cancer.
+sci.med.prostate.prostatitis	Prostatitis.
+sci.med.psychobiology	Dialog and news in psychiatry and psychobiology.
+sci.med.radiology	All aspects of radiology.
+sci.med.radiology.interventional	Vascular and interventional radiology.
+sci.med.telemedicine	Hospital/physician networks. No diagnosis questions.
+sci.med.transcription	Information for and about medical transcriptionists.
+sci.med.vision		Human vision, visual correction, and visual science.
+sci.military.naval	Navies of the world, past, present and future.
+sci.misc		Short-lived discussions on subjects in the sciences.
+sci.nonlinear		Chaotic systems and other nonlinear scientific study.
+sci.op-research		Research, teaching & application of operations research.
+sci.optics		Discussion relating to the science of optics.
+sci.optics.fiber	Fiber optic components, systems, applications.
+sci.philosophy.meta	Discussions within the scope of "MetaPhilosophy."
+sci.philosophy.tech	Technical philosophy: math, science, logic, etc.
+sci.physics		Physical laws, properties, etc.
+sci.physics.accelerators	Particle accelerators and the physics of beams.
+sci.physics.acoustics	Topics in acoustics and vibrations.
+sci.physics.computational.fluid-dynamics	Computational fluid dynamics.
+sci.physics.cond-matter	Condensed matter physics, theory and experiment.
+sci.physics.electromag	Electromagnetic theory and applications.
+sci.physics.fusion	Info on fusion, esp. "cold" fusion.
+sci.physics.particle	Particle physics discussions.
+sci.physics.plasma	Plasma Science & Technology community exchange. (Moderated)
+sci.physics.relativity	The theory of relativity.
+sci.physics.research	Current physics research. (Moderated)
+sci.polymers		All aspects of polymer science.
+sci.psychology.announce	Psychology-related announcements. (Moderated)
+sci.psychology.misc	General discussion of psychology.
+sci.psychology.personality	All personality systems & measurement.
+sci.psychology.psychotherapy	Practice of psychotherapy.
+sci.psychology.research	Research issues in psychology. (Moderated)
+sci.psychology.theory	Theories of psychology & behavior.
+sci.research		Research methods, funding, ethics, and whatever.
+sci.research.careers	Issues relevant to careers in scientific research.
+sci.research.postdoc	Anything about postdoctoral studies, including offers.
+sci.skeptic		Skeptics discussing pseudo-science.
+sci.space.history	Historical manned and unmanned space flight programs.
+sci.space.policy	Discussions about space policy.
+sci.space.science	Space and planetary science and related technical work. (Moderated)
+sci.space.shuttle	The space shuttle and the STS program.
+sci.space.station	Space stations and orbiting platforms.
+sci.space.tech		Technical and general issues related to space flight. (Moderated)
+sci.stat.consult	Statistical consulting.
+sci.stat.edu		Statistics education.
+sci.stat.math		Statistics from a strictly mathematical viewpoint.
+sci.systems		The theory and application of systems science.
+sci.techniques.mag-resonance	Magnetic resonance imaging and spectroscopy.
+sci.techniques.microscopy	The field of microscopy.
+sci.techniques.spectroscopy	Spectrum analysis.
+sci.techniques.testing.misc	General testing techniques in science.
+sci.techniques.testing.nondestructive	Nondestructive tests in science.
+sci.techniques.xtallography	The field of crystallography.
+soc.answers		Repository for periodic USENET articles. (Moderated)
+soc.bi			Discussions of bisexuality.
+soc.college		College, college activities, campus life, etc.
+soc.college.admissions	The university admissions process.
+soc.college.financial-aid	Financial aid issues, college and beyond.
+soc.college.grad	General issues related to graduate schools.
+soc.college.gradinfo	Information about graduate schools.
+soc.college.org.aiesec	The Int'l Assoc. of Business and Commerce Students.
+soc.couples		Discussions for couples (cf. soc.singles).
+soc.couples.intercultural	Inter-cultural and inter-racial relationships.
+soc.couples.wedding	Wedding planning.
+soc.culture.afghanistan	Discussion of the Afghan society.
+soc.culture.african	Discussions about Africa & things African.
+soc.culture.african.american	Discussions about Afro-American issues.
+soc.culture.albanian	Albania and Albanians around the world.
+soc.culture.algeria	From A to Z about Algeria.
+soc.culture.arabic	Technological & cultural issues, *not* politics.
+soc.culture.argentina	All about life in Argentina.
+soc.culture.asean	Countries of the Assoc. of SE Asian Nations.
+soc.culture.asian.american	Issues & discussion about Asian-Americans.
+soc.culture.assyrian	Assyrian culture, history, language, current diaspora.
+soc.culture.asturies	Asturian culture.
+soc.culture.australian	Australian culture and society.
+soc.culture.austria	Austria and its people.
+soc.culture.baltics	People of the Baltic states.
+soc.culture.bangladesh	Issues & discussion about Bangladesh.
+soc.culture.belgium	Belgian society, culture(s) and people.
+soc.culture.bengali	Sociocultural identity of worldwide Bengali population.
+soc.culture.berber	The berber language, history, and culture.
+soc.culture.bolivia	Bolivian people and culture.
+soc.culture.bosna-herzgvna	The independent state of Bosnia and Herzegovina.
+soc.culture.brazil	Talking about the people and country of Brazil.
+soc.culture.breton	All about Breton culture and Brittany.
+soc.culture.british	Issues about Britain & those of British descent.
+soc.culture.bulgaria	Discussing Bulgarian society.
+soc.culture.burma	Politics, culture, news, discussion about Burma.
+soc.culture.cambodia	Cambodia and its people.
+soc.culture.canada	Discussions of Canada and its people.
+soc.culture.caribbean	Life in the Caribbean.
+soc.culture.catalan	The Catalan language and the lands where it is spoken.
+soc.culture.celtic	Irish, Scottish, Breton, Cornish, Manx & Welsh.
+soc.culture.chile	All about Chile and its people.
+soc.culture.china	About China and Chinese culture.
+soc.culture.colombia	Colombian talk, social, politics, science.
+soc.culture.cornish	All things Cornish and Cornwall, worldwide.
+soc.culture.costa-rica	Topics about Costa Rica.
+soc.culture.croatia	The lives of people of Croatia.
+soc.culture.cuba	Cuban culture, society and politics.
+soc.culture.czecho-slovak	Bohemian, Slovak, Moravian and Silesian life.
+soc.culture.dominican-rep	The life and people of the Dominican Republic.
+soc.culture.ecuador	The culture and people of Ecuador.
+soc.culture.egyptian	Egypt, and its society, culture, heritage, etc.
+soc.culture.el-salvador	Topics about El Salvador, Central America.
+soc.culture.esperanto	The neutral international language Esperanto.
+soc.culture.ethiopia.misc	Unmoderated forum to discuss Ethiopian culture.
+soc.culture.europe	Discussing all aspects of all-European society.
+soc.culture.filipino	Group about the Filipino culture.
+soc.culture.french	French culture, history, and related discussions.
+soc.culture.galiza	Galicia, on the Iberian Peninsula.
+soc.culture.german	Discussions about German culture and history.
+soc.culture.greek	Group about Greeks.
+soc.culture.guinea-conakry	Guinea (ne French Guinea, in West Africa).
+soc.culture.haiti	Haiti specific development and cultural issues.
+soc.culture.hmong	Discussion of Hmong people and its culture.
+soc.culture.honduras	General topics regarding Honduras and Central-America.
+soc.culture.hongkong	Discussions pertaining to Hong Kong.
+soc.culture.hongkong.entertainment	Entertainment in Hong Kong.
+soc.culture.indian	Group for discussion about India & things Indian.
+soc.culture.indian.delhi	Information related to Delhi, capital of India.
+soc.culture.indian.gujarati	Gujarati cultural group.
+soc.culture.indian.jammu-kashmir	The culture of Jammu & Kashmir.
+soc.culture.indian.karnataka	Karnataka's culture, history, and present.
+soc.culture.indian.kerala	Culture of the people of Keralite origin.
+soc.culture.indian.marathi	Discussion related to Marathi Culture.
+soc.culture.indonesia	All about the Indonesian nation.
+soc.culture.intercultural	People of mixed "culture", "ethnicity", "race".
+soc.culture.iranian	Discussions about Iran and things Iranian/Persian.
+soc.culture.iraq	Iraq, its society, culture and heritage.
+soc.culture.irish	Ireland and Irish culture.
+soc.culture.israel	Israel and Israelis.
+soc.culture.italian	The Italian people and their culture.
+soc.culture.japan	Everything Japanese, except the Japanese language.
+soc.culture.japan.moderated	Anything Japanese. (Moderated)
+soc.culture.jewish	Jewish culture & religion (cf. talk.politics.mideast).
+soc.culture.jordan	All topics concerning The Hashemite Kingdom of Jordan.
+soc.culture.kenya	Kenyan peoples, politics, culture, and affairs.
+soc.culture.korean	Discussions about Korea & things Korean.
+soc.culture.kurdish	People from Kurdistan and Kurds around the world.
+soc.culture.kuwait	Kuwaiti culture, society, and history.
+soc.culture.laos	Cultural and Social Aspects of Laos.
+soc.culture.latin-america	Topics about Latin-America.
+soc.culture.lebanon	Discussion about things Lebanese.
+soc.culture.liberia	The culture of Liberia.
+soc.culture.maghreb	North African society and culture.
+soc.culture.magyar	The Hungarian people & their culture.
+soc.culture.malagasy	Madagascar and the Malagasy culture.
+soc.culture.malaysia	All about Malaysian society.
+soc.culture.mexican	Discussion of Mexico's society.
+soc.culture.mexican.american	Mexican-American/Chicano culture and issues.
+soc.culture.misc	Group for discussion about other cultures.
+soc.culture.mongolian	Everything related to Mongols and Mongolia.
+soc.culture.native	Aboriginal people around the world.
+soc.culture.nepal	Discussion of people and things in & from Nepal.
+soc.culture.netherlands	People from the Netherlands and Belgium.
+soc.culture.new-zealand	Discussion of topics related to New Zealand.
+soc.culture.nicaragua	Topics related to the country of Nicaragua in general.
+soc.culture.nigeria	Nigerian affairs, society, cultures, and peoples.
+soc.culture.nordic	Discussion about culture up north.
+soc.culture.occitan	Speakers of Provencal/Occitan/Langue d'Oc.
+soc.culture.pacific-island	Culture of the pacific islands (except Hawaii).
+soc.culture.pakistan	Topics of discussion about Pakistan.
+soc.culture.pakistan.politics	Political discussions on Pakistan.
+soc.culture.pakistan.religion	Religious discussions related to Pakistan.
+soc.culture.pakistan.sports	Sports in Pakistan.
+soc.culture.palestine	Palestinian people, culture and politics.
+soc.culture.peru	All about the people of Peru.
+soc.culture.polish	Polish culture, Polish past, and Polish politics.
+soc.culture.portuguese	Discussion of the people of Portugal.
+soc.culture.puerto-rico	Puerto Rican culture, society and politics.
+soc.culture.punjab	Punjab and Punjabi culture.
+soc.culture.quebec	Quebec society and culture.
+soc.culture.rep-of-georgia	The Caucasian Republic of Georgia and Georgians.
+soc.culture.romanian	Discussion of Romanian and Moldavian people.
+soc.culture.russian	All things Russian in the broadest sense.
+soc.culture.russian.moderated	Moderated discussion of Russian culture. (Moderated)
+soc.culture.scientists	Cultural issues about scientists & scientific projects.
+soc.culture.scottish	Anything regarding Scotland or things Scots.
+soc.culture.sierra-leone	The culture of Sierra Leone.
+soc.culture.singapore	The past, present and future of Singapore.
+soc.culture.slovenia	Slovenia and Slovenian people.
+soc.culture.somalia	Somalian affairs, society, and culture.
+soc.culture.south-africa	South African society, culture, & politics.
+soc.culture.south-africa.afrikaans	The Afrikaans language and speakers.
+soc.culture.soviet	Topics relating to Russian or Soviet culture.
+soc.culture.spain	Spain and the Spanish.
+soc.culture.sri-lanka	Things & people from Sri Lanka.
+soc.culture.swiss	Swiss culture.
+soc.culture.syria	Syrian cultural matters and affairs.
+soc.culture.taiwan	Discussion about things Taiwanese.
+soc.culture.tamil	Tamil language, history and culture.
+soc.culture.thai	Thai people and their culture.
+soc.culture.turkish	Discussion about things Turkish.
+soc.culture.ukrainian	The lives and times of the Ukrainian people.
+soc.culture.uruguay	Discussions of Uruguay for those at home and abroad.
+soc.culture.usa		The culture of the United States of America.
+soc.culture.venezuela	Discussion of topics related to Venezuela.
+soc.culture.vietnamese	Issues and discussions of Vietnamese culture.
+soc.culture.welsh	The people, language and history of Wales.
+soc.culture.yugoslavia	Discussions of Yugoslavia and its people.
+soc.culture.zimbabwe	Culture and other issues pertaining to Zimbabwe.
+soc.genealogy.australia+nz	Australia, New Zealand, and their territories.
+soc.genealogy.benelux	Genealogy in Belgium, the Netherlands and Luxembourg.
+soc.genealogy.britain	Genealogy in Great Britain and the islands.
+soc.genealogy.computing	Genealogical computing & net resources.
+soc.genealogy.french	Francophone genealogy.
+soc.genealogy.german	Family history including a German background.
+soc.genealogy.hispanic	Genealogy relating to Hispanics.
+soc.genealogy.ireland	Genealogy in Ireland (both North and South).
+soc.genealogy.italian	Italian genealogy and family heraldry.
+soc.genealogy.jewish	Jewish genealogy group. (Moderated)
+soc.genealogy.marketplace	Genealogy services and products.
+soc.genealogy.medieval	Genealogy in the period from roughly AD500 to AD1600.
+soc.genealogy.methods	Genealogical methods and resources. (Moderated)
+soc.genealogy.misc	General genealogical discussions.
+soc.genealogy.nordic	Genealogy in the Scandinavian countries.
+soc.genealogy.slavic	Genealogy of Slavic peoples.
+soc.genealogy.surnames.britain	Surnames queries - Great Britain. (Moderated)
+soc.genealogy.surnames.ireland	Surnames queries - Ireland & Northern Ireland. (Moderated)
+soc.genealogy.west-indies	Genealogy of the West Indies.
+soc.history		Discussions of things historical.
+soc.history.ancient	Ancient history (up to AD 700).
+soc.history.early-modern	Early modern history worldwide, to 1800.
+soc.history.living	Living history and reenactment, issues and info.
+soc.history.medieval	The historic period of the middle ages.
+soc.history.science	History of science and related areas.
+soc.history.war.misc	History & events of wars in general.
+soc.history.war.us-civil-war	Aspects of the U.S. Civil War. (Moderated)
+soc.history.war.us-revolution	American Revolution/international perspectives.
+soc.history.war.world-war-ii	History & events of World War Two. (Moderated)
+soc.history.what-if	Alternate history.
+soc.libraries.talk	Discussing all aspects of libraries.
+soc.men			Issues related to men, their problems & relationships.
+soc.misc		Socially-oriented topics not in other groups.
+soc.motss		Issues pertaining to homosexuality.
+soc.net-people		Announcements, requests, etc. about people on the net.
+soc.org.nonprofit	Nonprofit organizations.
+soc.org.service-clubs.misc	General info on all service topics.
+soc.penpals		In search of net.friendships.
+soc.religion.islam	Discussions of the Islamic faith. (Moderated)
+soc.religion.quaker	The Religious Society of Friends.
+soc.religion.satanism	Satanism and the Satanic way of life.
+soc.retirement		For seniors:  retirement, aging, gerontology issues.
+soc.rights.human	Human rights & activism (e.g., Amnesty International).
+soc.senior.health+fitness	Health, fitness, health-care for seniors.
+soc.senior.issues	Issues relevant to seniors and aging.
+soc.singles		Newsgroup for single people, their activities, etc.
+soc.singles.moderated	Conversations among people who are or were single. (Moderated)
+soc.subculture.bondage-bdsm	Bondage/Dominance/S&M discussion & support.
+soc.subculture.bondage-bdsm.femdom	Sensual domination by females.
+soc.subculture.expatriate	Issues of interest to expatriates.
+soc.support.aids-hiv+	Messages to and from people living with HIV. (Moderated)
+soc.support.depression.crisis	Personal crisis situations.
+soc.support.depression.family	Coping with depressed people.
+soc.support.depression.manic	Bipolar/manic-depression.
+soc.support.depression.misc	Depression and mood disorders.
+soc.support.depression.treatment	Treatments of depression.
+soc.support.fat-acceptance	Self-acceptance for fat people.  No diet talk.
+soc.support.stroke	Family and survivors recovering from strokes.
+soc.support.transgendered	Transgendered and intersexed persons.
+soc.support.vision-impaired	Living with visual impairment or blindness.
+soc.veterans		Social issues relating to military veterans.
+soc.women		Issues related to women, their problems & relationships.
+talk.abortion		All sorts of discussions and arguments on abortion.
+talk.answers		Repository for periodic USENET articles. (Moderated)
+talk.atheism		Debate about the validity and nature of atheism.
+talk.bizarre		The unusual, bizarre, curious, and often interesting.
+talk.environment	Discussion the state of the environment & what to do.
+talk.euthanasia		All aspects of euthanasia.
+talk.origins		Evolution versus creationism (sometimes hot!). (Moderated)
+talk.philosophy.humanism	Humanism in the modern world.
+talk.philosophy.misc	Philosophical musings on all topics.
+talk.politics.animals	The use and/or abuse of animals.
+talk.politics.china	Discussion of political issues related to China.
+talk.politics.crypto	The relation between cryptography and government.
+talk.politics.drugs	The politics of drug issues.
+talk.politics.european-union	The EU and political integration in Europe.
+talk.politics.guns	The politics of firearm ownership and (mis)use.
+talk.politics.libertarian	Libertarian politics & political philosophy.
+talk.politics.medicine	The politics and ethics involved with health care.
+talk.politics.mideast	Discussion & debate over Middle Eastern events.
+talk.politics.misc	Political discussions and ravings of all kinds.
+talk.politics.soviet	Discussion of Soviet politics, domestic and foreign.
+talk.politics.theory	Theory of politics and political systems.
+talk.politics.tibet	The politics of Tibet and the Tibetan people.
+talk.rape		Discussions on stopping rape; not to be crossposted.
+talk.religion.bahai	Discussion of the Baha'i Faith.
+talk.religion.buddhism	All aspects of Buddhism as religion and philosophy.
+talk.religion.course-miracle	A Course in Miracles.
+talk.religion.misc	Religious, ethical, & moral implications.
+talk.religion.newage	Esoteric and minority religions & philosophies.
+talk.religion.pantheism	Pantheism in general.
+talk.rumors		For the posting of rumors.
+talk.us.rhode-island	Issues related to the State of Rhode Island, USA.

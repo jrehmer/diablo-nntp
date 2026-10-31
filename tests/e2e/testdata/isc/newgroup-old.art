@@ -1,0 +1,35 @@
+Path: archive.usenet.blueworldhosting.com!illumos!cnfs-sorter.blueworldhosting.com!spool1.usenet.blueworldhosting.com!usenet.blueworldhosting.com!diablo1.usenet.blueworldhosting.com!nntp.terraraq.uk!news1.firedrake.org!news.eyrie.org!bounce-back
+From: group-admin@isc.org
+Newsgroups: comp.lang.go
+Subject: cmsg newgroup comp.lang.go
+Control: newgroup comp.lang.go
+Approved: group-admin@isc.org
+Comments: This is a duplicate control message issued using the legacy PGP 
+	key for the Big Eight hierarchies. Please replace this key with 
+	8E181BEF0BE638962C1A5C98FAFE7B550C18C8B7 in your configuration 
+	if you are still honoring it.
+Date: Thu, 09 Nov 2023 13:00:02 -0800
+Message-ID: <cmsg-20231109210002$08fe@isc.org>
+X-Info: https://www.big-8.org/
+	https://www.eyrie.org/~eagle/big-8/
+X-PGP-Sig: GnuPG Subject,Control,Message-ID,Date,From,Sender
+	iQCVAwUBZU1IUsJdOtO4janBAQhmsgP/e2xXFy7EFszZJJgjWbtGNV/WgMBf4/7J
+	rNhjGE6E2c1GrBtAEbw4Vu7MuTRRWck8k8V8zVN0YXqsTK6DrrMq/NM89YFVdXH+
+	nY1DH80MaqU6MgBnDdHdNNhmc+rYyxCtiEVhIX9E4C5Iee4j6DTsj41Zi7W1JtQR
+	rcd56MZYeQM=
+	=KdRY
+Xref: archive.usenet.blueworldhosting.com control.newgroup:2189
+
+The Last Call for Comments (LCC) on 2023-09-25 initiated a five-day
+period for final comments. Following this comment period, the Big-8
+Management Board voted to create the unmoderated newsgroup comp.lang.go.
+The vote was 2 in favour and 0 opposed. One member did not vote.
+
+For your newsgroups file:
+comp.lang.go		The Go programming language (Golang).
+
+CHARTER:
+
+comp.lang.go will be a unmoderated group where people interested in the
+Go programming language can share ideas and topics, help each other, and
+keep up with interesting projects.

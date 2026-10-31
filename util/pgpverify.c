@@ -37,13 +37,21 @@ static int VerifyGpgv(char **argv, const char *keyring, const char *version,
 static int VerifyPgp2(char **argv, const char *version, char *sheaders,
 		      const char *signature);
 static void PutStripped(FILE *fo, const char *text);
+static char *ArtGets(char *buf, size_t size);
+static size_t ArtRead(char *buf, size_t size);
 
 Header *HBase = NULL;
 Header **PHe = &HBase;
 char *argv[12];
 
-/* The article (read into memory first), and its signed body. */
-static FILE *In = NULL;
+/*
+ * The article, read into memory first, and what is left of it to read.  It is read with
+ * ArtGets() and ArtRead() below, not through fmemopen(): fmemopen() of illumos repeats the
+ * start of the buffer once the stream is about 1 KB in, which made every real control message
+ * look like it had duplicate headers.
+ */
+static const char *ArtPtr = NULL;
+static size_t ArtLeft = 0;
 /* Signed body of the article, read after the headers. */
 static char *Body = NULL;
 static size_t BodyLen = 0;
@@ -148,15 +156,15 @@ main(int ac, char **av)
 		exit(3);
 	    }
 	}
-	if ((In = fmemopen(art, artLen, "r")) == NULL)
-	    exit(2);
+	ArtPtr = art;
+	ArtLeft = artLen;
     }
 
     /*
      * Scan headers in message
      */
 
-    while (fgets(buf, sizeof(buf), In) != NULL) {
+    while (ArtGets(buf, sizeof(buf)) != NULL) {
 	int l;
 
 	if ((l = strlen(buf)) == 1)	/* blank line, end of headers */
@@ -214,7 +222,7 @@ main(int ac, char **av)
     {
 	size_t n;
 
-	while ((n = fread(buf, 1, sizeof(buf), In)) > 0) {
+	while ((n = ArtRead(buf, sizeof(buf))) > 0) {
 	    Body = realloc(Body, BodyLen + n + 1);
 	    memcpy(Body + BodyLen, buf, n);
 	    BodyLen += n;
@@ -611,6 +619,40 @@ VerifyPgp2(char **argv, const char *version, char *sheaders,
  * CountHeader() - how many headers called name (case-insensitive) the
  *		   article has.
  */
+/*
+ * fgets() and fread() on the article in memory: a line of at most size-1 bytes with its
+ * newline, NULL at the end; up to size bytes.
+ */
+static char *
+ArtGets(char *buf, size_t size)
+{
+    size_t n = 0;
+
+    if (ArtLeft == 0)
+	return(NULL);
+    while (n + 1 < size && ArtLeft > 0) {
+	char c = *ArtPtr++;
+
+	--ArtLeft;
+	buf[n++] = c;
+	if (c == '\n')
+	    break;
+    }
+    buf[n] = 0;
+    return(buf);
+}
+
+static size_t
+ArtRead(char *buf, size_t size)
+{
+    size_t n = ArtLeft < size ? ArtLeft : size;
+
+    memcpy(buf, ArtPtr, n);
+    ArtPtr += n;
+    ArtLeft -= n;
+    return(n);
+}
+
 static int
 CountHeader(const char *name)
 {
