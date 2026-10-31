@@ -36,11 +36,11 @@ Prototype void ExecuteSupersedes(Connection *conn, const char *supers, const cha
 
 Control *ParseControl(Connection *conn, const char *cmd, const char *from, const char *newsgroup);
 void SendMail(FILE *logf, long lpos, char *hostname, const char *cmd, const char *arg);
-const char *PerformControl(Connection *conn, Control *ctl, const char **cmd, const char *art, const char *body, int bodyLen, char *groups);
+const char *PerformControl(Connection *conn, Control *ctl, const char **cmd, const char *art, const char *body, int bodyLen, char *groups, const char *from);
 const char *CtlCancel(Connection *conn, Control *ctl, const char **cmd, const char *art, const char *body, int bodyLen, char *groups);
 const char *CtlNewGroup(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen);
 const char *CtlRmGroup(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen);
-const char *CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen);
+const char *CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen, const char *from);
 const char *locateXTrace(const char *art, int headLen, int *pxtLen);
 
 void
@@ -281,7 +281,7 @@ ExecuteControl(Connection *conn, const char *ctlMsg, const char *art, int artLen
 		}
 	    }
 	    if (badCmd == NULL)
-		badCmd = PerformControl(conn, ctl, cmd, art, body, artLen - (body - art), groups);
+		badCmd = PerformControl(conn, ctl, cmd, art, body, artLen - (body - art), groups, from);
 	} else {
 	    if (ctl->ct_LogFo)
 		fprintf(ctl->ct_LogFo, ">> control message dropped\n");
@@ -580,7 +580,7 @@ SendMail(FILE *logf, long lpos, char *hostname, const char *cmd, const char *arg
  */
 
 const char *
-PerformControl(Connection *conn, Control *ctl, const char **cmd, const char *art, const char *body, int bodyLen, char *groups)
+PerformControl(Connection *conn, Control *ctl, const char **cmd, const char *art, const char *body, int bodyLen, char *groups, const char *from)
 {
     const char *badCmd = NULL;
 
@@ -593,7 +593,7 @@ PerformControl(Connection *conn, Control *ctl, const char **cmd, const char *art
     } else if (strcasecmp(cmd[0], "rmgroup") == 0 && cmd[1]) {
 	badCmd = CtlRmGroup(conn, ctl, cmd, body, bodyLen);
     } else if (strcasecmp(cmd[0], "checkgroups") == 0) {
-	badCmd = CtlCheckGroups(conn, ctl, cmd, body, bodyLen);
+	badCmd = CtlCheckGroups(conn, ctl, cmd, body, bodyLen, from);
     } else {
 	badCmd = "Unknown control\n";
     }
@@ -904,16 +904,22 @@ CtlRmGroup(Connection *conn, Control *ctl, const char **cmd, const char *body, i
  *	wildcard of dcontrol.ctl is checked against the active file:
  *
  *	    - the description of a group that exists is updated;
+ *	    - the moderated flag of a group that exists is corrected;
  *	    - a group that is missing is created (an addition);
- *	    - a group whose moderated flag differs gets the right one (a change);
  *	    - a group of a top-level hierarchy that the list has, that matches the
  *	      wildcard and is not in the list is removed (a removal).
  *
- *	As INN, the additions, changes and removals are only made when there are not
- *	more than /maxdocheckgroups/ of them (default 10, set with a line
- *	"/maxdocheckgroups/:*:*:<number>" in dcontrol.ctl); beyond that they are
- *	written to the control log as the dgrpctl commands that make them, and not
- *	made.  The descriptions are updated either way.
+ *	The descriptions and the flags are always done.  As in INN, the additions and
+ *	removals are only made when there are not more than "maxcheckgroups" of them
+ *	(a line "maxcheckgroups:from:newsgroups:number" in dcontrol.ctl, INN's
+ *	"/maxdocheckgroups/" works too; the last line that matches the sender and the
+ *	first group of the message is used; default 10); beyond that they are written
+ *	to the control log as the dgrpctl commands that make them, and not made.
+ *
+ *	A group that matches a line of the file "localgroups" (path_lib, one group or
+ *	wildcard per line, '#' comments) is left alone: its description and flag are
+ *	not changed, it is not created and never removed.  The descriptions of groups
+ *	that the message does not list are never touched, removed or not.
  */
 
 #define CG_MAXDOCHECKGROUPS	10
@@ -932,10 +938,11 @@ CgCompare(const void *a, const void *b)
 }
 
 /*
- * The number from the line "/maxdocheckgroups/:*:*:<number>" of dcontrol.ctl
+ * The limit of additions and removals: the last line "maxcheckgroups:from:newsgroups:number"
+ * (or INN's "/maxdocheckgroups/") of dcontrol.ctl that matches the sender and the group.
  */
 static int
-CgMaxChanges(void)
+CgMaxChanges(const char *from, const char *group)
 {
     FILE *fi = fopen(PatLibExpand(DControlCtlPat), "r");
     char buf[256];
@@ -944,19 +951,67 @@ CgMaxChanges(void)
     if (fi == NULL)
 	return(max);
     while (fgets(buf, sizeof(buf), fi) != NULL) {
-	if (strncmp(buf, "/maxdocheckgroups/:", 19) == 0) {
-	    char *p = strtok(buf, ":\n");
+	char *smsg;
+	char *sfrom;
+	char *sgroups;
+	char *snum;
 
-	    if (p && (p = strtok(NULL, ":\n")) && (p = strtok(NULL, ":\n")) && (p = strtok(NULL, ":\n"))) {
-		long v = strtol(p, NULL, 10);
+	if (strncasecmp(buf, "maxcheckgroups:", 15) != 0 && strncasecmp(buf, "/maxdocheckgroups/:", 19) != 0)
+	    continue;
+	if ((smsg = strtok(buf, ":\n")) == NULL ||
+	    (sfrom = strtok(NULL, ":\n")) == NULL ||
+	    (sgroups = strtok(NULL, ":\n")) == NULL ||
+	    (snum = strtok(NULL, ":\n")) == NULL
+	)
+	    continue;
+	if (from != NULL && WildOrCmp(sfrom, from) != 0) {
+	    char tmp[512];
 
-		if (v >= 0 && v < 100000000)
-		    max = (int)v;
-	    }
+	    if (strlen(sfrom) > 128)
+		continue;
+	    sprintf(tmp, "*<%s>*|* %s|%s *", sfrom, sfrom, sfrom);
+	    if (WildOrCmp(tmp, from) != 0)
+		continue;
+	}
+	if (group != NULL && WildOrCmp(sgroups, group) != 0)
+	    continue;
+	{
+	    long v = strtol(snum, NULL, 10);
+
+	    if (v >= 0 && v < 100000000)
+		max = (int)v;
 	}
     }
     fclose(fi);
     return(max);
+}
+
+/*
+ * The patterns of the file "localgroups" (path_lib), as one '|' separated wildcard, or NULL.
+ */
+static char *
+CgLocalGroups(void)
+{
+    FILE *fi = fopen(PatLibExpand("%s/localgroups"), "r");
+    char buf[256];
+    char *pat = NULL;
+    size_t len = 0;
+
+    if (fi == NULL)
+	return(NULL);
+    while (fgets(buf, sizeof(buf), fi) != NULL) {
+	char *g = strtok(buf, " \t\r\n");
+	char *np;
+
+	if (g == NULL || g[0] == '#')
+	    continue;
+	if ((np = realloc(pat, len + strlen(g) + 2)) == NULL)
+	    break;
+	pat = np;
+	len += sprintf(pat + len, "%s%s", len ? "|" : "", g);
+    }
+    fclose(fi);
+    return(pat);
 }
 
 /*
@@ -981,7 +1036,7 @@ CgCreate(const char *group, char flags, const char *description)
 }
 
 const char *
-CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen)
+CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *body, int bodyLen, const char *from)
 {
     int i;
     int l = 0;
@@ -994,11 +1049,12 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
     int nGone = 0;
     int maxGone = 0;
     int nAdd = 0;
-    int nChange = 0;
+    int nFlags = 0;
     int maxChanges;
     int doit;
     int recOff;
     int recLen;
+    char *local = CgLocalGroups();
 
     for (i = 0; i < bodyLen; i = l) {
 	char tmp[CG_MAXLINE];
@@ -1044,9 +1100,11 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
 
 	/*
 	 * The group must match the ct_Groups field from the dcontrol.ctl
-	 * file.
+	 * file, and must not be a local group.
 	 */
 	if (WildOrCmp(ctl->ct_Groups, newsgroup) != 0)
+	    continue;
+	if (local && WildOrCmp(local, newsgroup) == 0)
 	    continue;
 
 	if (nEnts == maxEnts) {
@@ -1066,6 +1124,11 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
     }
     if (nEnts == 0)
 	goto out;
+
+    /*
+     * The limit is looked up for the first group of the message.
+     */
+    maxChanges = CgMaxChanges(from, ents[0].ce_Group);
 
     /*
      * Sorted by name, a name twice in the list counts once (the first).
@@ -1112,7 +1175,7 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
     }
 
     /*
-     * Count what would be added and changed.
+     * Count the additions and the flags to correct.
      */
     for (i = 0; i < nEnts; ++i) {
 	const char *rec = KPDBReadRecord(KDBActive, ents[i].ce_Group, 0, &recLen);
@@ -1125,7 +1188,7 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
 
 	    p = KPDBGetField(rec, recLen, "S", (int *)&plen, "n");
 	    if (p == NULL || plen != 1 || p[0] != ents[i].ce_Flags)
-		++nChange;
+		++nFlags;
 	}
     }
 
@@ -1155,6 +1218,8 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
 	}
 	if (h == nHier || WildOrCmp(ctl->ct_Groups, grpbuf) != 0)
 	    continue;
+	if (local && WildOrCmp(local, grpbuf) == 0)
+	    continue;
 	key.ce_Group = grpbuf;
 	if (bsearch(&key, ents, nEnts, sizeof(CgEnt), CgCompare) != NULL)
 	    continue;
@@ -1172,17 +1237,16 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
     }
 
     /*
-     * Additions, changes and removals only up to /maxdocheckgroups/; the descriptions always.
+     * Additions and removals only up to the limit; the descriptions and the flags always.
      */
-    maxChanges = CgMaxChanges();
-    doit = (nAdd + nChange + nGone <= maxChanges);
-    if (ctl->ct_LogFo && nAdd + nChange + nGone)
-	fprintf(ctl->ct_LogFo, ">> Checkgroups: %d to add, %d to change, %d to remove (limit %d): %s\n",
-	    nAdd, nChange, nGone, maxChanges, doit ? "made" : "NOT made, the commands follow");
+    doit = (nAdd + nGone <= maxChanges);
+    if (ctl->ct_LogFo && (nAdd + nGone || nFlags))
+	fprintf(ctl->ct_LogFo, ">> Checkgroups: %d to add, %d to remove (limit %d): %s; %d moderated flags to correct\n",
+	    nAdd, nGone, maxChanges, nAdd + nGone == 0 ? "nothing to do" : doit ? "made" : "NOT made, the commands follow", nFlags);
 
     for (i = 0; i < nEnts; ++i) {
 	const char *g = ents[i].ce_Group;
-	const char *rec = KPDBReadRecord(KDBActive, g, doit ? KP_LOCK : 0, &recLen);
+	const char *rec = KPDBReadRecord(KDBActive, g, KP_LOCK, &recLen);
 
 	if (rec == NULL) {
 	    if (doit) {
@@ -1205,14 +1269,6 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
 	    p = KPDBGetFieldDecode(rec, recLen, "GD", NULL, NULL);
 	    wrongDesc = (p == NULL || strcmp(p, ents[i].ce_Desc) != 0);
 
-	    if (!doit) {
-		/* only the description */
-		if (wrongDesc)
-		    KPDBWriteEncode(KDBActive, g, "GD", ents[i].ce_Desc, 0);
-		if (wrongFlags && ctl->ct_LogFo)
-		    fprintf(ctl->ct_LogFo, "dgrpctl modgroup %s %c \"\" \"%s\"\n", g, ents[i].ce_Flags, ents[i].ce_Desc);
-		continue;
-	    }
 	    if (!wrongDesc && !wrongFlags) {
 		KPDBUnlock(KDBActive, rec);
 		continue;
@@ -1258,6 +1314,7 @@ out:
     for (i = 0; i < nGone; ++i)
 	free(gone[i]);
     free(gone);
+    free(local);
     return(NULL);
 }
 

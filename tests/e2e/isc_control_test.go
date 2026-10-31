@@ -379,14 +379,14 @@ func TestISCControlCheckgroups(t *testing.T) {
 	}
 }
 
-// TestISCControlCheckgroupsAll: with /maxdocheckgroups/ raised, the real ISC checkgroups (about
+// TestISCControlCheckgroupsAll: with maxcheckgroups raised, the real ISC checkgroups (about
 // 1,900 groups) is acted on as INN's docheckgroups does it: every group of the list is created,
 // the ones with "(Moderated)" as moderated groups; a group of the hierarchies of the list that it
 // lacks is removed, and the groups of other hierarchies stay. With the default limit of 10, none
 // of this is done (TestISCControlCheckgroups).
 func TestISCControlCheckgroupsAll(t *testing.T) {
 	have := []string{"news.announce.newgroups", "comp.ai", "comp.local.test", "local.keep"}
-	s, st, _ := iscSiteCtl(t, have, "/maxdocheckgroups/:*:*:100000\n"+iscDcontrol)
+	s, st, _ := iscSiteCtl(t, have, "maxcheckgroups:*:*:100000\n"+iscDcontrol)
 	art := iscArticle(t, "checkgroups", "modern")
 	_, body := splitArticle(art)
 	want := map[string]string{}

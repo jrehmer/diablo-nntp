@@ -27,12 +27,23 @@ func cgActive(t *testing.T, s *Site) map[string]string {
 // with the lines as the body.
 func cgSite(t *testing.T, groups []string, dcontrol string, lines ...string) *Site {
 	t.Helper()
+	return cgSiteWith(t, groups, map[string]string{"dcontrol.ctl": dcontrol}, nil, lines...)
+}
+
+// cgSiteWith is cgSite with more files in the home directory (localgroups) and groups with a
+// description, "name=description", made before the message is fed.
+func cgSiteWith(t *testing.T, groups []string, files map[string]string, described []string, lines ...string) *Site {
+	t.Helper()
 	st, spool := spoolStore(t)
 	s := NewReaderSite(t, ReaderOptions{
 		Spool:  spool,
 		Groups: groups,
-		Files:  map[string]string{"dcontrol.ctl": dcontrol},
+		Files:  files,
 	})
+	for _, d := range described {
+		name, desc, _ := strings.Cut(d, "=")
+		s.Run(t, "dgrpctl", "newgroup", name, "y", "", desc)
+	}
 	a := newArticle(msgID(t), "e2e.test", "cmsg checkgroups", lines...)
 	a = append(a[:3:3], append([]string{"Control: checkgroups"}, a[3:]...)...)
 	feedReader(t, s, st, "e2e.test", a)
@@ -76,15 +87,16 @@ func TestCheckgroupsInn(t *testing.T) {
 		t.Errorf("GROUP e2e.new: %d %q", code, line)
 	}
 	log, _ := os.ReadFile(filepath.Join(s.Dir, "log", "checkgroups.log"))
-	if !strings.Contains(string(log), "Checkgroups: 2 to add, 1 to change, 1 to remove (limit 10): made") {
+	if !strings.Contains(string(log), "Checkgroups: 2 to add, 1 to remove (limit 10): made; 1 moderated flags to correct") {
 		t.Errorf("control log:\n%s", log)
 	}
 }
 
-// TestCheckgroupsInnLimit: as INN, more than /maxdocheckgroups/ (default 10) additions, changes
-// and removals are not made but written to the control log as the commands that make them; the
-// descriptions of the groups that exist are updated all the same. A /maxdocheckgroups/ line in
-// dcontrol.ctl raises the limit.
+// TestCheckgroupsInnLimit: as INN, more than "maxcheckgroups" (default 10) additions and
+// removals are not made but written to the control log as the commands that make them; the
+// descriptions and moderated flags of the groups that exist are done all the same. A
+// maxcheckgroups line in dcontrol.ctl (INN's /maxdocheckgroups/ too) sets the limit, for the
+// sender and the group it matches; the last matching line is used.
 func TestCheckgroupsInnLimit(t *testing.T) {
 	lines := []string{"e2e.test\tDescribed."}
 	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
@@ -103,14 +115,14 @@ func TestCheckgroupsInnLimit(t *testing.T) {
 			t.Error("the removal was made with the default limit of 10 exceeded")
 		}
 		log, _ := os.ReadFile(filepath.Join(s.Dir, "log", "checkgroups.log"))
-		for _, want := range []string{"11 to add, 0 to change, 1 to remove (limit 10): NOT made", `dgrpctl newgroup e2e.newa y "" "New group a."`, "dgrpctl rmgroup e2e.obsolete"} {
+		for _, want := range []string{"11 to add, 1 to remove (limit 10): NOT made", `dgrpctl newgroup e2e.newa y "" "New group a."`, "dgrpctl rmgroup e2e.obsolete"} {
 			if !strings.Contains(string(log), want) {
 				t.Errorf("control log lacks %q:\n%s", want, log)
 			}
 		}
 	})
 	t.Run("raised", func(t *testing.T) {
-		s := cgSite(t, []string{"e2e.test", "e2e.obsolete"}, "/maxdocheckgroups/:*:*:12\ncheckgroups:*:*:doit\n", lines...)
+		s := cgSite(t, []string{"e2e.test", "e2e.obsolete"}, "maxcheckgroups:*:*:12\ncheckgroups:*:*:doit\n", lines...)
 		waitFor(t, 10*time.Second, "e2e.newa in LIST ACTIVE", func() bool { _, ok := cgActive(t, s)["e2e.newa"]; return ok })
 		act := cgActive(t, s)
 		if _, ok := act["e2e.newk"]; !ok {
@@ -120,4 +132,108 @@ func TestCheckgroupsInnLimit(t *testing.T) {
 			t.Error("e2e.obsolete was not removed with the limit raised to 12")
 		}
 	})
+}
+
+// more ways to set the limit, and what the limit does not cover
+func TestCheckgroupsInnLimitLines(t *testing.T) {
+	eleven := []string{"e2e.test\tDescribed."}
+	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
+		eleven = append(eleven, "e2e.new"+n+"\tNew group "+n+".")
+	}
+	made := func(t *testing.T, dcontrol string) bool {
+		s := cgSite(t, []string{"e2e.test"}, dcontrol, eleven...)
+		waitFor(t, 10*time.Second, "the description", func() bool {
+			return iscDescriptions(iscList(t, s, "NEWSGROUPS"))["e2e.test"] == "Described."
+		})
+		_, ok := cgActive(t, s)["e2e.newk"]
+		return ok
+	}
+	t.Run("INN line", func(t *testing.T) {
+		if !made(t, "/maxdocheckgroups/:*:*:20\ncheckgroups:*:*:doit\n") {
+			t.Error("INN's /maxdocheckgroups/ line is not honoured")
+		}
+	})
+	t.Run("last line that matches wins", func(t *testing.T) {
+		if !made(t, "maxcheckgroups:*:*:1\nmaxcheckgroups:*:e2e.*:20\ncheckgroups:*:*:doit\n") {
+			t.Error("the later line for e2e.* did not win over the earlier one for *")
+		}
+		if made(t, "maxcheckgroups:*:e2e.*:20\nmaxcheckgroups:*:*:1\ncheckgroups:*:*:doit\n") {
+			t.Error("the later line for * did not win over the earlier one for e2e.*")
+		}
+	})
+	t.Run("other hierarchy", func(t *testing.T) {
+		if made(t, "maxcheckgroups:*:fr.*:20\ncheckgroups:*:*:doit\n") {
+			t.Error("a limit for fr.* was used for e2e.*")
+		}
+	})
+	t.Run("other sender", func(t *testing.T) {
+		if made(t, "maxcheckgroups:nobody@example.invalid:*:20\ncheckgroups:*:*:doit\n") {
+			t.Error("a limit for another sender was used")
+		}
+	})
+	t.Run("flags are not limited", func(t *testing.T) {
+		var groups, lines []string
+		for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"} {
+			groups = append(groups, "e2e.flag"+n)
+			lines = append(lines, "e2e.flag"+n+"\tNow moderated "+n+". (Moderated)")
+		}
+		s := cgSite(t, groups, "checkgroups:*:*:doit\n", lines...)
+		waitFor(t, 10*time.Second, "the flags", func() bool { return cgActive(t, s)["e2e.flaga"] == "m" })
+		act := cgActive(t, s)
+		for _, g := range groups {
+			if act[g] != "m" {
+				t.Errorf("%s: flag %q, want m: the limit of 10 is for additions and removals", g, act[g])
+			}
+		}
+	})
+}
+
+// TestCheckgroupsInnLocal: a group of the file localgroups (a name or a wildcard per line) is
+// left alone by checkgroups: no description, no flag change, never removed.
+func TestCheckgroupsInnLocal(t *testing.T) {
+	s := cgSiteWith(t, []string{"e2e.test", "e2e.priv.a"},
+		map[string]string{"dcontrol.ctl": "checkgroups:*:*:doit\n", "localgroups": "# groups of this site\ne2e.local\ne2e.priv.*\n"},
+		[]string{"e2e.local=Our own description.", "e2e.obsolete=Obsolete group."},
+		"e2e.test\tThe test group.",
+		"e2e.local\tThe description of the sender. (Moderated)",
+	)
+	waitFor(t, 10*time.Second, "e2e.test described", func() bool {
+		return iscDescriptions(iscList(t, s, "NEWSGROUPS"))["e2e.test"] == "The test group."
+	})
+	waitFor(t, 10*time.Second, "e2e.obsolete removed", func() bool { _, ok := cgActive(t, s)["e2e.obsolete"]; return !ok })
+	act := cgActive(t, s)
+	if act["e2e.local"] != "y" {
+		t.Errorf("e2e.local: flag %q, want y: it is in localgroups", act["e2e.local"])
+	}
+	if _, ok := act["e2e.priv.a"]; !ok {
+		t.Error("e2e.priv.a (localgroups wildcard e2e.priv.*) was removed")
+	}
+	if d := iscDescriptions(iscList(t, s, "NEWSGROUPS"))["e2e.local"]; d != "Our own description." {
+		t.Errorf("e2e.local: description %q, want its own", d)
+	}
+}
+
+// TestCheckgroupsInnKeepsDescriptions: the description of a group that still exists is never
+// removed or changed when the message does not list it: a group not removed because the limit is
+// exceeded, one outside the dcontrol.ctl pattern, one of another hierarchy.
+func TestCheckgroupsInnKeepsDescriptions(t *testing.T) {
+	lines := []string{"e2e.test\tDescribed."}
+	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
+		lines = append(lines, "e2e.new"+n+"\tNew group "+n+".")
+	}
+	s := cgSiteWith(t, []string{"e2e.test"},
+		map[string]string{"dcontrol.ctl": "checkgroups:*:e2e.*:doit\n"},
+		[]string{"e2e.obsolete=Not removed: over the limit.", "other.keep=Another hierarchy."},
+		lines...)
+	waitFor(t, 10*time.Second, "the description", func() bool {
+		return iscDescriptions(iscList(t, s, "NEWSGROUPS"))["e2e.test"] == "Described."
+	})
+	act := cgActive(t, s)
+	if _, ok := act["e2e.newa"]; ok {
+		t.Fatal("the additions were made although they are over the limit")
+	}
+	desc := iscDescriptions(iscList(t, s, "NEWSGROUPS"))
+	if desc["e2e.obsolete"] != "Not removed: over the limit." || desc["other.keep"] != "Another hierarchy." {
+		t.Errorf("descriptions of groups that still exist: %v", desc)
+	}
 }
