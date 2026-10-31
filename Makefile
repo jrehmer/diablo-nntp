@@ -167,7 +167,7 @@ UTIL_PROGS = \
     dexpireover dreadover dpath dprimehostcache dstart \
     dclient dfeedinfo dlockhistory dfeedtest doverctl \
     drequeue dhisbench dhisexpire dhisctl dexpirecache \
-    dcancel dexpirescoring diablo dnewslink dgrpctl \
+    dcancel dexpirescoring diablo dnewslink dgrpctl djoblog \
     $(if $(filter 1,$(CANLOCK_ENABLED)),dcanlock)
 
 SUP_PROGS = plock showlocks

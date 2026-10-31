@@ -31,7 +31,12 @@ cd "$log" || exit 1
 # seconds, whether the file name still points at the file it has open, and opens
 # the new file when it doesn't.  Up to 10 seconds of lines still go to the .0 file.
 status=0
-"$here/rot" 4 daily.log dspoolout.log control.log miscctl \
+# The logs of the cron jobs (dbin/djoblog writes <job>.log) are rotated as well, and
+# daily.log, which a crontab without djoblog still writes.  djoblog opens its log for
+# each batch of lines, so this job's own log can be rotated while it runs.
+"$here/rot" 4 daily.log hourly.expire.log daily.atrim.log biweekly.atrim.log \
+    daily.reader.log weekly.reader.log actsync.log histbackup.log \
+    dspoolout.log control.log miscctl \
     general.log incoming.log drincoming.log path.log article.log \
     newgroup*.alt newgroup*.other newgroup*.log \
     rmgroup*.alt rmgroup*.other rmgroup*.log \

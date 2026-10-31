@@ -1,0 +1,76 @@
+.TH DJOBLOG 8
+.SH NAME
+djoblog \- Diablo program to run a job and log its output with a time stamp on every line
+.PP
+.SH SYNOPSIS
+.B djoblog [-C diablo.config] [-s] [-f file] [-V] job command [arg ...]
+
+.SH DESCRIPTION
+.IR DJobLog
+runs
+.I command
+with its standard output and standard error read through a pipe, and
+writes every line of it to a log, in the format of the other diablo logs:
+.PP
+.nf
+2026-10-31 02:40:01.123 daily.atrim[4711]: line
+.fi
+.PP
+The log is
+.IR path_log /\fIjob\fR.log
+(see diablo.config), for example /news/log/hourly.expire.log.  The start
+and the end of the job are logged too: a
+.B BEGIN
+line with the command, and an
+.B END
+line with the exit status of the command, or the signal that killed it.
+Control characters other than TAB in the output are replaced by '?'; a line
+longer than 4096 characters is split.
+.PP
+The exit status of
+.I djoblog
+is the exit status of the command (128 plus the signal number when it was
+killed, 127 when it could not be executed), so cron and the caller see
+the status of the job.  Usage errors exit with 2.  A log that cannot be written is
+reported once on standard error; the job still runs.
+.PP
+The log file is opened for each batch of lines and closed again, so it can be
+rotated while the job runs, even by the job itself (adm/daily.atrim rotates
+the job logs, including its own).
+.PP
+.I job
+is a name of letters, digits, '.', '_' and '-' that does not start with '.'
+or '-'.
+.PP
+.B \-C diablo.config
+.PP
+Read this diablo.config.  It is read before the command is started, and
+only options before the job name are the program's own: options of the command
+come after the command name.
+.PP
+.B \-f file
+.PP
+Write the log to this file instead of path_log/job.log.
+.PP
+.B \-s
+.PP
+Log to syslog instead of a file: facility news, the job name as the tag, with the
+process id.  Lines are logged at level notice; the END line of a job that failed
+at level err.  Where the lines end up depends on the syslog configuration.
+.PP
+.B \-V
+.PP
+Print the version and exit.
+
+.SH EXAMPLES
+In the crontab of the news user:
+.PP
+.nf
+50 * * * *  /news/dbin/djoblog hourly.expire /news/adm/hourly.expire
+40 2 * * *  /news/dbin/djoblog daily.atrim /news/adm/daily.atrim
+.fi
+
+.SH "SEE ALSO"
+diablo-files(5),
+dpath(8),
+crontab(5)

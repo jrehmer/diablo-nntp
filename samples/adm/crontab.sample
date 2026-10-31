@@ -6,6 +6,13 @@
 # matter.  Adjust /news below if you installed with another PREFIX, and the
 # log directory if path_log isn't /news/log (see "dbin/dpath log").
 #
+# Every job runs under djoblog (dbin/djoblog), which writes its output with a time
+# stamp on every line to <path_log>/<job>.log, for example hourly.expire.log, and
+# starts and ends it with a BEGIN and an END line with the exit status.  "djoblog -s"
+# logs to syslog instead.  Without djoblog, "job >> /news/log/job.log 2>&1" gives
+# the same separate files without the time stamps.  The job logs are rotated by
+# adm/daily.atrim.
+#
 # NOTE - some crons don't understand the */nn format; list the minutes
 #	 instead, e.g. 0,5,10,15,20,25,30,35,40,45,50,55.
 #
@@ -13,24 +20,24 @@
 */5 * * * *	/news/dbin/dspoolout >> /news/log/dspoolout.log 2>&1
 #
 # Every hour: expire the spool (skipped while a history trim holds the lock).
-50 * * * *	/news/adm/hourly.expire >> /news/log/daily.log 2>&1
+50 * * * *	/news/dbin/djoblog hourly.expire /news/adm/hourly.expire
 #
 # Daily: rotate the logs.
-40 2 * * *	/news/adm/daily.atrim >> /news/log/daily.log 2>&1
+40 2 * * *	/news/dbin/djoblog daily.atrim /news/adm/daily.atrim
 #
 # Twice a week: trim the history file (dhisexpire) and the active file.
-30 2 * * 1,4	/news/adm/biweekly.atrim >> /news/log/daily.log 2>&1
+30 2 * * 1,4	/news/dbin/djoblog biweekly.atrim /news/adm/biweekly.atrim
 #
 # Reader (dreaderd) machines only: expire the overview and the article cache
 # daily, rewrite the overview data weekly.
-#45 2 * * *	/news/adm/daily.reader >> /news/log/daily.log 2>&1
-#30 3 * * 0	/news/adm/weekly.reader >> /news/log/daily.log 2>&1
+#45 2 * * *	/news/dbin/djoblog daily.reader /news/adm/daily.reader
+#30 3 * * 0	/news/dbin/djoblog weekly.reader /news/adm/weekly.reader
 #
 # Machines that take their active file from an active file server: sync it
 # hourly (actsync), and let diablo-ctl.conf's DIABLO_ACTIVE_MAXAGE notice when
 # that stops working.
-#20 * * * *	/news/adm/actsync active.example.com >> /news/log/daily.log 2>&1
+#20 * * * *	/news/dbin/djoblog actsync /news/adm/actsync active.example.com
 #
 # A history on a RAM disk: snapshot it hourly (path_dumphist in diablo.config
 # must be "%s/adm/dumphist", see adm/dumphist).
-#10 * * * *	/news/adm/histbackup >> /news/log/daily.log 2>&1
+#10 * * * *	/news/dbin/djoblog histbackup /news/adm/histbackup

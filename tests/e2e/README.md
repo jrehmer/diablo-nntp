@@ -142,6 +142,13 @@ test fails.
 | `TestAdmHourlyExpire` | adm/hourly.expire, dexpire | the script expires an article older than `keeptime` |
 | `TestAdmDailyAtrim` | adm/daily.atrim, adm/rot | the script rotates the logs |
 | `TestAdmDailyAtrimDaemonLogs` | adm/daily.atrim | the logs the daemons write themselves (general, incoming, drincoming, path, article) are rotated too |
+| `TestAdmDailyAtrimJobLogs` | adm/daily.atrim, djoblog | the job logs (`<job>.log`) are rotated too, including daily.atrim's own, which djoblog opens again for the end of the run |
+| `TestDjoblogLogsLines` | djoblog | stdout and stderr lines get a time stamp and the job name; BEGIN and END lines; a last line without newline; nothing printed; the log is `<path_log>/<job>.log` |
+| `TestDjoblogExitStatus` | djoblog | the exit status is the command's (128+signal when killed, 127 when it cannot be executed) and the END line says so |
+| `TestDjoblogUsage` | djoblog | a bad job name or no command exits 2 and writes nothing |
+| `TestDjoblogLines` | djoblog | control characters become `?`, a 5000 character line is split, `-f file`, the command's own options |
+| `TestDjoblogRotation` | djoblog | the log renamed while the job runs: the rest goes to a new file |
+| `TestDjoblogSyslog` | djoblog | `-s` writes no file and keeps the exit status |
 | `TestAdmBiweeklyAtrim` | adm/biweekly.atrim, dhisexpire | the script trims the history while diablo runs; the stored article stays in history |
 | `TestAdmReaderScripts` | adm/daily.reader, adm/weekly.reader | both scripts run on a reader site. The adm tests are skipped while `samples/adm` still holds the csh scripts |
 | `TestAdmExitStatus` | adm/hourly.expire, daily.reader, weekly.reader, daily.atrim, biweekly.atrim | a job that fails (a stand-in `dexpire`, `dexpireover`, `rot`, `dkp` or `dhisexpire` with a nonzero exit) makes its script exit with that status, and the END line says it (D-135, D-137); before, the END message hid it and the script exited 0 |
