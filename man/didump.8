@@ -104,7 +104,8 @@ know how many records will be displayed.
 .B -rN
 Set the rememberdays value to N. The rememberdays value specifies
 the number of days worth of expired articles to keep. The default
-is obtained from ``diablo.config'' and a value of '-1' will cause
+is obtained from ``diablo.config''. A value of 0 keeps all expired
+entries however old they are, and a value of '-1' will cause
 didump to not dump any expired articles. If the value has 's', 'm'
 or 'h' appended, the numeric value is taken as seconds, minutes or
 hours, respectively. This option has no effect without the ``-x'' option.
