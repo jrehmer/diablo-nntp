@@ -38,7 +38,7 @@ func offerDated(t *testing.T, s *Site, date string) int {
 // TestFeederMaxAcceptAge: the age limit for incoming articles. By default (the harness has
 // remember 7, which sets it) an article dated years ago or years ahead is rejected. A positive
 // feedermaxacceptage is the limit; 0 turns the check off, as do diablo -r 0 and remember 0, which
-// sets it. A date diablo cannot parse is not checked either way.
+// sets it. A date diablo cannot read at all is not checked either way.
 //
 // The harness writes its directives in alphabetical order, so a feedermaxacceptage line would come
 // before the harness's remember line and be overridden by it ("this value will only override
@@ -76,9 +76,15 @@ func TestFeederMaxAcceptAge(t *testing.T) {
 			if code := offerDated(t, s, future); code != want {
 				t.Errorf("an article dated 2100: %d, want %d", code, want)
 			}
-			// not parseable: not checked
-			if code := offerDated(t, s, "2001-01-01"); code != 235 {
-				t.Errorf("an article with the unparseable Date 2001-01-01: %d, want 235", code)
+			// the other formats are read as well (lib/parsedate.c, TestParseDate)
+			for _, d := range []string{"Mon Jan  1 12:00:00 2001", "Monday, 01-Jan-01 12:00:00 GMT", "2001-01-01T12:00:00Z", "Jan 1, 2001"} {
+				if code := offerDated(t, s, d); code != want {
+					t.Errorf("an article dated %q: %d, want %d", d, code, want)
+				}
+			}
+			// not a date: not checked
+			if code := offerDated(t, s, "banana"); code != 235 {
+				t.Errorf("an article with the unreadable Date banana: %d, want 235", code)
 			}
 		})
 	}

@@ -19,6 +19,19 @@ prints a date in
 form.  Given a date string, it parses it the way diablo parses dates
 (for example a Date: header or "26 Oct 2026 12:00:00 GMT") and prints
 the result, or "Illegal format".
+.PP
+The dates it reads, and so the Date: headers diablo can check against
+feedermaxacceptage: RFC 5322/822 ("Mon, 01 Jan 2001 12:00:00 +0000", with
+or without weekday and seconds, two, three or four digit years), RFC 850
+("Monday, 01-Jan-01 12:00:00 GMT"), ctime and date(1)
+("Mon Jan  1 12:00:00 UTC 2001"), US dates ("Jan 1, 2001 1:30 PM"),
+ISO 8601 ("2001-01-01T12:00:00Z", "20010101T120000Z"), "01.01.2001",
+and Unix time.  The time zone is applied (a numeric offset, UT, UTC, GMT,
+Z, EST/EDT/CST/CDT/MST/MDT/PST/PDT and a few European and Asian names;
+any other name counts as UTC).  The month is English (any word that
+starts with the three letter abbreviation) or a common German, French,
+Spanish, Italian or Dutch one.  A date with the day and month in either
+order (01/02/2001) or without a year is not read.
 .SH OPTIONS
 .TP
 .BI \-c " unixtime"

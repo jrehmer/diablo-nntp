@@ -3406,8 +3406,8 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 	    time_t tart = parsedate(dateBuf);
 
 	    if (tart != (time_t)-1) {
-		int32 dt = t - tart;
-		if (dt > DOpts.FeederMaxAcceptAge || dt < -DOpts.FeederMaxAcceptAge)
+		long long dt = (long long)t - (long long)tart;	/* not 32 bit: an article from 1930 */
+		if (dt > DOpts.FeederMaxAcceptAge || dt < -(long long)DOpts.FeederMaxAcceptAge)
 		    artError |= LAERR_TOOOLD;
 	    }
 	}
