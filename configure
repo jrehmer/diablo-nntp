@@ -1,0 +1,379 @@
+#!/bin/sh
+# configure: detect which optional libraries this host has, set the matching options
+# in lib/vendor.h, and write config.mk with the compiler and linker flags that make
+# (Makefile) and BSDmakefile need for them.  Run it first, then make:
+#
+#   ./configure && make            (gmake on FreeBSD and illumos)
+#
+# Options and the library each one needs:
+#
+#   zlib      USE_ZLIB          zlib: compressed spool objects and feeds
+#   canlock   CANLOCK_ENABLED   libcanlock 3.3 or later: Cancel-Lock (RFC 8315)
+#   db        DB_ENABLED and REJECT_DB: Berkeley DB (1.85 API, dbopen) for DB authentication and
+#                               the reject database
+#   cdb       CDB_ENABLED       a cdb library with cdb_seek (D. J. Bernstein's or tinycdb), for CDB
+#                               authentication
+#   pam       PAM_ENABLED       PAM, for PAM authentication
+#   ldap      LDAP_ENABLED      OpenLDAP, for LDAP authentication
+#   perl      PERL_ENABLED      an embeddable perl, for Perl authentication
+#   radius    RADIUS_ENABLED    RADIUS authentication, with the BSD libradius (radlib.h) of
+#                               FreeBSD and SmartOS, or with radcli (RADIUS_RADCLI) elsewhere
+#
+#   ./configure                  turn on every option the host can build, turn off the others
+#   ./configure --with-pam       as above, and stop with an error if PAM cannot be built
+#   ./configure --without-perl   leave the option off, without looking (any of the names above)
+#   ./configure --with-radcli    RADIUS with radcli even where libradius is found
+#   ./configure -n               only report, change nothing
+#
+# The options are all #undef in lib/vendor.h as shipped; this script is what turns them on.
+# Run it again after installing or removing a library, and make clean before the next make.
+# CC and PERL in the environment name the compiler and the perl to probe (the default
+# compiler is the one the makefiles use).
+
+# The compiler the makefiles use: clang on FreeBSD, gcc elsewhere (cc and clang as fallbacks)
+if [ -z "${CC:-}" ]; then
+    if [ "$(uname -s)" = FreeBSD ]; then try_cc="clang cc gcc"; else try_cc="gcc cc clang"; fi
+    for c in $try_cc; do
+	if command -v "$c" >/dev/null 2>&1; then CC=$c; break; fi
+    done
+    if [ -z "${CC:-}" ]; then echo "configure: no C compiler found (tried $try_cc)" >&2; exit 1; fi
+fi
+PERL=${PERL:-perl}
+vendor=lib/vendor.h
+mk=config.mk
+features="zlib canlock db cdb pam ldap perl radius"
+dry=0
+radcli_only=0
+
+for f in $features; do eval "mode_$f=auto"; done
+
+while [ $# -gt 0 ]; do
+    case $1 in
+	--with-radcli) mode_radius=on; radcli_only=1 ;;
+	--with-*|--without-*)
+	    f=${1#--with-}
+	    case $1 in --without-*) f=${1#--without-}; m=off ;; *) m=on ;; esac
+	    case " $features " in
+		*" $f "*) eval "mode_$f=$m" ;;
+		*) echo "configure: unknown option $1" >&2; exit 2 ;;
+	    esac ;;
+	-n|--dry-run) dry=1 ;;
+	-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	*) echo "configure: unknown option $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+cd "$(dirname "$0")" || exit 1
+[ -f "$vendor" ] || { echo "configure: $vendor not found" >&2; exit 1; }
+
+tmp=${TMPDIR:-/tmp}/diablo-configure.$$
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+mkdir "$tmp" || exit 1
+uname_s=$(uname -s)
+
+# Every probe sets, on success, <name>_cpp (compiler flags), <name>_ld (linker flags) and
+# <name>_libs (libraries) and returns 0.  The directories tried are the system ones and the
+# package prefixes of FreeBSD (/usr/local), SmartOS and pkgsrc (/opt/local) and OOCE.
+prefixes="/usr/local /opt/local /opt/ooce"
+
+# try_link NAME SOURCE-FILE "LIBS..." ["extra flags"]: compile and link the source file with
+# the libraries, first as it is, then with each package prefix
+try_link() {
+    t_name=$1; t_src=$2; t_libs=$3; t_extra=$4
+    for p in "" $prefixes; do
+	if [ -z "$p" ]; then
+	    cpp=""; ld=""
+	else
+	    [ -d "$p/include" ] || continue
+	    cpp="-I$p/include"; ld="-L$p/lib -Wl,-rpath,$p/lib"
+	fi
+	# shellcheck disable=SC2086
+	if $CC -I. $t_extra $cpp -o "$tmp/t" "$t_src" $ld $t_libs >/dev/null 2>&1; then
+	    eval "${t_name}_cpp=\$cpp; ${t_name}_ld=\$ld; ${t_name}_libs=\$t_libs"
+	    return 0
+	fi
+    done
+    return 1
+}
+
+probe_zlib() {
+    cat > "$tmp/z.c" <<'EOT'
+#include <zlib.h>
+int main(void) { return zlibVersion() == 0; }
+EOT
+    try_link zlib "$tmp/z.c" "-lz"
+}
+
+probe_canlock() {
+    cat > "$tmp/cl.c" <<'EOT'
+#include <libcanlock-3/canlock.h>
+int main(void) { void *volatile p = (void *)cl_get_key; return p == 0; }
+EOT
+    try_link canlock "$tmp/cl.c" "-lcanlock"
+}
+
+# Berkeley DB with the 1.85 interface, dbopen(): <db.h> in the C library on FreeBSD, <db_185.h>
+# and -ldb (or db4, db5) elsewhere, from the system directories or a package prefix
+probe_db() {
+    if [ "$uname_s" = FreeBSD ]; then
+	cat > "$tmp/db.c" <<'EOT'
+#include <stddef.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <db.h>
+int main(void) { DB *db = dbopen("/nonexistent/diablo-db-test", O_RDONLY, 0, DB_BTREE, NULL); if (db) db->close(db); return 0; }
+EOT
+	$CC -o "$tmp/t" "$tmp/db.c" >/dev/null 2>&1 || return 1
+	db_cpp=""; db_ld=""; db_libs=""
+	return 0
+    fi
+    cat > "$tmp/db.c" <<'EOT'
+#include <stddef.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <db_185.h>
+int main(void) { DB *db = dbopen("/nonexistent/diablo-db-test", O_RDONLY, 0, DB_BTREE, NULL); if (db) db->close(db); return 0; }
+EOT
+    for p in "" /opt/local /opt/ooce /usr/local /usr; do
+	for inc in "$p/include/db5" "$p/include/db4" "$p/include"; do
+	    [ -f "$inc/db_185.h" ] || continue
+	    for lib in "$p/lib/amd64" "$p/lib" "$p/lib/64"; do
+		[ -d "$lib" ] || continue
+		for l in db5 db4 db; do
+		    if $CC -I"$inc" -o "$tmp/t" "$tmp/db.c" -L"$lib" -Wl,-rpath,"$lib" -l$l >/dev/null 2>&1; then
+			db_cpp="-I$inc"; db_ld="-L$lib -Wl,-rpath,$lib"; db_libs="-l$l"
+			return 0
+		    fi
+		done
+	    done
+	done
+    done
+    # the default directories, which have no prefix to look in
+    if $CC -o "$tmp/t" "$tmp/db.c" -ldb >/dev/null 2>&1; then
+	db_cpp=""; db_ld=""; db_libs="-ldb"
+	return 0
+    fi
+    return 1
+}
+
+# cdb_seek() is in tinycdb as a compatibility call (libcdb-dev on Debian and Ubuntu); the
+# current D. J. Bernstein cdb of pkgsrc and FreeBSD ports no longer has it.  The address is
+# taken through a volatile pointer so that the linker has to find the function.
+probe_cdb() {
+    cat > "$tmp/cdb.c" <<'EOT'
+extern int cdb_seek(int, char *, unsigned int, unsigned int *);
+int main(void) { void *volatile p = (void *)cdb_seek; return p == 0; }
+EOT
+    try_link cdb "$tmp/cdb.c" "-lcdb"
+}
+
+probe_pam() {
+    cat > "$tmp/pam.c" <<'EOT'
+#include <sys/types.h>
+#include <security/pam_appl.h>
+int main(void) { pam_handle_t *h = 0; return pam_end(h, 0); }
+EOT
+    try_link pam "$tmp/pam.c" "-lpam"
+}
+
+probe_ldap() {
+    cat > "$tmp/l.c" <<'EOT'
+#define LDAP_DEPRECATED 1
+#include <lber.h>
+#include <ldap.h>
+int main(void) { LDAP *ld = ldap_init("localhost", 389); return ld == 0; }
+EOT
+    try_link ldap "$tmp/l.c" "-lldap -llber"
+}
+
+probe_perl() {
+    cat > "$tmp/p.c" <<'EOT'
+#include <EXTERN.h>
+#include <perl.h>
+static PerlInterpreter *my_perl;
+int main(void) { my_perl = perl_alloc(); return my_perl == 0; }
+EOT
+    perl_cpp=$("$PERL" -MExtUtils::Embed -e ccopts 2>/dev/null) || return 1
+    perl_libs=$("$PERL" -MExtUtils::Embed -e ldopts 2>/dev/null) || return 1
+    perl_ld=""
+    # shellcheck disable=SC2086
+    $CC $perl_cpp -o "$tmp/t" "$tmp/p.c" $perl_libs >/dev/null 2>&1
+}
+
+# the BSD libradius: radlib.h and libradius, which needs libmd (MD5) and on SmartOS the socket
+# libraries; SmartOS also lacks srandomdev(), which compat/srandomdev.c supplies in the build
+probe_radlib() {
+    cat > "$tmp/r.c" <<'EOT'
+#include <sys/types.h>
+#if defined(__sun)
+#include "compat/smartos_radlib.h"
+#endif
+#include <radlib.h>
+#if defined(__sun)
+void srandomdev(void) { }
+#endif
+int main(void) { struct rad_handle *h = rad_auth_open(); return h == 0; }
+EOT
+    for libs in "-lradius" "-lradius -lmd" "-lradius -lmd -lnsl -lsocket"; do
+	if try_link radlib "$tmp/r.c" "$libs"; then return 0; fi
+    done
+    return 1
+}
+
+# radcli: the RADIUS client library of Linux distributions; its dictionary file is found here
+# too, as the adapter in dreaderd/dns.c reads it
+probe_radcli() {
+    cat > "$tmp/c.c" <<'EOT'
+#include <radcli/radcli.h>
+int main(void) { rc_handle *rh = rc_new(); return rh == 0; }
+EOT
+    try_link radcli "$tmp/c.c" "-lradcli" || return 1
+    radcli_dict=$(ls /etc/radcli/dictionary /usr/local/etc/radcli/dictionary /opt/local/etc/radcli/dictionary \
+	/usr/share/radcli/dictionary /usr/local/share/radcli/dictionary /usr/etc/radcli/dictionary 2>/dev/null | head -1)
+    if [ -z "$radcli_dict" ]; then
+	radcli_dict=$(find /etc /usr/etc /usr/local/etc /opt/local/etc /usr/share /usr/local/share \
+	    -maxdepth 3 -path '*/radcli/dictionary' 2>/dev/null | head -1)
+    fi
+    return 0
+}
+
+# set_option NAME on|off [VALUE]: make lib/vendor.h say #define or #undef for NAME
+set_option() {
+    name=$1; want=$2; val=$3
+    if [ "$want" = on ]; then
+	new="#define	$name"
+	[ -z "$val" ] || new="$new	$val"
+    else
+	new="#undef	$name"
+    fi
+    if ! grep -E "^#[[:space:]]*(define|undef)[[:space:]]+$name([[:space:]]|\$)" "$cur" >/dev/null; then
+	echo "configure: no $name line in $vendor, not changed" >&2
+	rc=1
+	return 1
+    fi
+    sed -E "s@^#[[:space:]]*(define|undef)[[:space:]]+$name([[:space:]].*)?\$@$new@" "$cur" > "$tmp/vendor.next" &&
+	mv "$tmp/vendor.next" "$cur"
+}
+
+# --- decide ---------------------------------------------------------------------------------
+
+cur=$tmp/vendor.h
+cp "$vendor" "$cur" || exit 1
+rc=0
+: > "$tmp/mk"
+
+# note TEXT...: a line of the report
+note() { printf '%s\n' "$*"; }
+
+# add_flags NAME: put the flags of a probe into config.mk
+add_flags() {
+    eval "c=\$$1_cpp; l=\$$1_ld; b=\$$1_libs"
+    [ -z "$c" ] || echo "CPPFLAGS += $c" >> "$tmp/mk"
+    [ -z "$l" ] || echo "LDFLAGS += $l" >> "$tmp/mk"
+    [ -z "$b" ] || echo "LDLIBS += $b" >> "$tmp/mk"
+}
+
+# decide FEATURE PROBE: apply the mode of FEATURE; return 0 when it ends up on
+decide() {
+    f=$1; probe=$2
+    eval "mode=\$mode_$f"
+    case $mode in
+	off) note "$f: off (--without-$f)"; return 1 ;;
+	on|auto)
+	    if "$probe"; then return 0; fi
+	    if [ "$mode" = on ]; then
+		note "configure: --with-$f: cannot build $f here" >&2
+		rc=1
+	    else
+		note "$f: not found, off"
+	    fi
+	    return 1 ;;
+    esac
+}
+
+# zlib is required by lib/dgzip.c; USE_ZLIB only adds compressed spool objects and feeds
+if [ "$mode_zlib" = off ]; then
+    set_option USE_ZLIB off
+    note "zlib: USE_ZLIB off (--without-zlib); lib/dgzip.c still needs zlib.h and -lz"
+elif probe_zlib; then
+    note "zlib: on"
+    set_option USE_ZLIB on; add_flags zlib
+else
+    note "configure: zlib (zlib.h and -lz) is required and was not found" >&2
+    rc=1
+fi
+
+if decide canlock probe_canlock; then
+    note "canlock: on"; set_option CANLOCK_ENABLED on; add_flags canlock
+    echo "OPTIONAL_PROGS += dcanlock" >> "$tmp/mk"
+else set_option CANLOCK_ENABLED off; fi
+
+if decide db probe_db; then
+    note "db: on (Berkeley DB ${db_libs:-in libc})"
+    set_option DB_ENABLED on; set_option REJECT_DB on '"/news/db/reject.db"'; add_flags db
+else set_option DB_ENABLED off; set_option REJECT_DB off; fi
+
+if decide cdb probe_cdb; then
+    note "cdb: on"; set_option CDB_ENABLED on; add_flags cdb
+else set_option CDB_ENABLED off; fi
+
+if decide pam probe_pam; then
+    note "pam: on"; set_option PAM_ENABLED on; add_flags pam
+else set_option PAM_ENABLED off; fi
+
+if decide ldap probe_ldap; then
+    note "ldap: on"; set_option LDAP_ENABLED on; add_flags ldap
+else set_option LDAP_ENABLED off; fi
+
+if decide perl probe_perl; then
+    note "perl: on"; set_option PERL_ENABLED on; add_flags perl
+else set_option PERL_ENABLED off; fi
+
+# RADIUS: the BSD libradius where there is one, else radcli
+radius=off
+if [ "$mode_radius" = off ]; then
+    note "radius: off (--without-radius)"
+elif [ "$radcli_only" = 0 ] && probe_radlib; then
+    radius=radlib; note "radius: on (radlib.h and libradius)"
+elif probe_radcli; then
+    radius=radcli; note "radius: on (radcli)"
+elif [ "$mode_radius" = on ]; then
+    echo "configure: --with-radius: neither libradius (radlib.h) nor radcli found" >&2
+    rc=1
+else
+    note "radius: not found, off"
+fi
+case $radius in
+    off) set_option RADIUS_ENABLED off; set_option RADIUS_RADCLI off ;;
+    radlib) set_option RADIUS_ENABLED on; set_option RADIUS_RADCLI off; add_flags radlib ;;
+    radcli)
+	set_option RADIUS_ENABLED on; set_option RADIUS_RADCLI on; add_flags radcli
+	[ -z "$radcli_dict" ] || echo "CPPFLAGS += -DRADCLI_DICTIONARY=\\\"$radcli_dict\\\"" >> "$tmp/mk" ;;
+esac
+
+if [ "$rc" -ne 0 ]; then
+    echo "configure: nothing written" >&2
+    exit 1
+fi
+
+# --- write ----------------------------------------------------------------------------------
+
+{
+    echo "# Written by ./configure: compiler and linker flags for the options in lib/vendor.h."
+    echo "# Included by Makefile and BSDmakefile; do not edit, run ./configure again."
+    echo "CC = $CC"
+    cat "$tmp/mk"
+} > "$tmp/config.mk"
+
+if [ "$dry" -eq 1 ]; then
+    cmp -s "$vendor" "$cur" && note "lib/vendor.h: no change" || note "lib/vendor.h: would change"
+    exit 0
+fi
+# replace the files by rename, so an interrupted run never leaves one of them truncated
+if ! cmp -s "$vendor" "$cur"; then
+    cp "$cur" "$vendor.new" && mv "$vendor.new" "$vendor" || { rm -f "$vendor.new"; echo "configure: cannot write $vendor" >&2; exit 1; }
+fi
+cp "$tmp/config.mk" "$mk.new" && mv "$mk.new" "$mk" || { rm -f "$mk.new"; echo "configure: cannot write $mk" >&2; exit 1; }
+note "wrote $mk and updated $vendor; now run make (gmake on FreeBSD and illumos)"

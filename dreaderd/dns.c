@@ -12,8 +12,15 @@
 
 #ifdef LDAP_ENABLED
 #define LDAP_COMPARE
+/* the synchronous calls used below are deprecated, but still in OpenLDAP 2.x */
+#ifndef LDAP_DEPRECATED
+#define LDAP_DEPRECATED 1
+#endif
 #include <lber.h>
 #include <ldap.h>
+#endif
+#if defined(RADIUS_ENABLED) && defined(RADIUS_RADCLI)
+#include <radcli/radcli.h>
 #endif
 #if defined(DB_ENABLED) || defined(REJECT_DB)
 #  if defined(__linux__) || defined(__sun)
@@ -397,7 +404,182 @@ fileAuthenticate(char *user, char *pass, char *conf)
     return(r);
 }
 
-#ifdef		RADIUS_ENABLED
+#if defined(RADIUS_ENABLED) && defined(RADIUS_RADCLI)
+
+#ifndef RADCLI_DICTIONARY
+#define RADCLI_DICTIONARY "/etc/radcli/dictionary"
+#endif
+
+/*
+ * radiusConfig: a radcli handle for the radius file conf of an authdef.
+ * The file is either a BSD radius.conf (libradius, the format on FreeBSD and
+ * SmartOS):
+ *
+ *	auth host[:port] secret [timeout [tries]]
+ *	dictionary /path/to/dictionary		(radcli only; the default is
+ *						 RADCLI_DICTIONARY)
+ *
+ * or a radcli radiusclient.conf (a line "authserver ..."), which is read as it is.
+ * With several auth lines the servers are tried in order, the timeout and
+ * tries are those of the first.  A secret may not contain ':' or ',' here.
+ * Returns NULL, after logging why, if the file cannot be used.
+ */
+static rc_handle *
+radiusConfig(const char *conf)
+{
+    FILE *fi;
+    char line[512];
+    char servers[512];
+    char dict[256];
+    char timeout[16];
+    char tries[16];
+    int native = 0;
+    int n = 0;
+    rc_handle *rh = NULL;
+
+    if ((fi = fopen(conf, "r")) == NULL) {
+	logit(LOG_ERR, "radius: cannot open %s: %s", conf, strerror(errno));
+	return(NULL);
+    }
+    servers[0] = 0;
+    snprintf(dict, sizeof(dict), "%s", RADCLI_DICTIONARY);
+    timeout[0] = tries[0] = 0;
+    while (fgets(line, sizeof(line), fi) != NULL) {
+	char *w[6];
+	int nw = 0;
+	char *p, *save = NULL;
+
+	if ((p = strchr(line, '#')) != NULL)
+	    *p = 0;
+	for (p = strtok_r(line, " \t\r\n", &save); p && nw < 6;
+					p = strtok_r(NULL, " \t\r\n", &save))
+	    w[nw++] = p;
+	if (nw == 0)
+	    continue;
+	if (strcmp(w[0], "authserver") == 0) {
+	    native = 1;
+	    break;
+	}
+	if (strcmp(w[0], "dictionary") == 0 && nw >= 2) {
+	    snprintf(dict, sizeof(dict), "%s", w[1]);
+	} else if (strcmp(w[0], "auth") == 0 && nw >= 3) {
+	    char *colon = strchr(w[1], ':');
+	    int len;
+
+	    if (strpbrk(w[2], ":,") != NULL) {
+		logit(LOG_ERR, "radius: %s: a secret with ':' or ',' is not supported with radcli", conf);
+		fclose(fi);
+		return(NULL);
+	    }
+	    len = strlen(servers);
+	    if (snprintf(servers + len, sizeof(servers) - len, "%s%s%s:%s",
+				len ? "," : "", w[1], colon ? "" : ":1812", w[2])
+				>= (int)(sizeof(servers) - len)) {
+		logit(LOG_ERR, "radius: %s: too many servers", conf);
+		fclose(fi);
+		return(NULL);
+	    }
+	    if (n++ == 0) {
+		if (nw >= 4)
+		    snprintf(timeout, sizeof(timeout), "%s", w[3]);
+		if (nw >= 5)
+		    snprintf(tries, sizeof(tries), "%s", w[4]);
+	    }
+	}
+    }
+    fclose(fi);
+
+    if (native) {
+	if ((rh = rc_read_config(conf)) == NULL)
+	    logit(LOG_ERR, "radius: rc_read_config(%s) failed", conf);
+	else if (rc_read_dictionary(rh, rc_conf_str(rh, "dictionary")) != 0) {
+	    logit(LOG_ERR, "radius: cannot read the dictionary %s", rc_conf_str(rh, "dictionary"));
+	    rc_destroy(rh);
+	    rh = NULL;
+	}
+	return(rh);
+    }
+    if (n == 0) {
+	logit(LOG_ERR, "radius: %s has no \"auth\" line", conf);
+	return(NULL);
+    }
+    if ((rh = rc_new()) == NULL || rc_config_init(rh) == NULL) {
+	logit(LOG_ERR, "radius: cannot create a radcli handle");
+	return(NULL);
+    }
+    if (rc_add_config(rh, "authserver", servers, "diablo", 0) != 0 ||
+	(timeout[0] && rc_add_config(rh, "radius_timeout", timeout, "diablo", 0) != 0) ||
+	(tries[0] && rc_add_config(rh, "radius_retries", tries, "diablo", 0) != 0) ||
+	rc_add_config(rh, "dictionary", dict, "diablo", 0) != 0 ||
+	rc_apply_config(rh) != 0) {
+	logit(LOG_ERR, "radius: %s: bad configuration", conf);
+	rc_destroy(rh);
+	return(NULL);
+    }
+    if (rc_read_dictionary(rh, dict) != 0) {
+	logit(LOG_ERR, "radius: cannot read the dictionary %s", dict);
+	rc_destroy(rh);
+	return(NULL);
+    }
+    return(rh);
+}
+
+/*
+ * Send an authenticate request to a radius server (radcli)
+ *
+ * Returns:	NULL	failure
+ *		 "100 Sucess"	success
+ *		 "110 readerdef" success, with the Filter-Id as the readerdef
+ */
+char *
+radiusAuthenticate(char *user, char *pass, const char *ipname, int is_proxied, char *conf)
+{
+    static char result[DEFNAMELEN + 16];
+    char *r = NULL;
+    rc_handle *rh;
+    VALUE_PAIR *send = NULL, *received = NULL, *vp;
+    char msg[PW_MAX_MSG_SIZE];
+    int rval;
+
+    if ((rh = radiusConfig(conf)) == NULL)
+	return(NULL);
+    if (rc_avpair_add(rh, &send, PW_USER_NAME, user, -1, 0) == NULL ||
+	rc_avpair_add(rh, &send, PW_USER_PASSWORD, pass, -1, 0) == NULL ||
+	(ipname[0] && rc_avpair_add(rh, &send, PW_CALLING_STATION_ID, ipname, -1, 0) == NULL) ||
+	(is_proxied && rc_avpair_add(rh, &send, PW_CONNECT_INFO, "via_proxy=1", -1, 0) == NULL)) {
+	logit(LOG_ERR, "radius: cannot build the request");
+	rc_avpair_free(send);
+	rc_destroy(rh);
+	return(NULL);
+    }
+    msg[0] = 0;
+    rval = rc_auth(rh, 0, send, &received, msg);
+    if (rval == OK_RC) {
+	char name[64], val[DEFNAMELEN + 1];
+
+	if ((vp = rc_avpair_get(received, PW_FILTER_ID, 0)) != NULL &&
+	    rc_avpair_tostr(rh, vp, name, sizeof(name), val, sizeof(val)) != 0) {
+	    /* a readerdef was named but cannot be used: refuse, do not fall back to the default */
+	    logit(LOG_ERR, "radius: unusable Filter-Id in the reply, login refused");
+	} else {
+	    if (vp != NULL && val[0])
+		snprintf(result, sizeof(result), "110 %s", val);
+	    else
+		strcpy(result, "100 Success");
+	    r = result;
+	}
+    } else if (rval != REJECT_RC) {
+	logit(LOG_ERR, "radius: rc_auth failed (%d): %s%s%s", rval,
+				rval == BADRESP_RC ? "bad response" :
+				rval == TIMEOUT_RC ? "timeout" : "error",
+				msg[0] ? ": " : "", msg);
+    }
+    rc_avpair_free(send);
+    rc_avpair_free(received);
+    rc_destroy(rh);
+    return(r);
+}
+#elif defined(RADIUS_ENABLED)
 
 /*
  * Send an authenticate request to a radius server
@@ -1322,10 +1504,16 @@ LDAPAuthenticate(char *user, char *pass, char *conf)
 
 #ifdef PERL_ENABLED
 
-EXTERN_C void xs_init (pTHXo);
-EXTERN_C void boot_DynaLoader (pTHXo_ CV* cv);
+/*
+ * A perl built with threads or multiplicity (the usual case today) wants
+ * the interpreter in a variable of this name.
+ */
+static PerlInterpreter *my_perl = NULL;
 
-EXTERN_C void xs_init(pTHXo)
+EXTERN_C void xs_init (pTHX);
+EXTERN_C void boot_DynaLoader (pTHX_ CV* cv);
+
+EXTERN_C void xs_init(pTHX)
 {
     char *file = __FILE__;
     dXSUB_SYS;
@@ -1333,7 +1521,7 @@ EXTERN_C void xs_init(pTHXo)
     /* DynaLoader is a special case */
     newXS("DynaLoader::boot_DynaLoader", boot_DynaLoader, file);
 }
-char *call_checkuser(char *auth_args[])
+char *call_checkuser(char *auth_args[], const char *conf)
 {
     static char buff[DEFNAMELEN + 16];
 
@@ -1346,48 +1534,147 @@ char *call_checkuser(char *auth_args[])
     ENTER;
     SAVETMPS;
 
-    call_argv("checkuser", G_SCALAR, auth_args);
+    /*
+     * G_EVAL traps a runtime die in checkuser: without it the die longjmps
+     * with no JMPENV to catch it and perl exit()s the whole worker.  With
+     * G_SCALAR|G_EVAL the call leaves exactly one value on the stack (the
+     * result, or undef on a die) and sets ERRSV ($@).
+     */
+    call_argv("checkuser", G_SCALAR | G_EVAL, auth_args);
 
     SPAGAIN;
 
-    sv = POPs;
-    if (SvTRUE(sv) && (str = SvPV(sv, len)) && len < DEFNAMELEN + 16) 
-        result = strcpy(buff, str);
+    if (SvTRUE(ERRSV)) {
+	char *emsg = SvPV_nolen(ERRSV);
 
+	/* checkuser died: refuse this login but keep serving the next one */
+	logit(LOG_ERR, "PERL: checkuser died in \"%s\": %s", conf,
+	      emsg ? emsg : "(unknown error)");
+	(void)POPs;			/* drop the undef G_SCALAR left on the stack */
+	result = NULL;
+    } else {
+	sv = POPs;
+	if (SvTRUE(sv) && (str = SvPV(sv, len)) && len < DEFNAMELEN + 16)
+	    result = strcpy(buff, str);
+    }
+
+    PUTBACK;				/* resync the stack after the POP */
     FREETMPS;
     LEAVE;
     return result;
 }
 
+/*
+ * One embedded interpreter for every distinct "perl <script> [arguments]" of an authdef,
+ * made on its first use in this worker and kept: the script is read once, and the
+ * arguments (for example -f /news/htpasswd) become its @ARGV.  A perl without
+ * MULTIPLICITY can have one interpreter only.
+ */
+#define PERL_MAXINTERP	16
+static struct PerlInterp {
+    char		conf[256];
+    PerlInterpreter	*interp;
+    int			failed;
+} PerlTab[PERL_MAXINTERP];
+static int PerlTabN = 0;
+
+/*
+ * perlWords: split conf at white space into argv, "double quotes" keep spaces in a word.
+ * The words are copies that stay: perl keeps pointers to its arguments.
+ */
+static int
+perlWords(const char *conf, char **argv, int max)
+{
+    int n = 0;
+    const char *p = conf;
+
+    while (n < max - 1) {
+	char buf[256];
+	int len = 0, quoted = 0;
+
+	while (*p == ' ' || *p == '\t')
+	    ++p;
+	if (*p == 0)
+	    break;
+	while (*p && len < (int)sizeof(buf) - 1 && (quoted || (*p != ' ' && *p != '\t'))) {
+	    if (*p == '"')
+		quoted = !quoted;
+	    else
+		buf[len++] = *p;
+	    ++p;
+	}
+	buf[len] = 0;
+	if ((argv[n] = strdup(buf)) == NULL)
+	    break;
+	++n;
+    }
+    argv[n] = NULL;
+    return n;
+}
+
 char *PerlAuthenticate(char *user, char *pass, char *conf)
 {
-    char *embedding[] = { "", conf };
     char *auth_args[] = { user, pass, NULL };
     char *result;
     char *reslog;
+    struct PerlInterp *pi = NULL;
+    int i;
 
-    static PerlInterpreter *perl = NULL;
-    int exitstatus = 0;
-
-    if (perl == NULL) {
-        if((perl = perl_alloc()) == NULL) {
-            fprintf(stderr, "perl_alloc no memory\n");
-            exit(1);
-        }
-        PL_perl_destruct_level = 0;
-        perl_construct(perl);
-        exitstatus = perl_parse(perl, xs_init, 2, embedding, NULL);
-        if (!exitstatus) {
-            exitstatus = perl_run(perl);
-        }
-        if (exitstatus) {
-            fprintf(stderr, "perl_parse or perl_run failed\n");
-            perl_destruct(perl);
-            perl_free(perl);
-            exit(exitstatus);
-        }
+    for (i = 0; i < PerlTabN; ++i) {
+	if (strcmp(PerlTab[i].conf, conf) == 0) {
+	    pi = &PerlTab[i];
+	    break;
+	}
     }
-    reslog = result = call_checkuser(auth_args);
+    if (pi == NULL) {
+	char *argv[PERL_MAXINTERP + 2];
+	int argc;
+	int exitstatus;
+
+	if (PerlTabN >= PERL_MAXINTERP) {
+	    logit(LOG_ERR, "PERL: more than %d different perl authdefs", PERL_MAXINTERP);
+	    return(NULL);
+	}
+#ifndef MULTIPLICITY
+	if (PerlTabN > 0) {
+	    logit(LOG_ERR, "PERL: this perl can run one script only, not \"%s\" as well", conf);
+	    return(NULL);
+	}
+#endif
+	pi = &PerlTab[PerlTabN++];
+	snprintf(pi->conf, sizeof(pi->conf), "%s", conf);
+	pi->failed = 1;
+	argv[0] = "";
+	argc = 1 + perlWords(conf, argv + 1, PERL_MAXINTERP);
+	if (argc < 2) {
+	    logit(LOG_ERR, "PERL: no script in \"%s\"", conf);
+	    return(NULL);
+	}
+	if ((my_perl = perl_alloc()) == NULL) {
+	    logit(LOG_ERR, "PERL: perl_alloc: no memory");
+	    return(NULL);
+	}
+	PERL_SET_CONTEXT(my_perl);
+	PL_perl_destruct_level = 0;
+	perl_construct(my_perl);
+	exitstatus = perl_parse(my_perl, xs_init, argc, argv, NULL);
+	if (!exitstatus)
+	    exitstatus = perl_run(my_perl);
+	if (exitstatus) {
+	    logit(LOG_ERR, "PERL: cannot load \"%s\" (perl_parse or perl_run failed)", conf);
+	    perl_destruct(my_perl);
+	    perl_free(my_perl);
+	    my_perl = NULL;
+	    return(NULL);
+	}
+	pi->interp = my_perl;
+	pi->failed = 0;
+    }
+    if (pi->failed)
+	return(NULL);
+    my_perl = pi->interp;
+    PERL_SET_CONTEXT(my_perl);
+    reslog = result = call_checkuser(auth_args, conf);
     if (reslog == NULL) 
 	reslog = "FAILED";
     logit(LOG_INFO, "PERL auth request for %s: %s\n", user, reslog);

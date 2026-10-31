@@ -2,3 +2,4 @@ obj/
 dbin/
 patches/
 *.orig
+config.mk

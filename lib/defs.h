@@ -120,7 +120,7 @@ typedef struct direct den_t;
 #include	<des.h>
 #endif
 #endif
-#ifdef	RADIUS_ENABLED
+#if defined(RADIUS_ENABLED) && !defined(RADIUS_RADCLI)
 #if defined(__sun)
 #include "compat/smartos_radlib.h"
 #endif

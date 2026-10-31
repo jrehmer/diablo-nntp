@@ -3,11 +3,17 @@
 Diablo builds with GNU Make (Linux, illumos/SmartOS/OmniOS, optionally
 FreeBSD) or with FreeBSD's own make.  XMake is no longer needed.
 README.md lists the build requirements and the packages to install.
-RADIUS is off by default in lib/vendor.h.  To use it, install the
-RADIUS library (radlib.h; libradius on SmartOS) and #define
-RADIUS_ENABLED there; Linux has no BSD libradius.
-lib/vendor.h enables CANLOCK_ENABLED (Cancel-Lock, RFC 8315): install libcanlock
-3.3.0 or later (libcanlock-dev, libcanlock) or #undef CANLOCK_ENABLED.
+Run ./configure first, then make (gmake on illumos and on FreeBSD with GNU
+Make).  ./configure looks for the optional libraries (zlib, libcanlock for
+Cancel-Lock, Berkeley DB, cdb, PAM, LDAP, Perl, and the RADIUS libraries
+libradius or radcli), sets the matching options in lib/vendor.h, which are
+all #undef as shipped, and writes config.mk with the compiler and linker
+flags.  Install the libraries you want first; ./configure --help lists the
+options (--without-NAME, --with-NAME).  README.md has the table of options
+and packages.
+./configure owns these options in lib/vendor.h and sets them on every run, so
+choose them with --with-NAME/--without-NAME rather than by editing the file.
+make stops with an error until ./configure has been run.
 
 Files that hold private data are created for the news user and group only:
 the reader's cache files (cache.*, which copy the passwords and secrets of
@@ -68,9 +74,9 @@ Edit lib/vendor.h if required.
 	#define POST_CRYPTXTRACE to encryupted the X-Trace: header
 	line.  This is highly recommended.
 
-	#define RADIUS_ENABLED to enable RADIUS authentication on your
-	server.  Requires an operational RADIUS server and
-	understanding of how to update and maintain RADIUS
+	RADIUS_ENABLED (RADIUS authentication) is set by ./configure
+	where a RADIUS library is found.  It needs an operational RADIUS
+	server and understanding of how to update and maintain RADIUS
 	configurations.
 
 Edit lib/config.h

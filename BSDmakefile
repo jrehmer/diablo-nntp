@@ -7,20 +7,19 @@ CC ?= clang
 CPPFLAGS += -I. -DVERS=\"${VERS}\" -DSUBREV=\"${SUBREV}\" -DDEBUG_ZALLOC -DDEBUG_MBUF
 CFLAGS += -O2 -pipe -Wall -Wstrict-prototypes -fno-common -MMD -MP
 LDFLAGS += -Lobj
-LDLIBS += -lfilter -ldiablo -lm -lmd -lradius -lz -lcrypto
-CANLOCK_ENABLED != awk -v option=CANLOCK_ENABLED -f compat/detect-vendor-option.awk lib/vendor.h
-.if "${CANLOCK_ENABLED}" == "1"
-CPPFLAGS += -I/usr/local/include
-LDFLAGS += -L/usr/local/lib -Wl,-R,/usr/local/lib
-LDLIBS += -lcanlock
+LDLIBS += -lfilter -ldiablo -lm -lmd -lz -lcrypto
+# The libraries behind the optional features are found by ./configure, which sets the options
+# in lib/vendor.h and writes their compiler and linker flags, and the programs they add
+# (OPTIONAL_PROGS), to config.mk.
+.if !exists(config.mk) && empty(.TARGETS:Mclean) && empty(.TARGETS:Mdistclean)
+.error config.mk not found: run ./configure first (see INSTALL)
 .endif
+.sinclude "config.mk"
 LIB_SRCS = lib/global.c lib/node.c lib/xopen.c lib/buffer.c lib/wildcmp.c lib/history.c lib/expire.c lib/newsfeed.c lib/parsedate.c lib/sigs.c lib/lock.c lib/alloc.c lib/subs.c lib/xmap.c lib/precommit.c lib/spamfilter.c lib/strerror.c lib/memcpy.c lib/zalloc.c lib/config.c lib/kpdb.c lib/active.c lib/msgid.c lib/hash.c lib/psstat.c lib/runprog.c lib/snprintf.c lib/fatal.c lib/log.c lib/logtime.c lib/iplist.c lib/dgp.c lib/pgp.c lib/hostauth.c lib/strsep.c lib/groupfind.c lib/spool.c lib/arttype.c lib/stats.c lib/dmd5.c lib/notify.c lib/wildmat.c lib/include.c lib/hashfeed.c lib/dgzip.c lib/canlock.c
 FILTER_SRCS = filter/diab-filter.c filter/diab-read.c filter/socket.c
 DR_SRCS = dreaderd/main.c dreaderd/thread.c dreaderd/reader.c dreaderd/dns.c dreaderd/mbuf.c dreaderd/subs.c dreaderd/list.c dreaderd/feed.c dreaderd/xover.c dreaderd/nntp.c dreaderd/misc.c dreaderd/post.c dreaderd/server.c dreaderd/group.c dreaderd/spool.c dreaderd/cache.c dreaderd/rtstatus.c dreaderd/control.c dreaderd/wildorcmp.c dreaderd/cancel.c dreaderd/post-addr-ck.c dreaderd/cleanfrom.c dreaderd/msg.c dreaderd/dfa.c dreaderd/filealloc.c dreaderd/crypto.c
 UTIL_PROGS = dicmd drcmd didump dilookup dexpire didate diconvhist diload doutq dspaminfo dspoolout diloadfromspool dreadart dkp pgpverify dsyncgroups dexpireover dreadover dpath dprimehostcache dstart dclient dfeedinfo dlockhistory dfeedtest doverctl drequeue dhisbench dhisexpire dhisctl dexpirecache dcancel dexpirescoring diablo dnewslink dgrpctl djoblog
-.if "${CANLOCK_ENABLED}" == "1"
-UTIL_PROGS += dcanlock
-.endif
+UTIL_PROGS += ${OPTIONAL_PROGS}
 SUP_PROGS = plock showlocks
 LIB_OBJS = ${LIB_SRCS:S,lib/,obj/lib_,g:S,.c,.o,g}
 FILTER_OBJS = ${FILTER_SRCS:S,filter/,obj/filter_,g:S,.c,.o,g}
@@ -100,6 +99,7 @@ dbin/${prog}: obj/sup_${prog}.o obj/libfilter.a obj/libdiablo.a
 clean:
 	rm -rf obj dbin
 distclean: clean
+	rm -f config.mk
 PREFIX?= /news
 DESTDIR?=
 INSTALL_USER?= news

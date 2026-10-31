@@ -7,11 +7,9 @@
 ##
 ##  Linux (apt, dnf, zypper, pacman, apk or emerge), FreeBSD and illumos
 ##  (OmniOS) with pkg are supported; the package manager is chosen from the
-##  system.  This copy's lib/vendor.h is changed: RADIUS stays off (off by default
-##  since D-16; Linux and illumos have no BSD libradius, and FreeBSD's base
-##  libradius is not wired up here), and DB_ENABLED and REJECT_DB are turned off when the
-##  system has no Berkeley DB 1.85 API (db_185.h; several distributions
-##  dropped Berkeley DB, and the BSD/illumos base systems do not ship it).
+##  system.  This copy's lib/vendor.h is set by ./configure from the libraries the system
+##  has: zlib, libcanlock, Berkeley DB (the 1.85 API, db_185.h; several distributions
+##  dropped it), cdb, PAM, LDAP, Perl and RADIUS (radcli on Linux, libradius on FreeBSD).
 ##  The binaries end up in dbin/.  The news user and group are created when
 ##  missing (diablo switches to them at startup).  With E2E_FAKE_SENDMAIL=1
 ##  the moderation tests' fake sendmail is installed as /usr/sbin/sendmail
@@ -133,36 +131,27 @@ if ! id news >/dev/null 2>&1; then
     fi
 fi
 
-sed -i 's/^#define[[:space:]]*RADIUS_ENABLED/#undef RADIUS_ENABLED/' lib/vendor.h
-# Cancel-Lock needs libcanlock (3.3.0 or later). Install it where the distribution has it;
-# without it the feature is built out and the Cancel-Lock tests skip (Arch has no
-# package for it in its official repositories, so it always falls back there).  With
-# E2E_NO_CANLOCK=1 the feature is built out on purpose, so that the tests of the build
-# without libcanlock (TestCancelLockWithoutLibcanlock) run: CI does one build of each.
-if [ "${E2E_NO_CANLOCK:-}" != 1 ] && [ ! -e /usr/include/libcanlock-3/canlock.h ] && [ ! -e /usr/local/include/libcanlock-3/canlock.h ]; then
-    if command -v apt-get >/dev/null; then apt-get -qq install -y libcanlock-dev >/dev/null 2>&1 || true
-    elif command -v dnf >/dev/null; then dnf -q -y install libcanlock-devel >/dev/null 2>&1 || true
-    elif command -v zypper >/dev/null; then zypper -n -q install libcanlock-devel >/dev/null 2>&1 || true
-    elif command -v apk >/dev/null; then apk add -q libcanlock-dev >/dev/null 2>&1 || true
-    elif command -v emerge >/dev/null; then emerge --quiet --noreplace --getbinpkg net-libs/canlock >/dev/null 2>&1 || true
-    fi
-fi
-if [ "${E2E_NO_CANLOCK:-}" = 1 ]; then
-    sed -i 's/^#define[[:space:]]*CANLOCK_ENABLED/#undef CANLOCK_ENABLED/' lib/vendor.h
-    echo "libcanlock: off (E2E_NO_CANLOCK=1)"
-elif [ -e /usr/include/libcanlock-3/canlock.h ] || [ -e /usr/local/include/libcanlock-3/canlock.h ]; then
-    echo "libcanlock: on"
-else
-    sed -i 's/^#define[[:space:]]*CANLOCK_ENABLED/#undef CANLOCK_ENABLED/' lib/vendor.h
-    echo "build-on-host: WARNING: libcanlock is missing: CANLOCK_ENABLED is turned off, so the Cancel-Lock tests skip and, with the default readercanlock require-auth, this build refuses every cancel (install libcanlock-dev to test the feature)"
-    echo "libcanlock: off (no libcanlock-3/canlock.h)"
-fi
-if [ -e /usr/include/db_185.h ]; then
-    echo "berkeley db: on"
-else
-    sed -i -e 's/^#define[[:space:]]*DB_ENABLED/#undef DB_ENABLED/' \
-        -e 's/^#define[[:space:]]*REJECT_DB.*/#undef REJECT_DB/' lib/vendor.h
-    echo "berkeley db: off (no db_185.h)"
+# Optional libraries, installed where the distribution has them (best effort: a package that
+# is missing only means that the feature is left out; the RHEL clones, for one, need EPEL for
+# radcli).  Cancel-Lock needs libcanlock (3.3.0 or later); Arch has no package for it in its
+# official repositories.  With E2E_NO_CANLOCK=1 the feature is left out on purpose, so that
+# the tests of the build without libcanlock (TestCancelLockWithoutLibcanlock) run: CI does
+# one build of each.  On Debian and Ubuntu PAM, LDAP, Perl and cdb are installed too, so
+# that their code is built and TestReaderPerlAuth and TestReaderCdbAuth run.
+pkgs_apt="libradcli-dev libperl-dev libldap-dev libpam0g-dev libcdb-dev"
+[ "${E2E_NO_CANLOCK:-}" = 1 ] || pkgs_apt="libcanlock-dev $pkgs_apt"
+if command -v apt-get >/dev/null; then
+    for pk in $pkgs_apt; do apt-get -qq install -y $pk >/dev/null 2>&1 || true; done
+elif command -v dnf >/dev/null; then
+    for pk in radcli-devel libcanlock-devel; do dnf -q -y install $pk >/dev/null 2>&1 || true; done
+elif command -v zypper >/dev/null; then
+    for pk in "radcli radcli-devel" libcanlock-devel; do zypper -n -q install $pk >/dev/null 2>&1 || true; done
+elif command -v pacman >/dev/null; then
+    pacman -S --noconfirm --needed --quiet $nosandbox radcli >/dev/null 2>&1 || true
+elif command -v apk >/dev/null; then
+    for pk in radcli-dev libcanlock-dev; do apk add -q $pk >/dev/null 2>&1 || true; done
+elif command -v emerge >/dev/null; then
+    emerge --quiet --noreplace --getbinpkg net-libs/canlock >/dev/null 2>&1 || true
 fi
 
 # E2E_FAKE_SENDMAIL=1: install ci/fake-sendmail as /usr/sbin/sendmail for the
@@ -200,25 +189,10 @@ fi
 
 MAKE=make; MAKEARGS=; CCBIN=cc
 
-else  # FreeBSD / illumos (OmniOS): pkg, gmake, portable vendor.h editing
+else  # FreeBSD / illumos (OmniOS): pkg, gmake
 
 # The GNU Makefile needs gmake here (base `make` is BSD make on FreeBSD).
 MAKE=gmake; MAKEARGS=
-
-# In-place sed differs across systems (BSD sed wants `-i ''`, illumos /usr/bin/sed
-# has no -i at all), so edit lib/vendor.h through a fresh temp file, which any sed
-# does. mktemp makes a new unique regular file beside it, so the `>` redirect never
-# follows a pre-existing symlink at the temp path; the temp file is removed on
-# failure. (mktemp is in the FreeBSD and illumos base systems.)
-vedit() {
-    t=$(mktemp lib/vendor.h.XXXXXX) || return 1
-    if sed "$@" lib/vendor.h > "$t"; then
-        mv "$t" lib/vendor.h
-    else
-        rm -f "$t"
-        return 1
-    fi
-}
 
 case "$os" in
 FreeBSD)
@@ -251,28 +225,15 @@ SunOS)
     ;;
 esac
 
-# RADIUS: no library is wired up on these systems -> off.
-vedit 's/^#define[[:space:]]*RADIUS_ENABLED/#undef RADIUS_ENABLED/'
-# Cancel-Lock: on only when libcanlock's header is present (installed from pkg
-# above where a package exists); otherwise built out, like a Linux host without it.
-if [ "${E2E_NO_CANLOCK:-}" = 1 ]; then
-    vedit 's/^#define[[:space:]]*CANLOCK_ENABLED/#undef CANLOCK_ENABLED/'
-    echo "libcanlock: off (E2E_NO_CANLOCK=1)"
-elif [ -e /usr/local/include/libcanlock-3/canlock.h ] || [ -e /usr/include/libcanlock-3/canlock.h ]; then
-    echo "libcanlock: on"
-else
-    vedit 's/^#define[[:space:]]*CANLOCK_ENABLED/#undef CANLOCK_ENABLED/'
-    echo "libcanlock: off (no libcanlock-3/canlock.h)"
-fi
-# Berkeley DB 1.85 API: the FreeBSD/illumos base systems ship no db_185.h -> off.
-if [ -e /usr/include/db_185.h ] || [ -e /usr/local/include/db_185.h ]; then
-    echo "berkeley db: on"
-else
-    vedit -e 's/^#define[[:space:]]*DB_ENABLED/#undef DB_ENABLED/' \
-          -e 's/^#define[[:space:]]*REJECT_DB.*/#undef REJECT_DB/'
-    echo "berkeley db: off (no db_185.h)"
 fi
 
+# ./configure sets the options in lib/vendor.h from the libraries this host has (zlib, libcanlock,
+# Berkeley DB, cdb, PAM, LDAP, Perl, RADIUS) and writes config.mk.  The summary goes to the log.
+cfgargs=
+[ "${E2E_NO_CANLOCK:-}" != 1 ] || cfgargs="--without-canlock"
+sh ./configure $cfgargs
+if [ "${E2E_NO_CANLOCK:-}" != 1 ] && grep -q '^#undef[[:space:]]*CANLOCK_ENABLED' lib/vendor.h; then
+    echo "build-on-host: WARNING: libcanlock is missing: CANLOCK_ENABLED is off, so the Cancel-Lock tests skip and, with the default readercanlock require-auth, this build refuses every cancel (install libcanlock-dev to test the feature)"
 fi
 
 # Shared build.  -k: one program that fails to build doesn't stop the others.

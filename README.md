@@ -29,8 +29,8 @@ Core dependencies include:
 - OpenSSL development headers and libraries (`libcrypto`).
 - zlib development headers and libraries.
 - Standard system development headers and libraries.
-- Berkeley DB 1.85-compatible development headers and libraries when `DB_ENABLED` is enabled in `lib/vendor.h` or `REJECT_DB` is enabled in `lib/vendor.h`.
-- RADIUS development files when `RADIUS_ENABLED` is enabled in `lib/vendor.h`.
+
+The other libraries are optional. `./configure` (below) looks for each of them and turns on the options that this host can build.
 
 The availability and installation commands for these dependencies vary by operating system and package repository.
 
@@ -50,15 +50,7 @@ sudo apt install gcc make libssl-dev zlib1g-dev libdb5.3-dev libcanlock-dev
 
 On RPM-based systems, add `gcc` and `make` to the `dnf` line if they aren't installed.
 
-These supply the zlib, Berkeley DB, and OpenSSL headers and libraries required by the tested Linux configuration. The Berkeley DB package (`libdb-devel`, `libdb5.3-dev`) is needed when `DB_ENABLED` is enabled in `lib/vendor.h` or `REJECT_DB` is enabled in `lib/vendor.h`. Other Linux distributions may use different package names.
-
-**Cancel-Lock (libcanlock):** `lib/vendor.h` defines `CANLOCK_ENABLED`, which needs libcanlock 3.3.0 or later (`libcanlock-dev` on Debian and Ubuntu, `libcanlock` on FreeBSD and SmartOS; the header must be `libcanlock-3/canlock.h`). On a system without the package, change that line to `#undef	CANLOCK_ENABLED`: the reader then cannot check Cancel-Keys: the default `readercanlock require-auth` refuses every cancel and supersede (dreaderd logs a warning at start), `readercanlock all` executes them unchecked, and the Cancel-Lock tests skip.
-
-**RADIUS:** off by default in `lib/vendor.h`. Linux has no usable `radlib.h`; on FreeBSD or SmartOS (libradius) you can turn it on by changing that line to:
-
-```c
-#define	RADIUS_ENABLED
-```
+These supply the zlib, Berkeley DB, Cancel-Lock and OpenSSL headers and libraries of the tested Linux configuration. Other Linux distributions may use different package names. The optional libraries are listed under "Optional Features" below.
 
 **The news user:** create the `news` user and group, home `/news`, before `make install`; see `INSTALL`.
 
@@ -70,7 +62,7 @@ On SmartOS (pkgsrc), install the following before building:
 pkgin -y install gcc13 gmake db4 openssl libradius libcanlock
 ```
 
-`libradius` provides `radlib.h`, which the default `lib/vendor.h` needs because `RADIUS_ENABLED` is defined there. Without it the build stops with `radlib.h: No such file or directory`; install `libradius` or disable `RADIUS_ENABLED`. `db4` is needed when `DB_ENABLED` or `REJECT_DB` is enabled. Add `git` to clone the repository, and `gnupg` or `gnupg2` for `pgpverify` (see `README.PGP`).
+`db4` (Berkeley DB), `libradius` (RADIUS) and `libcanlock` (Cancel-Lock) are optional: `./configure` turns on the features whose libraries are installed. `cdb`, `libldap` and `p5-*` are not in the list; install the OpenLDAP package (`openldap-client`) for LDAP authentication.
 
 This list was tested on a fresh `base-64-lts` 25.4.0 zone: `gmake -j8` built all 39 programs with no warnings.
 
@@ -93,41 +85,53 @@ After `gmake install`, two SmartOS details:
 
   and start diablo with `-P 120` (`DIABLO_OPTS` in `diablo-ctl.conf`).
 
-### Optional Features
+### Optional Features and `./configure`
 
-Optional functionality is controlled through `lib/vendor.h`.
+Run `./configure` first, then `make` (`gmake` on FreeBSD with GNU Make and on illumos). `./configure` probes the host for each optional library by compiling and linking a small test program, then
 
-**Berkeley DB**
+- sets the matching option in `lib/vendor.h` to `#define` where the library works and to `#undef` where it does not, and
+- writes `config.mk` with the compiler and linker flags that the makefiles need (package prefixes such as `/usr/local` and `/opt/local`, the libraries, Perl's embedding flags). `Makefile` and `BSDmakefile` include it; it is not committed.
 
-When `DB_ENABLED` is enabled in `lib/vendor.h` or `REJECT_DB` is enabled in `lib/vendor.h`, Berkeley DB 1.85 compatibility is required for `dbopen()`; the features can be enabled independently. On illumos, the GNU Makefile automatically detects a compatible Berkeley DB 1.85 API header and library. On Linux, the build links `-ldb` when either feature is detected.
+All of these options are `#undef` in `lib/vendor.h` as shipped, so a build without `./configure` is the minimal one. Run `./configure` again after installing or removing a library, and `make clean` before the next `make`. `lib/vendor.h` is changed by it; keep your own edits of the other options, which it does not touch.
 
-The detector supports Berkeley DB 4 and 5 installations, including pkgsrc and OmniOS/OOCE layouts.
+| Option in `lib/vendor.h` | `./configure` name | Needs | Used for |
+|---|---|---|---|
+| `USE_ZLIB` | `zlib` | zlib (`zlib.h`, `-lz`) | compressed spool objects and feeds (zlib itself is needed to build) |
+| `CANLOCK_ENABLED` | `canlock` | libcanlock 3.3.0 or later (`libcanlock-3/canlock.h`) | Cancel-Lock checks and generation (RFC 8315) |
+| `DB_ENABLED`, `REJECT_DB` | `db` | Berkeley DB with the 1.85 interface, `dbopen()`: `db_185.h` and `-ldb` (`db4`, `db5`) on Linux and illumos, the C library on FreeBSD | DB authentication and the reject database |
+| `CDB_ENABLED` | `cdb` | a cdb library with `cdb_seek()`: tinycdb (`libcdb-dev` on Debian and Ubuntu); the cdb of FreeBSD ports and pkgsrc no longer has it | CDB authentication |
+| `PAM_ENABLED` | `pam` | `security/pam_appl.h`, `-lpam` | PAM authentication |
+| `LDAP_ENABLED` | `ldap` | OpenLDAP (`ldap.h`, `libldap`, `liblber`) | LDAP authentication |
+| `PERL_ENABLED` | `perl` | an embeddable perl (`perl.h`, `libperl`; Debian `libperl-dev`) | Perl authentication (an authdef `perl <script>`) |
+| `RADIUS_ENABLED`, `RADIUS_RADCLI` | `radius` | the BSD `radlib.h` with `libradius` (FreeBSD base, `libradius` on SmartOS), or radcli (`radcli/radcli.h`; Debian and Ubuntu `libradcli-dev`, Fedora `radcli-devel`, openSUSE `radcli radcli-devel`, Alpine `radcli-dev`, Arch `radcli`) | RADIUS authentication |
 
-When neither `DB_ENABLED` nor `REJECT_DB` is enabled in `lib/vendor.h`, Berkeley DB detection and conditional linking are skipped on GNU Make platforms. The native FreeBSD BSDmakefile retains its platform-specific library settings.
+`./configure --without-NAME` leaves an option off without looking, `./configure --with-NAME` stops with an error if the host cannot build it, `./configure --with-radcli` uses radcli even where libradius is found, and `./configure -n` only reports. For example `./configure --without-perl --without-ldap`.
 
-**RADIUS**
+On Linux, zlib and OpenSSL are the only packages `make` needs; the optional ones you install are picked up. A typical Debian or Ubuntu set is `libdb-dev libcanlock-dev libradcli-dev libpam0g-dev libldap-dev libperl-dev libcdb-dev`.
 
-When `RADIUS_ENABLED` is enabled in `lib/vendor.h`, the build includes RADIUS library support.
+**Perl authentication against an htpasswd file.** `contrib/htpasswd-auth.pl` is a ready-made `perl` script for an authdef (`PERL_ENABLED`): it checks the user and password against an Apache `htpasswd` file, which it reads again on every login attempt, so a new user, a changed password or a removed one counts at once. It checks `$apr1$` (Apache MD5), `{SHA}` and `{SSHA}` itself and gives everything else to the C library's `crypt(3)`, so the schemes of the platform work: DES, `$1$`, `$5$`, `$6$`, bcrypt (`$2y$`, `htpasswd -B`) and yescrypt where the library has them. Copy it to `/news` and use `authdef webusers` / `perl /news/htpasswd-auth.pl -f /news/htpasswd` in `dreader.access`: the words after the script are its arguments (`-f FILE`, and `--plaintext` to accept plain text entries; double quotes keep a path with spaces together), and an authdef with another `-f` file has its own interpreter. The header of the script has an example. A change of the script itself needs a restart of dreaderd. DES crypt looks at the first 8 characters of the password only.
 
-When it is not defined, the RADIUS linker dependency and associated illumos compatibility object are omitted.
+**Cancel-Lock.** Without libcanlock no Cancel-Key can be verified: the default `readercanlock require-auth` then refuses every cancel and supersede (dreaderd logs a warning at start), `readercanlock all` executes them unchecked, and the Cancel-Lock tests skip.
 
-Feature detection currently relies on matching active-looking `#define` directives in `lib/vendor.h`. It does not fully evaluate nested preprocessor conditions.
+**RADIUS.** On FreeBSD and SmartOS it uses the BSD `radlib.h` library; on Linux it uses radcli. The `radius <file>` of an authdef is a BSD `radius.conf` (`auth host[:port] secret [timeout [tries]]`) with either library; with radcli the file can also be a radcli `radiusclient.conf` (a line `authserver ...`), and a line `dictionary <path>` names the radcli dictionary if it is not where `./configure` found it. A secret with `:` or `,` is not supported with radcli.
 
 ## Building Diablo
 
 ### FreeBSD — Native BSD Make
 
 ```sh
+./configure
 make -j4
 ```
 
 The `BSDmakefile` is selected automatically by FreeBSD's native Make implementation. **No GCC or `gmake` installation is necessary:** FreeBSD's base-system Clang and BSD Make are sufficient.
 
-Install libcanlock first (`pkg install libcanlock`), or `#undef	CANLOCK_ENABLED` in `lib/vendor.h`; the package puts its header and library under `/usr/local`, which the makefiles add.
+Install libcanlock first (`pkg install libcanlock`) to get Cancel-Lock; the package puts its header and library under `/usr/local`, which `./configure` finds.
 
 ### FreeBSD — GNU Make
 
 ```sh
+./configure
 gmake -j4
 ```
 
@@ -142,6 +146,7 @@ Install `gmake` and GCC separately if you choose this combination; they are not 
 ### SmartOS and OmniOS
 
 ```sh
+./configure
 gmake -j4
 ```
 
@@ -150,6 +155,7 @@ GNU Make detects illumos through the `SunOS` operating-system identifier and app
 ### Linux
 
 ```sh
+./configure
 make -j4
 ```
 
@@ -198,46 +204,18 @@ Compilation generates files in two directories:
 
 Generated files are not intended to be committed to Git.
 
-## Automatic Berkeley DB Detection on illumos
+## Berkeley DB Detection
 
-The Berkeley DB compatibility detector is located at:
-
-`compat/detect-db185.sh`
-
-It searches common installation paths for `db_185.h` and compatible libraries, then compiles and links a small test program to validate a candidate.
-
-The detector has been tested successfully on SmartOS and OmniOS.
-
-### Detected Configurations
+`./configure` finds the Berkeley DB 1.85 interface (`dbopen()`) the way the build needs it: on FreeBSD `<db.h>` in the C library, elsewhere `db_185.h` and a library (`-ldb`, `-ldb4`, `-ldb5`) in the system directories or under `/opt/local`, `/opt/ooce` and `/usr/local`, checked by compiling and linking a test program. It writes the include and library flags to `config.mk`.
 
 | Distribution | Header Directory | Library |
 |---|---|---|
+| Debian, Ubuntu, Fedora | `/usr/include` | `-ldb` |
 | SmartOS / pkgsrc | `/opt/local/include/db4` | `-ldb4` |
 | OmniOS / OOCE | `/opt/ooce/include` | `-ldb` |
+| FreeBSD | base system | C library |
 
-The detector also searches Berkeley DB 5 locations, including `/opt/local/include/db5`.
-
-When Berkeley DB support is enabled, the Makefile generates:
-
-`obj/db185-config.mk`
-
-This file contains the selected compiler and linker flags.
-
-To inspect the detected configuration:
-
-```sh
-cat obj/db185-config.mk
-```
-
-To run detection independently:
-
-```sh
-CC=gcc sh compat/detect-db185.sh
-```
-
-The generated configuration is machine-specific and should not be committed to Git.
-
-If the installed Berkeley DB version, compiler, or library paths change, run a clean build to force rediscovery.
+This replaces `compat/detect-db185.sh` and `obj/db185-config.mk`, which no longer exist. If the installed Berkeley DB version, compiler, or library paths change, run `./configure` again and then `make clean`.
 
 ## illumos Compatibility
 
@@ -265,7 +243,7 @@ On illumos, `dreaderd/dns.c` includes `db_185.h` as required for either DB authe
 
 ### Platform-Specific Paths
 
-Berkeley DB headers and libraries are discovered automatically. RADIUS library detection uses common illumos installation paths.
+`./configure` discovers the Berkeley DB, RADIUS and other optional libraries under the usual system and package directories.
 
 Nonstandard installations may require additional configuration.
 
@@ -323,7 +301,7 @@ make clean
 
 The `distclean` target is also available.
 
-Cleaning removes generated objects, libraries, executables, dependency files, and detected configuration files.
+Cleaning removes generated objects, libraries, executables and dependency files. `distclean` also removes `config.mk`, which `./configure` writes; `lib/vendor.h` keeps the options it set.
 
 It does not remove source files or the original XMakefiles.
 
