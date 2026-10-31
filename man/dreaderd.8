@@ -267,10 +267,12 @@ options in diablo.config.
 .PP
 .B \-x xrefhost
 specify the hostname as it appears in the Xref: line of the host
-we accept Xref: headers from.  If not specified, or the host does
-not match, the Xref: header will be ignored and article numbers
-will be assigned from the active file. See also the ``readerxrefslavehost''
-option in diablo.config.
+we accept Xref: headers from.  If this is not specified, the Xref:
+header is ignored and article numbers are assigned from the active
+file.  If it is specified, article numbers are taken from a matching
+Xref: entry; in this xref-slave mode an article with no Xref: entry
+for the host is dropped for that group.  See also the
+``readerxrefslavehost'' option in diablo.config.
 
 .PP
 .B \-X xrefhost

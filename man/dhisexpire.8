@@ -7,6 +7,7 @@ dhisexpire \- Diablo program to clean the history file
 .B dhisexpire
 [
 .B \-a
+]
 [
 .B \-m
 ]
@@ -30,6 +31,12 @@ dhisexpire \- Diablo program to clean the history file
 ]
 [
 .B \-x
+]
+[
+.B \-P
+]
+[
+.B \-q
 ]
 [
 .B \-C diablo.config
@@ -72,7 +79,7 @@ path/filename can be (optionally) specified as an extra option.
 .B \-a
 .PP
 This option is required if the rebuilt history file is to be
-used. The old history is renamed with ``.bak'' tagged onto the
+used. The old history is renamed with ``.bak'' tagged onto the end
 and the history header magic flag is marked as invalid. By default,
 the expire process doesn't move the new history file into place
 and creates the new history file with ``.new'' tagged into the end.

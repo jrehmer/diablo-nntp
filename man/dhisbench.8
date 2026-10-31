@@ -3,8 +3,10 @@
 dhisbench \- benchmark Diablo history adds and lookups
 .SH SYNOPSIS
 .B dhisbench
+[
 .B \-f
 .I historyfile
+]
 [
 .B \-af
 .I forks
@@ -54,7 +56,8 @@ dhistory (read-only) when \-f is not given.
 .SH OPTIONS
 .TP
 .BI \-f " historyfile"
-The history file to use.
+The history file to use.  Required when adds are requested with \fB\-af\fP;
+dhisbench refuses to add to the configured dhistory.
 .TP
 .BI \-af " forks" " \fR,\fP \-ac " count
 Number of add processes, and entries each adds.

@@ -1,10 +1,7 @@
 .\" $Revision: 1.11 $
 .TH DIDUMP 8
-.TH DILOAD 8
 .SH NAME
 didump \- Diablo program to dump the dhistory database
-.PP
-diload \- Diablo program to append to the dhistory database
 .SH SYNOPSIS
 .B didump
 [
@@ -59,32 +56,6 @@ diload \- Diablo program to append to the dhistory database
 .B \@offset
 ]
 .B dhistory-file
-.PP
-.B diload
-[
-.B \-f
-]
-[
-.B \-h hashtablesize
-]
-[
-.B \-u
-]
-[
-.B \-v
-]
-[
-.B \-C diablo.config
-]
-[
-.B \-d[n]
-]
-[
-.B \-V
-]
-[
-.B dhistory-file
-]
 
 .SH DESCRIPTION
 .IR Didump
@@ -163,75 +134,6 @@ will set debug mode, at optional level n.
 .B -V
 will print the version and exit.
 .PP
-Generally speaking, when recovering a dhistory file or trimming off 
-obsolete entries,
-.B didump
-or 
-.B didump -x
-is run with the existing history file as an argument, and the output is
-piped to
-.IR diload 
-\-f tempfile.
-Once the recovery is complete, the temporary history file is then renamed
-to become the actual history file.  The diablo server must be paused
-during such operations to prevent it from acting on the 'old' version
-of the history file while the new one is being constructed.
-
-.PP
-.IR Diload
-takes history data on the standard input and appends it to the
-specified history file.  If no history file is specified, the
-active 
-.B dhistory
-database is used.  If any given record already exists in the dhistory file, 
-the new record is thrown away and the original record left intact.  You can
-safely run
-.IR diload
-to append new entries without shutting the main Diablo server down, but
-Diablo must be properly paused and restarted if you intend to rewrite the history file.
-.PP
-.B -f
-Turn on special-fast mode.  This locks the history file through the
-entire procedure and makes the assumption that entries being added
-did not previously exist.  This also causes the base hash table to
-be cached and written then written out when the load operation has
-completed.  DiLoad will create the history file you supply as an argument 
-and will refuse to run if it is already pre-existing.  This
-is used in the weekly trimming script to quickly rebuild the history
-file from a dump.
-.PP
-.B -h hashtablesize
-The default hash table size is configured in the diablo.config
-configuration file, and is the best way to set the size.  Alternatively,
-you can use this option to set it to any power of two.  For a transit
-server, the suggested size is 4m or 8m.  For a spool server, the optimal
-size is a power of two slightly less than the number of articles you plan
-to store (i.e. if you have 90 million articles, 64m or perhaps 32m).  Do 
-NOT forget the 'm' for million, or you will be a very unhappy camper.
-Please note that if you create a larger history hash in this manner, the 
-next run of diload (perhaps from biweekly.atrim) will still only create
-a table the size of whatever the configured default is, so be sure to
-modify your diablo.config or biweekly.atrim to reflect any appropriate
-changes.
-.PP
-.B -u
-May be used with special-fast mode to re-enable checking for duplicates.
-You have the advantage of locking the history file throughout the
-entire operation, but can still use a pre-existing history file to 'update'.
-.PP
-.B -v
-will turn on verbose mode.  diload prints out its progress.
-.PP
-.B -C
-allows the specification of the path of the diablo.config file to use.
-.PP
-.B -d[n]
-will set debug mode, at optional level n.
-.PP
-.B -V
-will print the version and exit.
-
-.PP
 .B \-m
 .PP
 Dump only the Message-ID hashes.
@@ -243,6 +145,25 @@ Quiet: don't print the statistics at the end.
 .B \-z
 .PP
 Also dump entries with a time (gm=) of zero.
+.PP
+Generally speaking, when recovering a dhistory file or trimming off
+obsolete entries,
+.B didump
+or
+.B didump -x
+is run with the existing history file as an argument, and the output is
+piped to
+.IR diload
+\-f tempfile.
+Once the recovery is complete, the temporary history file is then renamed
+to become the actual history file.  The diablo server must be paused
+during such operations to prevent it from acting on the 'old' version
+of the history file while the new one is being constructed.
+.PP
+The
+.IR diload
+program, which reads didump output and appends it to a history file, is
+documented in diload(8).
 
 .SH "SEE ALSO"
 dcancel(8),

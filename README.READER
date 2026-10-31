@@ -269,7 +269,9 @@
 
     The following additional files must be configured in order for dreaderd
     to operate.   Samples are available in the samples directory.  All files
-    should be owned by the 'news' user.
+    should be owned by the 'news' user.  dreaderd re-reads these files
+    automatically when they change, except diablo.config, which requires a
+    restart.
 
 	/news/diablo.config
 
@@ -300,9 +302,8 @@
 	    file is missing, so create it before the first start or start
 	    once with "diablo-ctl -F start dreaderd" (samples/init/README).
 
-	    dreaderd automatically detects changes made to this file, but
-	    you may only make adjustments with KP database tools such
-	    as dkp.  You may edit the file manually only if dreaderd (and
+	    You may only make adjustments to this file with KP database tools
+	    such as dkp.  You may edit the file manually only if dreaderd (and
 	    diablo if diablo is mastering the article number assignments) is
 	    completely shut down.  Idle isn't good enough.  DO NOT EDIT
 	    THIS FILE MANUALLY IF YOU CAN HELP IT!  Use the 'dkp' program.
@@ -316,8 +317,6 @@
 	    "verify-..." actions check PGP signatures with GnuPG's gpgv
 	    (1.x or 2.x) and a keyring; see README.PGP for the setup.
 
-	    dreaderd automatically detects changes made to this file.
-
 	/news/dexpire.ctl
 
 	    This file is used by dexpireover to expire overview information.
@@ -328,8 +327,6 @@
 
 	    This file controls access for incoming feeds and readers, it is
 	    NOT compatible with INN's nnrp.access file.
-
-	    dreaderd automatically detects changes made to this file.
 
 	/news/dserver.hosts
 
@@ -345,8 +342,6 @@
 	    set the number of dreaderd forks to 4, 8 connections will be
 	    openned.
 
-	    dreaderd automatically detects changes made to this file.
-
 	    The hostname is case sensitive, if you are receiving '430
 	    article not found errors' - you can specify the backend server
 	    more than once by just changing the case of the hostname.
@@ -358,8 +353,6 @@
 
 	    This is the moderators file returned by the 'list moderators' 
 	    NNTP command.  It is identical to the INN one.
-
-	    dreaderd automatically detects changes made to this file.
 
 			    STEP 2 - HEADER FEED SETUP
 

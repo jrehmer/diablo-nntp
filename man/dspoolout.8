@@ -33,6 +33,24 @@ dspoolout \- Diablo program to sequence and flush outbound queue files
 .B \-f configfile
 ]
 [
+.B \-p
+]
+[
+.B \-r
+]
+[
+.B \-Q tos
+]
+[
+.B \-d[n]
+]
+[
+.B \-C diablo.config
+]
+[
+.B \-V
+]
+[
 .B label
 ]
 
@@ -82,11 +100,11 @@ An optional queue label may be specified to restrict dspoolout's operation
 to a single entry.  Otherwise, all entries are run.
 .PP
 .B \-f configfile
-Specify a configuration file other then dspoolout.ctl.  If the configuration
+Specify a configuration file other then dnntpspool.ctl.  If the configuration
 file is not an absolute path, diablo's news home is prepended to it.
 .PP
 .B \-p
-Read the old dspoolout.ctl format, whatever the file is called.
+Read the old dnntpspool.ctl format, whatever the file is called.
 .PP
 .B \-r
 Start realtime workers for every realtime feed, also when its queue is

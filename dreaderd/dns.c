@@ -382,8 +382,10 @@ fileAuthenticate(char *user, char *pass, char *conf)
 	bptr = buffer;
 	ptr = strsep(&bptr, ":");
 	if (ptr && ! strcmp(ptr, user)) {
-	    if (negate)
+	    if (negate) {
+		fclose(fp);
 		return(NULL);
+	    }
 	    ptr = strsep(&bptr, ":");
 	    if (ptr && !strcmp(ptr, pass)) {
 		ptr = strsep(&bptr, ":");
@@ -675,16 +677,20 @@ cdbAuthenticate(char *user, char *pass, char *conf)
     int fd;
     int negate = 0;
 
-    if (*conf == '!')
+    if (*conf == '!') {
 	negate = 1;
+	conf++;
+    }
     fd = open(conf, O_RDONLY);
     if (fd < 0) {
 	logit(LOG_ERR, "unable to open auth cdb %s", conf);
 	return(NULL);
     }
     if (cdb_seek(fd, user, strlen(user), &pwlen) > 0) {
-	if (negate)
+	if (negate) {
+	    close(fd);
 	    return(NULL);
+	}
 	if (pwlen > 0) {
 	    char pw[64];
 	    if (pwlen > sizeof(pw) - 1) pwlen = sizeof(pw) - 1;

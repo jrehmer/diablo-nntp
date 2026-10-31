@@ -381,10 +381,10 @@ flush it with
 is instead reopened for append.  Diablo includes two separate programs,
 .IR dspoolout
 and
-.IR dnewsfeed
+.IR dnewslink
 which do queue file sequencing, management, outbound feeds, and trimming.
 The
-.IR dnewsfeed
+.IR dnewslink
 program can run the non-streaming
 .B ihave 
 protocol, or can run the streaming
@@ -537,19 +537,6 @@ and (b) it is likely to be looking up more recently received articles and
 thus likely to hit them first.  Searches for which failures are expected
 only have the advantage of (a), but I had to compromise somewhere.
 .PP
-The spool directory itself is organized by time-received.  It is explicitly
-.B NOT
-organized by the Date: field or by group.  A new directory is created every
-10 minutes, and in a heavily loaded system does not generally contain more 
-then 80 or so spool files, each containing multiple articles.  Inbound
-articles have the advantage of being appended to open descriptors as well
-as being readily cacheable and in time-proximity localized directories, and 
-outbound articles have the same advantage.  Even when some of your feeds get
-behind, per-process accesses are readily cacheable and the kernel can 
-generally survive the partitioning effect.  This is quite unlike standard
-INN spool management which bounces files all over the group hierarchy and 
-makes article adds and accesses almost random. 
-.PP
 Direct access to the articles is supported by looking the article up
 in the history file.  The history file contains the time-received and 
 that combined with the iteration id, a byte offset, and byte count, allows
@@ -563,7 +550,7 @@ set the debug level back to 0.  It is suggested that signals only be sent
 to child processes and never the parent Diablo.
 
 .SH "TYPICAL PERFORMANCE, TUNING SUGGESTIONS"
-See the KERNEL_NOTES file for tuning suggestions and machine-specific
+See the TUNING_NOTES file for tuning suggestions and machine-specific
 configurations.
 
 .SH "SEE ALSO"

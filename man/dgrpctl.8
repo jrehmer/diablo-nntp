@@ -57,7 +57,8 @@ dgrpctl \- add, delete and modify newsgroups in the active file.
 .SH DESCRIPTION
 .IR Dgrpctl
 allows several administrative and maintenance functions to be performed on
-newsgroups.  Changes are made to the active file (\fIdactive.kp(5)\fR located
+newsgroups.  Changes are made to the active file (\fIdactive.kp\fR, see
+diablo-kp(5)) located
 on the reader, or if \fB-s\fR is specified, on the server (as specified by the
 \fIpath_server_dactive\fR parameter in the sample diablo.config file).
 .P
@@ -66,7 +67,7 @@ on the reader, or if \fB-s\fR is specified, on the server (as specified by the
 .B newgroup
 adds \fInewsgroup\fR to the specified active file and sets attributes for
 that group or updates attributes if the group already exists.  \fIFlags\fR
-may be set to \fBY\fR for a normal group, or \fBM\fR for a moderated groups.
+may be set to \fBy\fR for a normal group, or \fBm\fR for a moderated group.
 (Other group states are not supported.) Use "" to specify no moderator e-mail
 address when the \fInewsgroups\fR field is being specified.  The content of
 the \fImoderator\fR field is not currently used and is reserved for future
@@ -96,12 +97,11 @@ that an octal value was being provided.)
 .B checkgroups
 accepts list of groups in "checkgroups" format from the
 \fIfilename\fR or from \fB-\fR (stdin).
-DOES THIS MAKE THE CHANGES OR PROVIDE A LIST FOR APPROVAL?
 
 .B listactive
 produces 
 lists information on news groups that are contained in the active
-news group database \fBdactive.kp\fR(5).  If no \fIwildmat\fR
+news group database \fBdactive.kp\fR.  If no \fIwildmat\fR
 pattern is specified, then all groups in the database are
 listed.  If a \fIwildmat\fR pattern is provided, only
 groups that match the pattern are displayed.  The command
@@ -113,7 +113,7 @@ and its output behave identical to the NNTP "LIST" or
 produces the same results as the NNTP "LIST NEWSGROUPS"
 command.  If no pattern is displayed, the stored
 descriptions of all groups in the active news group
-database \fBdactive.kp\fR(5) are shown.  If a
+database \fBdactive.kp\fR are shown.  If a
 \fIwildmat\fR pattern is provided, only descriptions of
 groups that match the pattern are shown.
 
@@ -196,6 +196,10 @@ Additional information on the \fIwildmat\fR format can be found in
 .PP
 Work on the server active file (path_server_dactive) instead of the
 reader's dactive.kp.
+.PP
+.B \-V
+.PP
+Print the version and exit.
 
 .SH "SEE ALSO"
 dcancel(8),

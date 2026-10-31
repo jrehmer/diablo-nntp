@@ -82,43 +82,48 @@ to your local newsgroups that are propogated from outside entities.  Note
 that the history file is not updated, just in case the article is also
 brought in from a valid 'local' newsfeed.
 .PP
+The following options affect OUTBOUND feeds only: Diablo will not send an
+article to an outbound feed when the stated condition holds.
+.PP
 .B maxpath
-(1.08 or higher) effects OUTBOUND feeds.  Diablo will not send an article
-to an outbound feed if the article's Path: line contains more then the
+(1.08 or higher) \- the article's Path: line contains more then the
 specified number of path elements.
 .PP
 .B minpath
-effects OUTBOUND feeds.  Diablo will not send an article to an outbound feed
-if the article's Path: line contains fewer than the specified number of path
-elements.
+\- the article's Path: line contains fewer than the specified number of
+path elements.
 .PP
 .B maxcross
-(1.04 or higher) effects OUTBOUND feeds.  Diablo will not send an article 
-to an outbound feed if the article's Newsgroups: line contains more then 
-the specified number of groups.
+(1.04 or higher) \- the article's Newsgroups: line contains more then the
+specified number of groups.
 .PP
 .B maxsize
-(1.04 or higher) effects OUTBOUND feeds.  Diablo will not send an article 
-to an outbound feed if the article is larger then the specified number of 
-bytes.  You may use 'k', 'm', and 'g' to denote kilobytes, megabytes, 
-and gigabytes.  For example, <I>maxsize 100k</I> .  An article of exactly
+(1.04 or higher) \- the article is larger then the specified number of
+bytes.  You may use 'k', 'm', and 'g' to denote kilobytes, megabytes,
+and gigabytes.  For example, \fImaxsize 100k\fR .  An article of exactly
 the specified size is sent.
 .PP
 .B mincross
-effects OUTBOUND feeds.  Diablo will not send an article to an outbound feed
-if the article's Newsgroups: line contains fewer than the specified number of
-groups.
+\- the article's Newsgroups: line contains fewer than the specified number
+of groups.
 .PP
 .B minsize
-effects OUTBOUND feeds.  Diablo will not send an article to an outbound feed
-if the article is not larger than the specified number of bytes, so an
+\- the article is not larger than the specified number of bytes, so an
 article of exactly that size is not sent (unlike maxsize).  The size can be
 given with 'k', 'm' and 'g' as for maxsize.
 .PP
 .B rtflush
-(1.12 or higher) effects OUTBOUND feeds.  Diablo will write the queue file
-for this feed unbuffered.  Generally used along with 'realtime' in 
+(1.12 or higher) also affects OUTBOUND feeds: Diablo will write the queue
+file for this feed unbuffered.  Generally used along with 'realtime' in
 dnntpspool.ctl.
+.PP
+.B spamalias
+affects OUTBOUND feeds.  Any originating server or Path: username that
+matches a spamalias wildcard causes the article not to be propagated to any
+neighbor, as though an alias command matched the Path: header on all
+outbound feeds.  Only the last two Path: elements (originating site and
+user) are checked.  spamalias acts globally and must appear in the GLOBAL
+groupdef section; it is intended for transit-only servers.
 .PP
 There is an (unimposed) arbitrary limit of 256 add/delgroup entries
 per feed.  Currently this is due to the fact that Diablo scans the

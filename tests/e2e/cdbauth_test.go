@@ -108,3 +108,65 @@ access ` + PeerIP + ` feed
 		}
 	}
 }
+
+// TestReaderCdbDenyList (D-169): an authdef "cdb !file" looks the user up in
+// the deny cdb.  Before the fix the '!' was not stripped before open(), so the
+// open failed and every login was refused, including the authdef's own
+// user/pass; the found-user path also leaked the cdb descriptor.
+//
+// A user in the deny cdb is refused, the authdef's own user/pass (not in the
+// cdb) logs in.  Base refuses both because the open fails; with the fix the
+// own user succeeds.  Needs a CDB_ENABLED build (./configure finds libcdb);
+// skips otherwise, or fails when E2E_REQUIRE_DB=1.
+func TestReaderCdbDenyList(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(bin(t), "dreaderd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte("dns auth cdb")) {
+		if os.Getenv("E2E_REQUIRE_DB") == "1" {
+			t.Fatal("E2E_REQUIRE_DB=1 but dreaderd is built without CDB support (CDB_ENABLED)")
+		}
+		t.Skip("dreaderd is built without CDB support (CDB_ENABLED)")
+	}
+	db := filepath.Join(t.TempDir(), "deny.cdb")
+	writeCDB(t, db, map[string]string{"deny": ""})
+	access := `vserverdef DEFAULT
+    hostname ` + PathHost + `
+end
+authdef bycdb
+    cdb !` + db + `
+    user allowed
+    pass secret
+end
+readerdef usercdb
+    read yes
+    post yes
+    auth bycdb
+end
+readerdef feed
+    feed yes
+end
+access 127.0.0.1 usercdb
+access ` + PeerIP + ` feed
+`
+	_, spool := spoolStore(t)
+	s := NewReaderSite(t, ReaderOptions{Spool: spool, Access: access})
+
+	// A listed user is refused (and the old found-user return leaked fd).
+	for i := 0; i < 10; i++ {
+		c := s.Reader(t)
+		expect(t, c, 381, "AUTHINFO USER deny")
+		code, line := c.Cmd("AUTHINFO PASS secret")
+		if code == 281 {
+			t.Fatalf("listed user logged in: %s", line)
+		}
+		c.Close()
+	}
+
+	// The authdef's own user/pass is not in the deny cdb and must log in.
+	c := s.Reader(t)
+	expect(t, c, 381, "AUTHINFO USER allowed")
+	expect(t, c, 281, "AUTHINFO PASS secret")
+	expect(t, c, 205, "QUIT")
+}

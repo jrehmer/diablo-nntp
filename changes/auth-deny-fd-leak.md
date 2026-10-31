@@ -1,0 +1,1 @@
+- dreaderd: the file and cdb deny-list auth checks close their FILE/cdb descriptor on the found-user reject path, and the cdb one strips the leading `!` before `open()`; a listed-user login no longer leaks one descriptor, and a deny cdb no longer fails to open (which refused every user, including the authdef's own user/pass).

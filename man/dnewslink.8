@@ -40,9 +40,24 @@ txbufsize
 .B \-R
 rxbufsize
 .B \-I
-rxbufsize
 .B \-B
 ip
+.B \-K
+seconds
+.B \-M
+number
+.B \-W
+seconds
+.B \-Q
+tos
+.B \-Z
+level
+.B \-o
+label
+.B \-x
+.B \-C
+diablo.config
+.B \-V
 
 .SH DESCRIPTION
 .IR DNewslink 
@@ -155,7 +170,7 @@ to feed out.  DSpoolout usually specifies 32 here.  If there are more then
 will simply start another one.  For realtime batches dspoolout specifies a
 higher number which reflects the number of new queue files it is allowed to
 rotate through before exiting.  For queue-delayed batches (qNNNN option in
-dspoolout.ctl), dspoolout will specify an appropriate number based on the
+dnntpspool.ctl), dspoolout will specify an appropriate number based on the
 number of queue files.
 
 .PP
