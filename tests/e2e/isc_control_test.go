@@ -166,7 +166,7 @@ func TestISCControlPGPVerify(t *testing.T) {
 			if iscVerified(t, keyring, kind, "old") {
 				t.Logf("%s: the old-style key %s is in the keyring and verifies", kind, iscOldKeyID)
 			} else {
-				t.Logf("%s: the old-style key %s is not in the keyring: NO_PUBKEY, as expected", kind, iscOldKeyID)
+				t.Logf("%s: the old-style key %s cannot be used by gpgv here (NO_PUBKEY), as expected", kind, iscOldKeyID)
 			}
 		})
 	}
