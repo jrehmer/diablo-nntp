@@ -20,9 +20,10 @@ import (
 // (FAFE7B550C18C8B7, news.announce.newgroups). testdata/isc/*-old.art and *-modern.art are the
 // articles as the archive server returned them, with LF line ends. PGPKEYS is the key file of
 // https://ftp.isc.org/pub/pgpcontrol/PGPKEYS; it has the modern key, but not the old-style one
-// (only as a signature on the modern key), so the old-style articles do not verify with it on
-// any platform: the tests expect that, and accept a verification where a keyring does have the
-// key. trustedkeys-v4.gpg is what GnuPG 2.4 makes of PGPKEYS (it skips the 84 PGP 2 keys of
+// (only as a signature on the modern key); oldkey.asc is that key, a PGP 2.7 key of 1996. GnuPG
+// 2 cannot read it, and gpgv of GnuPG 1 refuses it for want of a valid self-signature, so
+// pgpverify cannot verify the old-style articles on any platform with GnuPG: the tests expect
+// that, and accept a verification where a keyring does allow it (PGP 2.x as the verifier). trustedkeys-v4.gpg is what GnuPG 2.4 makes of PGPKEYS (it skips the 84 PGP 2 keys of
 // other hierarchies); it is used when the platform has no GnuPG to import with.
 //
 //go:embed testdata/isc
@@ -34,6 +35,16 @@ const (
 )
 
 var iscNames = []string{"checkgroups", "newgroup", "rmgroup"}
+
+// iscOldKey returns the old-style key (PGP 2.7, version 3, 1024 bit RSA, 1996) of
+// news.announce.newgroups, testdata/isc/oldkey.asc. It is not in ISC's PGPKEYS.
+func iscOldKey() []byte {
+	b, err := iscFS.ReadFile("testdata/isc/oldkey.asc")
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
 // iscArticle returns the lines of the fixture testdata/isc/<kind>-<style>.art.
 func iscArticle(t *testing.T, kind, style string) []string {
@@ -74,6 +85,10 @@ func iscKeyring(t *testing.T) string {
 		imp := exec.Command(gpg, "--batch", "--homedir", home, "--import")
 		imp.Stdin = bytes.NewReader(keys)
 		_ = imp.Run() // keys it cannot read are skipped, and some GnuPG versions exit non-zero for that
+		// the old-style key: GnuPG 2 skips it (PGP 2 key); GnuPG 1 takes it only without its self-signature
+		imp = exec.Command(gpg, "--batch", "--homedir", home, "--allow-non-selfsigned-uid", "--import")
+		imp.Stdin = bytes.NewReader(iscOldKey())
+		_ = imp.Run()
 		exp := exec.Command(gpg, "--batch", "--homedir", home, "--export")
 		if out, err := exp.Output(); err == nil && len(out) > 0 {
 			if err := os.WriteFile(keyring, out, 0o644); err != nil {
@@ -177,6 +192,50 @@ func TestISCControlPGPVerify(t *testing.T) {
 			t.Errorf("a changed Subject: exit status %d, want 3", rc)
 		}
 	})
+}
+
+// TestISCControlOldKey: the old-style signatures are good, by the old-style key of
+// news.announce.newgroups, which is a PGP 2 key: GnuPG 2 cannot read it at all, and GnuPG 1 reads it
+// only when told to accept a key without a valid self-signature (--allow-non-selfsigned-uid),
+// which gpgv, and so pgpverify, cannot be told. So this runs gpg itself, on the text and
+// signature pgpverify rebuilds from the article (-d2 keeps them), and only with GnuPG 1.
+func TestISCControlOldKey(t *testing.T) {
+	gpg := iscGpg()
+	if gpg == "" {
+		t.Skip("no GnuPG")
+	}
+	if out, _ := exec.Command(gpg, "--version").Output(); !strings.Contains(strings.SplitN(string(out), "\n", 2)[0], "(GnuPG) 1.") {
+		t.Skip("GnuPG 1 is needed: GnuPG 2 cannot read a PGP 2 key")
+	}
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	imp := exec.Command(gpg, "--batch", "--homedir", home, "--allow-non-selfsigned-uid", "--import")
+	imp.Stdin = bytes.NewReader(iscOldKey())
+	if out, err := imp.CombinedOutput(); err != nil {
+		t.Fatalf("import of the old-style key: %v\n%s", err, out)
+	}
+	keyring := filepath.Join(t.TempDir(), "empty.gpg")
+	if err := os.WriteFile(keyring, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range iscNames {
+		tmp := t.TempDir()
+		cmd := exec.Command(filepath.Join(bin(t), "pgpverify"), "-d2", "-k", keyring)
+		cmd.Env = append(os.Environ(), "TMPDIR="+tmp)
+		cmd.Stdin = strings.NewReader(strings.Join(iscArticle(t, kind, "old"), "\n") + "\n")
+		_ = cmd.Run() // fails: the keyring is empty. We want the files it kept.
+		sig, _ := filepath.Glob(filepath.Join(tmp, "pgpverify.sig.*"))
+		msg, _ := filepath.Glob(filepath.Join(tmp, "pgpverify.msg.*"))
+		if len(sig) != 1 || len(msg) != 1 {
+			t.Fatalf("%s: pgpverify -d2 kept %v and %v", kind, sig, msg)
+		}
+		out, err := exec.Command(gpg, "--batch", "--homedir", home, "--allow-non-selfsigned-uid", "--verify", sig[0], msg[0]).CombinedOutput()
+		if err != nil || !strings.Contains(string(out), `Good signature from "news.announce.newgroups"`) {
+			t.Errorf("%s-old: gpg --verify: %v\n%s", kind, err, out)
+		}
+	}
 }
 
 // iscDcontrol is dcontrol.ctl as samples/dcontrol.ctl has it for ISC: the control messages of
