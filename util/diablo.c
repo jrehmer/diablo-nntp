@@ -3263,7 +3263,7 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 		} else if (hch == 'd' && bytes >= 5 &&
 			   strncasecmp(p, "Date:", 5) == 0) {
 		    hdrDate++;
-		    if (DOpts.FeederMaxAcceptAge >= 0) {
+		    if (DOpts.FeederMaxAcceptAge > 0) {
 		    	diablo_strlcpynl(dateBuf, p + 5, bytes - 5 - aflen, sizeof(dateBuf));
 		    }
 		} else if (NphFilterFd != -1 &&

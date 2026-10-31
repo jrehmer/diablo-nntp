@@ -462,7 +462,7 @@ top:
 		}
 	    }
 
-	    if (DNPOpt && H_EXPIRED(h->exp)) {
+	    if (DNPOpt && DOpts.RememberSecs != 0 && H_EXPIRED(h->exp)) {
 		int32 dgmt = gmt - h->gmt;	/* DELTA MINUTES */
 		if (dgmt < -rememberMins || dgmt > rememberMins) {
 		    ExpireDropCount++;

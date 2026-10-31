@@ -148,6 +148,8 @@ test fails.
 | `TestInstallConvertsConfigSymlinks` | install-portable.sh | a config symlink into `samples/` left by an earlier install becomes a real file with the content in use, before `samples/` is replaced; with install and with bininstall |
 | `TestAdmHourlyExpire` | adm/hourly.expire, dexpire | the script expires an article older than `keeptime` |
 | `TestAdmDailyAtrim` | adm/daily.atrim, adm/rot | the script rotates the logs |
+| `TestFeederMaxAcceptAge` | diablo | the age limit of incoming articles (default from remember): an article dated 2001 or 2100 is rejected; `feedermaxacceptage 0`, `-r 0` and `remember 0` turn it off; a limit set after remember 0 applies; an unparseable Date is not checked |
+| `TestDhisexpireRemember` | dhisexpire, diload | history entries of expired articles older than remember are dropped, those of articles on the spool are kept; `-r 0` keeps every entry |
 | `TestAdmDailyAtrimDaemonLogs` | adm/daily.atrim | the logs the daemons write themselves (general, incoming, drincoming, path, article) are rotated too |
 | `TestAdmBiweeklyAtrim` | adm/biweekly.atrim, dhisexpire | the script trims the history while diablo runs; the stored article stays in history |
 | `TestAdmReaderScripts` | adm/daily.reader, adm/weekly.reader | both scripts run on a reader site. The adm tests are skipped while `samples/adm` still holds the csh scripts |

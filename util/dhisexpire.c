@@ -513,7 +513,7 @@ DoExpire(int fd, int hsize, int rsize)
 		}
 	    }
 
-	    if (DoRemember && H_EXPIRED(h->exp)) {
+	    if (DoRemember && DOpts.RememberSecs != 0 && H_EXPIRED(h->exp)) {
 		int32 dgmt = gmt - h->gmt;	/* DELTA MINUTES */
 		if (dgmt < -rememberMins || dgmt > rememberMins) {
 		    ExpireDropCount++;
