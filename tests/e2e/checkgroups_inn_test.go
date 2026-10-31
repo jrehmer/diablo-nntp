@@ -87,16 +87,16 @@ func TestCheckgroupsInn(t *testing.T) {
 		t.Errorf("GROUP e2e.new: %d %q", code, line)
 	}
 	log, _ := os.ReadFile(filepath.Join(s.Dir, "log", "checkgroups.log"))
-	if !strings.Contains(string(log), "Checkgroups: 2 to add, 1 to remove (limit 10): made; 1 moderated flags to correct") {
+	if !strings.Contains(string(log), "Checkgroups: 2 to add, 1 to change, 1 to remove (limit 10): made") {
 		t.Errorf("control log:\n%s", log)
 	}
 }
 
-// TestCheckgroupsInnLimit: as INN, more than "maxcheckgroups" (default 10) additions and
-// removals are not made but written to the control log as the commands that make them; the
-// descriptions and moderated flags of the groups that exist are done all the same. A
-// maxcheckgroups line in dcontrol.ctl (INN's /maxdocheckgroups/ too) sets the limit, for the
-// sender and the group it matches; the last matching line is used.
+// TestCheckgroupsInnLimit: as INN, more than "maxcheckgroups" (default 10) additions, status
+// (moderated flag) changes and removals are not made but written to the control log as the
+// commands that make them; the descriptions of the groups that exist are updated all the same. A
+// maxcheckgroups line in dcontrol.ctl sets the limit, for the sender and the group it matches; the
+// last matching line is used.
 func TestCheckgroupsInnLimit(t *testing.T) {
 	lines := []string{"e2e.test\tDescribed."}
 	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
@@ -115,7 +115,7 @@ func TestCheckgroupsInnLimit(t *testing.T) {
 			t.Error("the removal was made with the default limit of 10 exceeded")
 		}
 		log, _ := os.ReadFile(filepath.Join(s.Dir, "log", "checkgroups.log"))
-		for _, want := range []string{"11 to add, 1 to remove (limit 10): NOT made", `dgrpctl newgroup e2e.newa y "" "New group a."`, "dgrpctl rmgroup e2e.obsolete"} {
+		for _, want := range []string{"11 to add, 0 to change, 1 to remove (limit 10): NOT made", `dgrpctl newgroup e2e.newa y "" "New group a."`, "dgrpctl rmgroup e2e.obsolete"} {
 			if !strings.Contains(string(log), want) {
 				t.Errorf("control log lacks %q:\n%s", want, log)
 			}
@@ -134,7 +134,7 @@ func TestCheckgroupsInnLimit(t *testing.T) {
 	})
 }
 
-// more ways to set the limit, and what the limit does not cover
+// more ways to set the limit, and what it covers
 func TestCheckgroupsInnLimitLines(t *testing.T) {
 	eleven := []string{"e2e.test\tDescribed."}
 	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
@@ -148,11 +148,6 @@ func TestCheckgroupsInnLimitLines(t *testing.T) {
 		_, ok := cgActive(t, s)["e2e.newk"]
 		return ok
 	}
-	t.Run("INN line", func(t *testing.T) {
-		if !made(t, "/maxdocheckgroups/:*:*:20\ncheckgroups:*:*:doit\n") {
-			t.Error("INN's /maxdocheckgroups/ line is not honoured")
-		}
-	})
 	t.Run("last line that matches wins", func(t *testing.T) {
 		if !made(t, "maxcheckgroups:*:*:1\nmaxcheckgroups:*:e2e.*:20\ncheckgroups:*:*:doit\n") {
 			t.Error("the later line for e2e.* did not win over the earlier one for *")
@@ -171,20 +166,30 @@ func TestCheckgroupsInnLimitLines(t *testing.T) {
 			t.Error("a limit for another sender was used")
 		}
 	})
-	t.Run("flags are not limited", func(t *testing.T) {
+	t.Run("flags are limited", func(t *testing.T) {
 		var groups, lines []string
 		for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"} {
 			groups = append(groups, "e2e.flag"+n)
 			lines = append(lines, "e2e.flag"+n+"\tNow moderated "+n+". (Moderated)")
 		}
-		s := cgSite(t, groups, "checkgroups:*:*:doit\n", lines...)
-		waitFor(t, 10*time.Second, "the flags", func() bool { return cgActive(t, s)["e2e.flaga"] == "m" })
+		// 12 status changes are over the limit of 10: the flags stay, the descriptions are updated
+		s := cgSite(t, groups, "checkgroups:*:*:doit=checkgroups.log\n", lines...)
+		waitFor(t, 10*time.Second, "the descriptions", func() bool {
+			return iscDescriptions(iscList(t, s, "NEWSGROUPS"))["e2e.flaga"] == "Now moderated a. (Moderated)"
+		})
 		act := cgActive(t, s)
 		for _, g := range groups {
-			if act[g] != "m" {
-				t.Errorf("%s: flag %q, want m: the limit of 10 is for additions and removals", g, act[g])
+			if act[g] != "y" {
+				t.Errorf("%s: flag %q, want y: 12 status changes are over the limit of 10", g, act[g])
 			}
 		}
+		log, _ := os.ReadFile(filepath.Join(s.Dir, "log", "checkgroups.log"))
+		if !strings.Contains(string(log), "0 to add, 12 to change, 0 to remove (limit 10): NOT made") || !strings.Contains(string(log), `dgrpctl modgroup e2e.flaga m "" "Now moderated a. (Moderated)"`) {
+			t.Errorf("control log:\n%s", log)
+		}
+		// and with the limit raised they are changed
+		s = cgSite(t, groups, "maxcheckgroups:*:*:12\ncheckgroups:*:*:doit\n", lines...)
+		waitFor(t, 10*time.Second, "the flags", func() bool { return cgActive(t, s)["e2e.flagl"] == "m" })
 	})
 }
 

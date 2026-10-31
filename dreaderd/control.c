@@ -909,12 +909,12 @@ CtlRmGroup(Connection *conn, Control *ctl, const char **cmd, const char *body, i
  *	    - a group of a top-level hierarchy that the list has, that matches the
  *	      wildcard and is not in the list is removed (a removal).
  *
- *	The descriptions and the flags are always done.  As in INN, the additions and
- *	removals are only made when there are not more than "maxcheckgroups" of them
- *	(a line "maxcheckgroups:from:newsgroups:number" in dcontrol.ctl, INN's
- *	"/maxdocheckgroups/" works too; the last line that matches the sender and the
- *	first group of the message is used; default 10); beyond that they are written
- *	to the control log as the dgrpctl commands that make them, and not made.
+ *	The descriptions are always updated.  As in INN, the additions, flag
+ *	corrections (status changes) and removals are only made when there are not
+ *	more than "maxcheckgroups" of them (a line "maxcheckgroups:from:newsgroups:number"
+ *	in dcontrol.ctl; the last line that matches the sender and the first group of
+ *	the message is used; default 10); beyond that they are written to the control
+ *	log as the dgrpctl commands that make them, and not made.
  *
  *	A group that matches a line of the file "localgroups" (path_lib, one group or
  *	wildcard per line, '#' comments) is left alone: its description and flag are
@@ -938,8 +938,8 @@ CgCompare(const void *a, const void *b)
 }
 
 /*
- * The limit of additions and removals: the last line "maxcheckgroups:from:newsgroups:number"
- * (or INN's "/maxdocheckgroups/") of dcontrol.ctl that matches the sender and the group.
+ * The limit of changes: the last line "maxcheckgroups:from:newsgroups:number" of dcontrol.ctl
+ * that matches the sender and the group.
  */
 static int
 CgMaxChanges(const char *from, const char *group)
@@ -956,7 +956,7 @@ CgMaxChanges(const char *from, const char *group)
 	char *sgroups;
 	char *snum;
 
-	if (strncasecmp(buf, "maxcheckgroups:", 15) != 0 && strncasecmp(buf, "/maxdocheckgroups/:", 19) != 0)
+	if (strncasecmp(buf, "maxcheckgroups:", 15) != 0)
 	    continue;
 	if ((smsg = strtok(buf, ":\n")) == NULL ||
 	    (sfrom = strtok(NULL, ":\n")) == NULL ||
@@ -1237,12 +1237,12 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
     }
 
     /*
-     * Additions and removals only up to the limit; the descriptions and the flags always.
+     * Additions, flag corrections and removals only up to the limit; the descriptions always.
      */
-    doit = (nAdd + nGone <= maxChanges);
-    if (ctl->ct_LogFo && (nAdd + nGone || nFlags))
-	fprintf(ctl->ct_LogFo, ">> Checkgroups: %d to add, %d to remove (limit %d): %s; %d moderated flags to correct\n",
-	    nAdd, nGone, maxChanges, nAdd + nGone == 0 ? "nothing to do" : doit ? "made" : "NOT made, the commands follow", nFlags);
+    doit = (nAdd + nFlags + nGone <= maxChanges);
+    if (ctl->ct_LogFo && (nAdd + nFlags + nGone))
+	fprintf(ctl->ct_LogFo, ">> Checkgroups: %d to add, %d to change, %d to remove (limit %d): %s\n",
+	    nAdd, nFlags, nGone, maxChanges, doit ? "made" : "NOT made, the commands follow");
 
     for (i = 0; i < nEnts; ++i) {
 	const char *g = ents[i].ce_Group;
@@ -1269,6 +1269,10 @@ CtlCheckGroups(Connection *conn, Control *ctl, const char **cmd, const char *bod
 	    p = KPDBGetFieldDecode(rec, recLen, "GD", NULL, NULL);
 	    wrongDesc = (p == NULL || strcmp(p, ents[i].ce_Desc) != 0);
 
+	    if (!doit && wrongFlags && ctl->ct_LogFo)
+		fprintf(ctl->ct_LogFo, "dgrpctl modgroup %s %c \"\" \"%s\"\n", g, ents[i].ce_Flags, ents[i].ce_Desc);
+	    if (!doit)
+		wrongFlags = 0;			/* only the description */
 	    if (!wrongDesc && !wrongFlags) {
 		KPDBUnlock(KDBActive, rec);
 		continue;
