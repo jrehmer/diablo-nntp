@@ -24,6 +24,18 @@
 ##	    verify-pgp_userid=logfile	PGP verify and log.
 ##	    break			terminate dcontrol.ctl scan
 ##
+##  checkgroups works as INN's docheckgroups does with "doit": the descriptions of
+##  the groups of the message are updated; a group it lists that does not exist is
+##  created ("(Moderated)" in its description makes it a moderated group), the
+##  moderated flag of a group that exists is corrected, and a group that matches
+##  <newsgroups>, is in a top-level hierarchy of the message and is not in the
+##  message is removed.  The additions, changes and removals are only made when
+##  there are not more than 10 of them; a line
+##	/maxdocheckgroups/:*:*:<number>
+##  sets another limit.  Beyond the limit they are written to the control log as
+##  the dgrpctl commands that make them (log=xxx, mail).  Keep <newsgroups> to the
+##  groups you take from the sender if you have local groups in its hierarchies.
+##
 ##			xxx=/full/path logs to /full/path; xxx=foo logs to
 ##			foo in path_log (/news/log/foo, no .log is added).
 ##			An empty xxx logs nothing.
