@@ -249,6 +249,12 @@ rmgroup:group-admin@isc.org:comp.*|misc.*|news.*|rec.*|sci.*|soc.*|talk.*|humani
 // verifies against the keyring.
 func iscSite(t *testing.T, groups []string) (*Site, *fakeserver.Store, string) {
 	t.Helper()
+	return iscSiteCtl(t, groups, iscDcontrol)
+}
+
+// iscSiteCtl is iscSite with the given dcontrol.ctl.
+func iscSiteCtl(t *testing.T, groups []string, dcontrol string) (*Site, *fakeserver.Store, string) {
+	t.Helper()
 	if !haveGpgv() {
 		t.Skip("no gpgv")
 	}
@@ -257,7 +263,7 @@ func iscSite(t *testing.T, groups []string) (*Site, *fakeserver.Store, string) {
 	s := NewReaderSite(t, ReaderOptions{
 		Spool:   spool,
 		Groups:  groups,
-		Files:   map[string]string{"dcontrol.ctl": iscDcontrol},
+		Files:   map[string]string{"dcontrol.ctl": dcontrol},
 		Config:  map[string]string{"pgpverifyargs": "-k " + keyring},
 		NoStart: true,
 	})
@@ -370,6 +376,62 @@ func TestISCControlCheckgroups(t *testing.T) {
 				t.Errorf("checkgroups created %s", absent)
 			}
 		})
+	}
+}
+
+// TestISCControlCheckgroupsAll: with maxcheckgroups raised, the real ISC checkgroups (about
+// 1,900 groups) is acted on as INN's docheckgroups does it: every group of the list is created,
+// the ones with "(Moderated)" as moderated groups; a group of the hierarchies of the list that it
+// lacks is removed, and the groups of other hierarchies stay. With the default limit of 10, none
+// of this is done (TestISCControlCheckgroups).
+func TestISCControlCheckgroupsAll(t *testing.T) {
+	have := []string{"news.announce.newgroups", "comp.ai", "comp.local.test", "local.keep"}
+	s, st, _ := iscSiteCtl(t, have, "maxcheckgroups:*:*:100000\n"+iscDcontrol)
+	art := iscArticle(t, "checkgroups", "modern")
+	_, body := splitArticle(art)
+	want := map[string]string{}
+	for _, l := range body {
+		f := strings.Fields(l)
+		if len(f) < 2 || !strings.Contains(f[0], ".") || f[0] != strings.ToLower(f[0]) {
+			continue
+		}
+		flag := "y"
+		if strings.Contains(l, "(Moderated)") {
+			flag = "m"
+		}
+		want[f[0]] = flag
+	}
+	if len(want) < 1500 {
+		t.Fatalf("only %d groups in the checkgroups fixture", len(want))
+	}
+	feedReader(t, s, st, "news.announce.newgroups", art)
+
+	var act map[string]string
+	waitFor(t, 60*time.Second, "the groups of the list in LIST ACTIVE", func() bool {
+		act = cgActive(t, s)
+		_, ok := act["comp.lang.c"]
+		return ok
+	})
+	missing, wrong := 0, 0
+	for g, flag := range want {
+		got, ok := act[g]
+		if !ok {
+			missing++
+		} else if got != flag {
+			wrong++
+		}
+	}
+	if missing > 0 || wrong > 0 {
+		t.Errorf("of %d groups in the list, %d were not created and %d have the wrong flag", len(want), missing, wrong)
+	}
+	if act["comp.ai"] != "m" {
+		t.Errorf("comp.ai: flag %q, want m (Moderated)", act["comp.ai"])
+	}
+	if _, ok := act["comp.local.test"]; ok {
+		t.Error("comp.local.test (comp is in the list, the group is not) was not removed")
+	}
+	if act["local.keep"] != "y" {
+		t.Errorf("local.keep (another hierarchy): %q, want it untouched", act["local.keep"])
 	}
 }
 
