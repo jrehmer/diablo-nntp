@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,6 +144,12 @@ func TestArticleTypes(t *testing.T) {
 		// Text that is taken for binary.
 		{"base64 text", []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME | atBinary | atBase64, "misdetection: a text/plain part is taken for binary by its base64 encoding; should not be binary"},
 		// Header parsing.
+		{"sha256 digests, 8 lines", nil, sha256Lines(8, ""), atDefault, ""},
+		{"sha256 digests, 20 lines", nil, sha256Lines(20, ""), atDefault, ""},
+		{"sha256sum output", nil, sha256Lines(20, "  file.bin"), atDefault, ""},
+		{"quoted sha256 digests", nil, quoted(sha256Lines(12, "")), atDefault, ""},
+		{"upper-case hex digests", nil, upper(sha256Lines(12, "")), atDefault, ""},
+		{"digests then base64 data", nil, append(sha256Lines(12, ""), atLines(12, 64, b64Alphabet, "")...), atBinary | atBase64, ""},
 		{"uppercase CONTENT-TYPE html", []string{"Mime-Version: 1.0", "CONTENT-TYPE: text/html"}, []string{"<p>Hi</p>"}, atMIME, "misdetection: the header is skipped (tolower(*(ptr + 1) == 'o') precedence bug); should add atHTML"},
 		{"uppercase CONTENT-TRANSFER-ENCODING", []string{"Mime-Version: 1.0", "CONTENT-TRANSFER-ENCODING: BASE64"}, atLines(3, 40, b64Alphabet, ""), atMIME, "misdetection: same precedence bug; should be atMIME | atBinary | atBase64"},
 		{"uppercase CONTROL cancel", []string{"CONTROL: cancel <x@y>"}, []string{"cancel"}, atDefault, "misdetection: same precedence bug; should be atControl | atCancel"},
@@ -229,5 +237,63 @@ end
 	// go to txt.
 	if !strings.Contains(bin, sig) {
 		t.Errorf("dqueue/bin = %q, want the long-signature article %s (pinned misdetection)", bin, sig)
+	}
+}
+
+// sha256Lines returns n SHA-256 digests in hex (64 characters), each followed by suffix.
+func sha256Lines(n int, suffix string) []string {
+	var l []string
+	for i := 0; i < n; i++ {
+		l = append(l, fmt.Sprintf("%x", sha256.Sum256([]byte{byte(i), 1}))+suffix)
+	}
+	return l
+}
+
+func quoted(l []string) []string {
+	var q []string
+	for _, x := range l {
+		q = append(q, "> "+x)
+	}
+	return q
+}
+
+func upper(l []string) []string {
+	var q []string
+	for _, x := range l {
+		q = append(q, strings.ToUpper(x))
+	}
+	return q
+}
+
+// TestChecksumListNotRejectedAsBinary: a text article that lists SHA-256 digests (64 hex
+// characters a line, as in the announcement of a release) passes the sample IFILTER, which
+// rejects binaries outside *.bina* groups. Before, nine digest lines in a row were counted as
+// a base64 binary and the article was refused as IncomingFilter.
+func TestChecksumListNotRejectedAsBinary(t *testing.T) {
+	s := NewSite(t, SiteOptions{
+		Newsfeeds: DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\nend\n",
+	})
+	offer := func(body []string) string {
+		id := msgID(t)
+		p := s.Peer(t)
+		defer expect(t, p, 205, "QUIT")
+		expect(t, p, 335, "IHAVE %s", id)
+		send(t, p, wire(newArticle(id, "comp.release", "release checksums", body...)))
+		line, err := p.ReadLine()
+		if err != nil {
+			t.Fatalf("IHAVE: %v", err)
+		}
+		return line
+	}
+	for _, n := range []int{8, 9, 20} {
+		body := append([]string{"SHA-256 checksums:"}, sha256Lines(n, "  release.tar.xz")...)
+		body = append(body, sha256Lines(n, "")...)
+		if line := offer(body); !strings.HasPrefix(line, "235") {
+			t.Errorf("IHAVE with %d digest lines: %q, want 235", n, line)
+		}
+	}
+	// A real base64 binary to the same group is still refused.
+	if line := offer(atLines(12, 64, b64Alphabet, "")); !strings.HasPrefix(line, "437") {
+		t.Errorf("IHAVE with base64 lines to a text group: %q, want 437", line)
 	}
 }

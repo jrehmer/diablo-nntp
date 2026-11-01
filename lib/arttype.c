@@ -358,6 +358,7 @@ int classifyLineAsTypes(char *buf, int len)
 {
 	register unsigned int istype = 0x00, isnttype = 0xff;
 	register char *ptr = buf;
+	int nonhex = 0;
 
 	if (ptr[len - 1] == '\n')
 	    len--;
@@ -409,6 +410,9 @@ int classifyLineAsTypes(char *buf, int len)
 		 * If the character might legitimately be part of one
 		 * of the component bit types, set that(those) bits
 		 */
+		if (!((*ptr >= '0' && *ptr <= '9') || (*ptr >= 'a' && *ptr <= 'f') ||
+					(*ptr >= 'A' && *ptr <= 'F')))
+		    nonhex = 1;
 		istype |= charactermap[(unsigned char)*ptr];
 
 		/*
@@ -419,6 +423,15 @@ int classifyLineAsTypes(char *buf, int len)
 		ptr++;
 		len--;
 	}
+
+	/*
+	 * A line of nothing but hex digits is a checksum or a hex dump, not
+	 * encoded data: a SHA-256 digest is 64 hex characters, so nine of them
+	 * in a list were taken for base64 (or BinHex) and the article for a
+	 * binary.  Encoded binary data is never made of hex digits alone.
+	 */
+	if (!nonhex)
+	    return(0);
 
 	/*
 	 * Now, what we have is istype, which contains a possible list of
