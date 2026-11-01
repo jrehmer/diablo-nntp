@@ -47,6 +47,8 @@ Prototype int ArtTypeConv(char *t);
 Prototype int ArtTypeMatch(int articletype, ArtTypeList *acctypes);
 Prototype int ArticleType(char *line, int len, int inheader);
 
+#define	PGP_ARMOR_MAX	100	/* lines of one armored PGP block that are not counted */
+
 int isBinHexLine(char *line, int len, int firstline);
 int isUuencodedLine(char *buf, int len);
 
@@ -57,6 +59,7 @@ int Type = ARTTYPE_DEFAULT;
 int UUencode = 0;
 int BinHex = 0;
 int Base64 = 0;
+int PGPArmor = 0;	/* lines left to skip in an ASCII-armored PGP block, 0 = not in one */
 
 /*
  * Extensible content type classification system
@@ -437,6 +440,7 @@ InitArticleType(void)
     UUencode = 0;
     BinHex = 0;
     Base64 = 0;
+    PGPArmor = 0;
 }
 
 int
@@ -588,7 +592,25 @@ ArticleType(char *line, int len, int inheader)
 	 * eat CPU for the entire binary.
 	 */
 
-	linetype = classifyLineAsTypes(ptr, len);
+	/*
+	 * The lines of an ASCII-armored PGP block (a signature, a key or a
+	 * message) are base64 text of 64 characters, not a binary posting:
+	 * do not count them as base64 or the other encodings.  A signature
+	 * of an RSA-4096 key has 12 lines, so a signed text article was
+	 * taken for a binary.  The skipping is bounded by PGP_ARMOR_MAX
+	 * lines so that a long binary can't hide behind a "BEGIN PGP" line.
+	 */
+	if (PGPArmor > 0) {
+	    if (strncmp(ptr, "-----END PGP ", 13) == 0)
+		PGPArmor = 0;
+	    else
+		--PGPArmor;
+	    linetype = 0;
+	} else {
+	    linetype = classifyLineAsTypes(ptr, len);
+	    if (*ptr == '-' && strncmp(ptr, "-----BEGIN PGP ", 15) == 0)
+		PGPArmor = PGP_ARMOR_MAX;
+	}
 
 	if (linetype & UUE) {
 	    Base64 = 0;

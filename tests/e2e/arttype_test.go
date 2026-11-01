@@ -150,12 +150,14 @@ func TestArticleTypes(t *testing.T) {
 		// PGP: every armor form, short (4 lines) and the size of an RSA-4096 signature or key
 		// (12 lines of 64 characters, which more than 8 in a row make a base64 binary).
 		{"pgp message", nil, pgp("MESSAGE", 4), atPGP, ""},
-		{"pgp message long", nil, pgp("MESSAGE", 12), atPGP | atBinary | atBase64, "misdetection: more than 8 armor lines are taken for base64 binary; should be atPGP only"},
+		{"pgp message long", nil, pgp("MESSAGE", 12), atPGP, ""},
+		{"pgp message beyond the armor limit", nil, pgp("MESSAGE", 120), atPGP | atBinary | atBase64, "by design: only the first 100 lines of an armored block are not counted, so a long binary can't hide behind a BEGIN PGP line"},
 		{"pgp message part", nil, append([]string{"-----BEGIN PGP MESSAGE, PART 01/02-----", "Version: 2.6.3i", "", "Part 1"}, pgp("MESSAGE", 4)[3:]...), atDefault, "misdetection: only the exact line BEGIN PGP MESSAGE is recognised; should be atPGP"},
 		{"pgp signed message", nil, append([]string{"-----BEGIN PGP SIGNED MESSAGE-----", "Hash: SHA256", "", "Signed text."}, pgp("SIGNATURE", 4)...), atDefault, "misdetection: not recognised; should be atPGP"},
-		{"pgp signed message long signature", nil, append([]string{"-----BEGIN PGP SIGNED MESSAGE-----", "Hash: SHA512", "", "Signed text."}, pgp("SIGNATURE", 12)...), atBinary | atBase64, "misdetection: not recognised, and the long signature is taken for base64 binary; should be atPGP only"},
+		{"pgp signed message long signature", nil, append([]string{"-----BEGIN PGP SIGNED MESSAGE-----", "Hash: SHA512", "", "Signed text."}, pgp("SIGNATURE", 12)...), atDefault, "misdetection: not recognised; should be atPGP"},
 		{"pgp public key", nil, pgp("PUBLIC KEY BLOCK", 4), atDefault, "misdetection: not recognised; should be atPGP"},
-		{"pgp public key long", nil, pgp("PUBLIC KEY BLOCK", 30), atBinary | atBase64, "misdetection: not recognised, and taken for base64 binary; should be atPGP only"},
+		{"pgp public key long", nil, pgp("PUBLIC KEY BLOCK", 30), atDefault, "misdetection: not recognised; should be atPGP"},
+		{"base64 text after a pgp block", nil, append(pgp("SIGNATURE", 12), atLines(12, 64, b64Alphabet, "")...), atBinary | atBase64, ""},
 		{"pgp private key", nil, pgp("PRIVATE KEY BLOCK", 4), atDefault, "misdetection: not recognised; should be atPGP"},
 		{"pgp/mime encrypted", []string{"Mime-Version: 1.0", "Content-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=XX"},
 			append(append([]string{"--XX", "Content-Type: application/pgp-encrypted", "", "Version: 1", "--XX", "Content-Type: application/octet-stream", ""}, pgp("MESSAGE", 4)...), "--XX--"), atMIME | atMultipart | atBinary, "misdetection: binary because of the application/octet-stream part, no PGP flag; should be atMIME | atMultipart | atPGP, not binary"},
@@ -175,7 +177,7 @@ func TestArticleTypes(t *testing.T) {
 // TestArticleTypesRoutedByArttypes: diablo itself (diablo.c calls ArticleType() on the wire
 // lines) sends each article to the queue of the label whose arttypes it matches: a yEnc
 // article to the "arttypes binary" label and a text one to the "arttypes !binary" label.
-// An article with a long PGP signature is queued for the binary label today : that is a misdetection, pinned here like in TestArticleTypes.
+// An article with a long PGP signature is a text article and is queued for the text label.
 func TestArticleTypesRoutedByArttypes(t *testing.T) {
 	feeds := GlobalLabel + `label peer
     inhost ` + PeerIP + `
@@ -213,8 +215,8 @@ end
 	sig := send1("long signature", nil, append([]string{"-----BEGIN PGP SIGNED MESSAGE-----", "Hash: SHA512", "", "Signed text."}, pgp("SIGNATURE", 12)...))
 	expect(t, p, 205, "QUIT")
 
-	bin := strings.Join(s.waitQueue(t, "bin", 2), "\n")
-	txt := strings.Join(s.waitQueue(t, "txt", 1), "\n")
+	bin := strings.Join(s.waitQueue(t, "bin", 1), "\n")
+	txt := strings.Join(s.waitQueue(t, "txt", 2), "\n")
 	if !strings.Contains(bin, yenc) || !strings.Contains(txt, text) {
 		t.Errorf("dqueue/bin = %q, dqueue/txt = %q: want yEnc %s in bin and text %s in txt", bin, txt, yenc, text)
 	}
@@ -222,12 +224,60 @@ end
 	if strings.Contains(bin, text) {
 		t.Errorf("dqueue/bin = %q, must not have the text article %s", bin, text)
 	}
-	if strings.Contains(txt, yenc) || strings.Contains(txt, sig) {
-		t.Errorf("dqueue/txt = %q, must not have the yEnc article %s or the long-signature article %s", txt, yenc, sig)
+	if strings.Contains(txt, yenc) {
+		t.Errorf("dqueue/txt = %q, must not have the yEnc article %s", txt, yenc)
 	}
-	// Misdetection: a text article with a 12-line signature goes to the binary label; it should
-	// go to txt.
-	if !strings.Contains(bin, sig) {
-		t.Errorf("dqueue/bin = %q, want the long-signature article %s (pinned misdetection)", bin, sig)
+	// A text article with a 12-line signature (an RSA-4096 key) is not a binary.
+	if !strings.Contains(txt, sig) || strings.Contains(bin, sig) {
+		t.Errorf("dqueue/txt = %q, dqueue/bin = %q: want the long-signature article %s in txt only", txt, bin, sig)
 	}
+}
+
+// TestSignedArticleNotRejectedAsBinary: a clear-signed text article with a long signature
+// (9 or more armor lines, an RSA-4096 key or larger, as in the NoCeM notices) must pass the
+// sample IFILTER, which rejects binaries outside *.bina* groups. Before, the signature lines
+// were counted as a base64 binary and the article was refused as IncomingFilter.
+func TestSignedArticleNotRejectedAsBinary(t *testing.T) {
+	s := NewSite(t, SiteOptions{
+		Newsfeeds: DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\nend\n",
+	})
+	for _, c := range []struct {
+		name string
+		n    int
+		want string
+	}{
+		{"8 signature lines", 8, "235"},
+		{"9 signature lines", 9, "235"},
+		{"12 signature lines", 12, "235"},
+		{"24 signature lines", 24, "235"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := append([]string{"-----BEGIN PGP SIGNED MESSAGE-----", "Hash: SHA256", "", "A notice."}, pgp("SIGNATURE", c.n)...)
+			line := offerGroupsBody(t, s, "news.lists.filters", body)
+			if !strings.HasPrefix(line, c.want) {
+				t.Errorf("IHAVE with a signed article (%d signature lines): %q, want %s", c.n, line, c.want)
+			}
+		})
+	}
+	// A real binary (yEnc) to the same group is still refused.
+	yenc := append([]string{"=ybegin line=128 size=384 name=a.bin"}, atLines(3, 128, b64Alphabet, "")...)
+	if line := offerGroupsBody(t, s, "news.lists.filters", append(yenc, "=yend size=384")); !strings.HasPrefix(line, "437") {
+		t.Errorf("IHAVE with a yEnc article to a text group: %q, want 437", line)
+	}
+}
+
+// offerGroupsBody offers an article with the given Newsgroups: and body and returns the first
+// status line of the final IHAVE reply.
+func offerGroupsBody(t *testing.T, s *Site, newsgroups string, body []string) string {
+	t.Helper()
+	id := msgID(t)
+	p := s.Peer(t)
+	defer expect(t, p, 205, "QUIT")
+	expect(t, p, 335, "IHAVE %s", id)
+	send(t, p, wire(newArticle(id, newsgroups, "signed", body...)))
+	line, err := p.ReadLine()
+	if err != nil {
+		t.Fatalf("IHAVE to %s: %v", newsgroups, err)
+	}
+	return line
 }
