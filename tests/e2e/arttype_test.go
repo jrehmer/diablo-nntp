@@ -140,7 +140,17 @@ func TestArticleTypes(t *testing.T) {
 		{"yenc total= part= line=", nil, append(append([]string{"=ybegin total=2 part=1 line=128 size=768 name=a.bin", "=ypart begin=1 end=384"}, yenc...), "=yend size=384 part=1"), atDefault, "misdetection: not binary at all; should be atYenc | atBinary | atPartial"},
 		{"yenc size= line=", nil, append(append([]string{"=ybegin size=384 line=128 name=a.bin"}, yenc...), "=yend size=384"), atDefault, "misdetection: not binary at all; should be atYenc | atBinary"},
 		// Text that is taken for binary.
-		{"base64 text", []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME | atBinary | atBase64, "misdetection: a text/plain part is taken for binary by its base64 encoding; should not be binary"},
+		{"base64 text", []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME, ""},
+		{"base64 text, encoding first", []string{"Mime-Version: 1.0", "Content-Transfer-Encoding: base64", "Content-Type: text/plain; charset=UTF-8"}, atLines(3, 40, b64Alphabet, ""), atMIME, ""},
+		{"base64 html", []string{"Mime-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME | atHTML, ""},
+		{"base64 text, 12 lines", []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(12, 76, b64Alphabet, ""), atMIME | atBinary | atBase64, "by design: the line count still makes a long base64 body a binary, so a binary can't pass as text/plain"},
+		{"base64 without Content-Type", []string{"Mime-Version: 1.0", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME | atBinary | atBase64, "by design: only an explicit text/ type is exempt"},
+		{"base64 text part in multipart", []string{"Mime-Version: 1.0", "Content-Type: multipart/alternative; boundary=XX"},
+			append(append([]string{"--XX", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", ""}, atLines(3, 40, b64Alphabet, "")...), "--XX--"), atMIME | atMultipart, ""},
+		{"base64 image part after a base64 text part", []string{"Mime-Version: 1.0", "Content-Type: multipart/mixed; boundary=XX"},
+			append(append(append([]string{"--XX", "Content-Type: text/plain", "Content-Transfer-Encoding: base64", ""}, atLines(2, 40, b64Alphabet, "")...), "--XX", "Content-Type: image/png", "Content-Transfer-Encoding: base64", ""), atLines(3, 40, b64Alphabet, "")...), atMIME | atMultipart | atBinary | atBase64, ""},
+		{"base64 part without Content-Type after a text part", []string{"Mime-Version: 1.0", "Content-Type: multipart/mixed; boundary=XX"},
+			append(append(append([]string{"--XX", "Content-Type: text/plain", ""}, "hello"), "--XX", "Content-Transfer-Encoding: base64", ""), atLines(3, 40, b64Alphabet, "")...), atMIME | atMultipart | atBinary | atBase64, "a part has its own type: the earlier text/plain does not carry over"},
 		// Header parsing.
 		{"pem certificate", nil, pem("CERTIFICATE", 24), atDefault, ""},
 		{"pem certificate request", nil, pem("CERTIFICATE REQUEST", 14), atDefault, ""},
@@ -327,5 +337,42 @@ func TestPEMArticleNotRejectedAsBinary(t *testing.T) {
 	// A base64 binary behind a BEGIN line past the armor limit is still refused.
 	if line := offerGroupsBody(t, s, "comp.security.misc", pem("CERTIFICATE", 120)); !strings.HasPrefix(line, "437") {
 		t.Errorf("IHAVE with a 120-line block: %q, want 437", line)
+	}
+}
+
+// offerHeaders offers an article in group with extra headers and a body, and returns the first
+// status line of the final IHAVE reply.
+func offerHeaders(t *testing.T, s *Site, group string, extra, body []string) string {
+	t.Helper()
+	id := msgID(t)
+	p := s.Peer(t)
+	defer expect(t, p, 205, "QUIT")
+	expect(t, p, 335, "IHAVE %s", id)
+	a := newArticle(id, group, "mime", body...)
+	a = append(append(append([]string{}, a[:6]...), extra...), a[6:]...)
+	send(t, p, wire(a))
+	line, err := p.ReadLine()
+	if err != nil {
+		t.Fatalf("IHAVE to %s: %v", group, err)
+	}
+	return line
+}
+
+// TestBase64TextNotRejectedAsBinary: a short text/plain article sent with
+// Content-Transfer-Encoding: base64 (some clients do that for non-ASCII text) passes the sample
+// IFILTER, which rejects binaries outside *.bina* groups. Before, the header alone made it a
+// binary. An image sent the same way is still refused.
+func TestBase64TextNotRejectedAsBinary(t *testing.T) {
+	s := NewSite(t, SiteOptions{
+		Newsfeeds: DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\nend\n",
+	})
+	text := []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}
+	image := []string{"Mime-Version: 1.0", "Content-Type: image/png", "Content-Transfer-Encoding: base64"}
+	short := atLines(3, 40, b64Alphabet, "")
+	if line := offerHeaders(t, s, "comp.test", text, short); !strings.HasPrefix(line, "235") {
+		t.Errorf("IHAVE with a base64 text/plain article: %q, want 235", line)
+	}
+	if line := offerHeaders(t, s, "comp.test", image, short); !strings.HasPrefix(line, "437") {
+		t.Errorf("IHAVE with a base64 image: %q, want 437", line)
 	}
 }

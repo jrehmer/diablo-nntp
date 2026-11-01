@@ -61,6 +61,8 @@ int UUencode = 0;
 int BinHex = 0;
 int Base64 = 0;
 int PGPMime = 0;	/* in a PGP/MIME encrypted article: its octet-stream part is not a binary */
+int CTText = 0;	/* the last Content-Type seen is text/ */
+int CTEBase64 = 0;	/* a base64 Content-Transfer-Encoding is waiting for the end of its header block */
 int Armor = 0;	/* lines left to skip in an ASCII-armored block (PGP, PEM), 0 = not in one */
 
 /*
@@ -444,6 +446,8 @@ InitArticleType(void)
     Base64 = 0;
     Armor = 0;
     PGPMime = 0;
+    CTText = 0;
+    CTEBase64 = 0;
 }
 
 int
@@ -541,6 +545,17 @@ ArticleType(char *line, int len, int inheader)
     if (Type != ARTTYPE_DEFAULT)
 	Type = Type & ~ARTTYPE_DEFAULT;
     /*
+     * The blank line at the end of a header block (of the article or of a
+     * MIME part) settles a base64 Content-Transfer-Encoding: the part is a
+     * binary unless its Content-Type is text/ (non-ASCII text is sent this
+     * way).  The two headers can come in either order.
+     */
+    if (CTEBase64 && (len == 0 || (len == 1 && *line == '\r'))) {
+	CTEBase64 = 0;
+	if (!CTText)
+	    Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
+    }
+    /*
      * If we have found a binary, just keep it that way - saves CPU
      */
     if (Type & ARTTYPE_BINARY)
@@ -555,12 +570,14 @@ ArticleType(char *line, int len, int inheader)
     if (first == 'c' && tolower(*(ptr + 1) == 'o')) {
 	if (! strncasecmp(ptr, "Content-Type: text/html", 23))
 	    Type |= ARTTYPE_HTML;
-	if (! strncasecmp(ptr, "Content-Type: ", 14))
+	if (! strncasecmp(ptr, "Content-Type: ", 14)) {
 	    Type |= ARTTYPE_MIME;
+	    CTText = (strncasecmp(ptr, "Content-Type: text/", 19) == 0);
+	}
 	if (! strncasecmp(ptr, "Content-Type: multipart", 23))
 	    Type |= ARTTYPE_MULTIPART;
 	if (! strncasecmp(ptr, "Content-transfer-encoding: base64", 33))
-	    Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
+	    CTEBase64 = 1;
 	if (! strncasecmp(ptr, "Content-transfer-encoding: X-Bommanews", 38))
 	    Type |= ARTTYPE_BOMMANEWS | ARTTYPE_BINARY;
 	if (! strncasecmp(ptr, "Content-transfer-encoding: X-UnidataEncoding", 44))
@@ -609,6 +626,10 @@ ArticleType(char *line, int len, int inheader)
 		Type |= ARTTYPE_MIME;
     } else {
 	int linetype;
+
+	/* A MIME boundary starts a part: its Content-Type is not known yet */
+	if (ptr[0] == '-' && ptr[1] == '-')
+	    CTText = 0;
 
 	/* Get quoted UUencode, etc. */
 	if (*ptr == '>') {
