@@ -47,7 +47,7 @@ Prototype int ArtTypeConv(char *t);
 Prototype int ArtTypeMatch(int articletype, ArtTypeList *acctypes);
 Prototype int ArticleType(char *line, int len, int inheader);
 
-#define	PGP_ARMOR_MAX	100	/* lines of one armored PGP block that are not counted */
+#define	ARMOR_MAX	100	/* lines of one armored block (PGP, PEM) that are not counted */
 
 static int lineHas(const char *line, int len, const char *needle);
 int isBinHexLine(char *line, int len, int firstline);
@@ -61,7 +61,7 @@ int UUencode = 0;
 int BinHex = 0;
 int Base64 = 0;
 int PGPMime = 0;	/* in a PGP/MIME encrypted article: its octet-stream part is not a binary */
-int PGPArmor = 0;	/* lines left to skip in an ASCII-armored PGP block, 0 = not in one */
+int Armor = 0;	/* lines left to skip in an ASCII-armored block (PGP, PEM), 0 = not in one */
 
 /*
  * Extensible content type classification system
@@ -442,7 +442,7 @@ InitArticleType(void)
     UUencode = 0;
     BinHex = 0;
     Base64 = 0;
-    PGPArmor = 0;
+    Armor = 0;
     PGPMime = 0;
 }
 
@@ -629,26 +629,29 @@ ArticleType(char *line, int len, int inheader)
 	 */
 
 	/*
-	 * The lines of an ASCII-armored PGP block (a signature, a key or a
-	 * message) are base64 text of 64 characters, not a binary posting:
-	 * do not count them as base64 or the other encodings.  A signature
-	 * of an RSA-4096 key has 12 lines, so a signed text article was
-	 * taken for a binary.  The skipping is bounded by PGP_ARMOR_MAX
-	 * lines so that a long binary can't hide behind a "BEGIN PGP" line.
+	 * The lines of an ASCII-armored block, a PGP signature, key or message
+	 * or a PEM certificate or key (-----BEGIN label----- to -----END
+	 * label-----), are base64 text of 64 characters, not a binary posting:
+	 * do not count them as base64 or the other encodings.  The signature of
+	 * an RSA-4096 key has 12 lines and a certificate more, so a signed text
+	 * article or a post with a certificate was taken for a binary.  The
+	 * skipping is bounded by ARMOR_MAX lines so that a long binary can't
+	 * hide behind a "BEGIN" line.
 	 */
-	if (PGPArmor > 0) {
-	    if (strncmp(ptr, "-----END PGP ", 13) == 0)
-		PGPArmor = 0;
+	if (Armor > 0) {
+	    if (strncmp(ptr, "-----END ", 9) == 0)
+		Armor = 0;
 	    else
-		--PGPArmor;
+		--Armor;
 	    linetype = 0;
 	} else {
 	    linetype = classifyLineAsTypes(ptr, len);
-	    if (*ptr == '-' && strncmp(ptr, "-----BEGIN PGP ", 15) == 0) {
-		/* any armor form: message (also a part), signed message,
-		 * signature, public or private key block */
-		Type |= ARTTYPE_PGPMESSAGE;
-		PGPArmor = PGP_ARMOR_MAX;
+	    if (*ptr == '-' && strncmp(ptr, "-----BEGIN ", 11) == 0) {
+		/* PGP in any armor form: message (also a part), signed
+		 * message, signature, public or private key block */
+		if (strncmp(ptr + 11, "PGP ", 4) == 0)
+		    Type |= ARTTYPE_PGPMESSAGE;
+		Armor = ARMOR_MAX;
 	    }
 	}
 

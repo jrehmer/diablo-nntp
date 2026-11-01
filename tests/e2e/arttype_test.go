@@ -142,6 +142,13 @@ func TestArticleTypes(t *testing.T) {
 		// Text that is taken for binary.
 		{"base64 text", []string{"Mime-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64"}, atLines(3, 40, b64Alphabet, ""), atMIME | atBinary | atBase64, "misdetection: a text/plain part is taken for binary by its base64 encoding; should not be binary"},
 		// Header parsing.
+		{"pem certificate", nil, pem("CERTIFICATE", 24), atDefault, ""},
+		{"pem certificate request", nil, pem("CERTIFICATE REQUEST", 14), atDefault, ""},
+		{"pem rsa private key", nil, pem("RSA PRIVATE KEY", 25), atDefault, ""},
+		{"pem public key", nil, pem("PUBLIC KEY", 14), atDefault, ""},
+		{"pem openssh private key, 70 wide", nil, pemWide("OPENSSH PRIVATE KEY", 20, 70), atDefault, ""},
+		{"pem beyond the armor limit", nil, pem("CERTIFICATE", 120), atBinary | atBase64, "by design: only the first 100 lines of an armored block are not counted"},
+		{"base64 after a pem block", nil, append(pem("CERTIFICATE", 24), atLines(12, 64, b64Alphabet, "")...), atBinary | atBase64, ""},
 		{"uppercase CONTENT-TYPE html", []string{"Mime-Version: 1.0", "CONTENT-TYPE: text/html"}, []string{"<p>Hi</p>"}, atMIME, "misdetection: the header is skipped (tolower(*(ptr + 1) == 'o') precedence bug); should add atHTML"},
 		{"uppercase CONTENT-TRANSFER-ENCODING", []string{"Mime-Version: 1.0", "CONTENT-TRANSFER-ENCODING: BASE64"}, atLines(3, 40, b64Alphabet, ""), atMIME, "misdetection: same precedence bug; should be atMIME | atBinary | atBase64"},
 		{"uppercase CONTROL cancel", []string{"CONTROL: cancel <x@y>"}, []string{"cancel"}, atDefault, "misdetection: same precedence bug; should be atControl | atCancel"},
@@ -284,4 +291,41 @@ func offerGroupsBody(t *testing.T, s *Site, newsgroups string, body []string) st
 		t.Fatalf("IHAVE to %s: %v", newsgroups, err)
 	}
 	return line
+}
+
+// pem returns a PEM block: the begin line, n lines of 64 base64 characters and the end line.
+func pem(label string, n int) []string {
+	return pemWide(label, n, 64)
+}
+
+func pemWide(label string, n, w int) []string {
+	l := []string{"-----BEGIN " + label + "-----"}
+	l = append(l, atLines(n, w, b64Alphabet, "")...)
+	return append(l, "-----END "+label+"-----")
+}
+
+// TestPEMArticleNotRejectedAsBinary: a text article with a PEM certificate or key (a TLS or
+// ssh help request) passes the sample IFILTER, which rejects binaries outside *.bina* groups.
+// Before, the lines of a block of 9 or more were counted as a base64 binary.
+func TestPEMArticleNotRejectedAsBinary(t *testing.T) {
+	s := NewSite(t, SiteOptions{
+		Newsfeeds: DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\nend\n",
+	})
+	for _, c := range []struct {
+		name string
+		body []string
+	}{
+		{"certificate", append([]string{"My certificate does not verify:"}, pem("CERTIFICATE", 24)...)},
+		{"private key", append([]string{"My key:"}, pem("RSA PRIVATE KEY", 25)...)},
+		{"public key", append([]string{"My key:"}, pem("PUBLIC KEY", 14)...)},
+	} {
+		line := offerGroupsBody(t, s, "comp.security.misc", c.body)
+		if !strings.HasPrefix(line, "235") {
+			t.Errorf("IHAVE with a PEM %s: %q, want 235", c.name, line)
+		}
+	}
+	// A base64 binary behind a BEGIN line past the armor limit is still refused.
+	if line := offerGroupsBody(t, s, "comp.security.misc", pem("CERTIFICATE", 120)); !strings.HasPrefix(line, "437") {
+		t.Errorf("IHAVE with a 120-line block: %q, want 437", line)
+	}
 }
