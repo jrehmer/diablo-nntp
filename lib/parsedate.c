@@ -133,13 +133,51 @@ parsedate(char *date)
 	if ((p = pdSpace(p)) == NULL)
 	    return((time_t)-1);
     }
+    /*
+     * ctime(3) and date(1): "Mon Jan  1 12:00:00 2001", with an optional
+     * zone name before the year ("Mon Jan  1 12:00:00 UTC 2001").  The
+     * month comes first; the weekday was skipped above.
+     */
+    if (isalpha((unsigned char)*p)) {
+	word = p;
+	while (isalpha((unsigned char)*p))
+	    ++p;
+	if ((mon = pdMonth(word, p - word)) < 0 ||
+		(p = pdSpace(p)) == NULL ||
+		!pdNumber(&p, 1, 2, &day) || (p = pdSpace(p)) == NULL ||
+		!pdNumber(&p, 1, 2, &hour) || *p++ != ':' ||
+		!pdNumber(&p, 1, 2, &minute))
+	    return((time_t)-1);
+	if (*p == ':') {
+	    ++p;
+	    if (!pdNumber(&p, 1, 2, &second))
+		return((time_t)-1);
+	}
+	if ((p = pdSpace(p)) == NULL)
+	    return((time_t)-1);
+	if (isalpha((unsigned char)*p)) {
+	    word = p;
+	    while (isalpha((unsigned char)*p))
+		++p;
+	    zone = pdZone(word, p - word);
+	    haveZone = 1;
+	    if ((p = pdSpace(p)) == NULL)
+		return((time_t)-1);
+	}
+	if (pdNumber(&p, 4, 4, &year) != 4)
+	    return((time_t)-1);
+	goto validate;
+    }
     if (!pdNumber(&p, 1, 2, &day) || (p = pdSpace(p)) == NULL)
+	return((time_t)-1);
+    /* RFC 850: "Monday, 01-Jan-01 12:00:00 GMT", hyphens between the fields. */
+    if (*p == '-' && (p = pdSpace(p + 1)) == NULL)
 	return((time_t)-1);
     word = p;
     while (isalpha((unsigned char)*p))
 	++p;
     mon = pdMonth(word, p - word);
-    if (*p == '.')
+    if (*p == '.' || *p == '-')
 	++p;
     if (mon < 0 || (p = pdSpace(p)) == NULL)
 	return((time_t)-1);

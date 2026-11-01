@@ -81,6 +81,12 @@ func TestFeederMaxAcceptAge(t *testing.T) {
 			if code := offerDated(t, s, future); code != want {
 				t.Errorf("an article dated 2100: %d, want %d", code, want)
 			}
+			// ctime and RFC 850 dates are read, so they are checked as well
+			for _, d := range []string{"Mon Jan  1 12:00:00 2001", "Monday, 01-Jan-01 12:00:00 GMT"} {
+				if code := offerDated(t, s, d); code != want {
+					t.Errorf("an article dated %q: %d, want %d", d, code, want)
+				}
+			}
 			// not parseable: not checked
 			if code := offerDated(t, s, "2001-01-01"); code != 235 {
 				t.Errorf("an article with the unparseable Date 2001-01-01: %d, want 235", code)

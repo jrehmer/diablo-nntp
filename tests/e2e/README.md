@@ -171,9 +171,9 @@ test fails.
 | `TestInstallConvertsConfigSymlinks` | install-portable.sh | a config symlink into `samples/` left by an earlier install becomes a real file with the content in use, before `samples/` is replaced; with install and with bininstall |
 | `TestAdmHourlyExpire` | adm/hourly.expire, dexpire | the script expires an article older than `keeptime` |
 | `TestAdmDailyAtrim` | adm/daily.atrim, adm/rot | the script rotates the logs |
-| `TestFeederMaxAcceptAge` | diablo | the age limit of incoming articles (default from remember): an article dated 2001 or 2100 is rejected; `feedermaxacceptage 0`, `-r 0` and `remember 0` turn it off; a limit set after remember 0 applies; an unparseable Date is not checked |
+| `TestFeederMaxAcceptAge` | diablo | the age limit of incoming articles (default from remember): an article dated 2001 or 2100 is rejected; `feedermaxacceptage 0`, `-r 0` and `remember 0` turn it off; a limit set after remember 0 applies; an unparseable Date is not checked; ctime and RFC 850 dates are checked |
 | `TestFeederStrictDate` | diablo | strict and lax handling of unreadable Date values, age checks for old dates, and strict mode with the age limit disabled |
-| `TestParseDateRFC` | didate | RFC-style formats, time zones, leap-year validation, two-digit years and local-time handling |
+| `TestParseDateRFC` | didate | RFC-style formats, the RFC 850 hyphen form and the ctime/date(1) forms, time zones, leap-year validation, two-digit years and local-time handling |
 | `TestDhisexpireRemember` | dhisexpire, diload | history entries of expired articles older than remember are dropped, those of articles on the spool are kept; `-r 0` keeps every entry |
 | `TestAdmDailyAtrimDaemonLogs` | adm/daily.atrim | the logs the daemons write themselves (general, incoming, drincoming, path, article) are rotated too |
 | `TestAdmDailyAtrimJobLogs` | adm/daily.atrim, djoblog | the job logs (`<job>.log`) are rotated too, including daily.atrim's own, which djoblog opens again for the end of the run |

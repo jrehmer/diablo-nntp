@@ -18,7 +18,9 @@ prints a date in
 .IR ctime (3)
 form.  Given a date string, it parses it the way diablo parses dates
 (for example a Date: header or "26 Oct 2026 12:00:00 GMT") and prints
-the result, or "Illegal format".
+the result, or "Illegal format".  Besides RFC 5322 dates it reads the
+RFC 850 form ("Monday, 01-Jan-01 12:00:00 GMT") and the ctime(3) and date(1)
+forms ("Mon Jan  1 12:00:00 2001", "Mon Jan  1 12:00:00 UTC 2001").
 .SH OPTIONS
 .TP
 .BI \-c " unixtime"
