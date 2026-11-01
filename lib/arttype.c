@@ -366,6 +366,9 @@ int classifyLineAsTypes(char *buf, int len)
 	register unsigned int istype = 0x00, isnttype = 0xff;
 	register char *ptr = buf;
 
+	if (len <= 0)
+	    return(0);
+
 	if (ptr[len - 1] == '\n')
 	    len--;
 	if (ptr[len - 1] == '\r')
@@ -567,45 +570,63 @@ ArticleType(char *line, int len, int inheader)
      * Do some checks that could apply to headers and or body
      */
     first = tolower(*ptr);
-    if (first == 'c' && tolower(*(ptr + 1) == 'o')) {
-	if (! strncasecmp(ptr, "Content-Type: text/html", 23))
-	    Type |= ARTTYPE_HTML;
-	if (! strncasecmp(ptr, "Content-Type: ", 14)) {
-	    Type |= ARTTYPE_MIME;
-	    CTText = (strncasecmp(ptr, "Content-Type: text/", 19) == 0);
+    if (first == 'c' && tolower(*(ptr + 1)) == 'o') {
+	const char *cv = NULL;	/* the value of a Content-Type: header */
+	const char *ce = NULL;	/* the value of a Content-Transfer-Encoding: header */
+
+	/* white space after the colon is optional ("Content-Type:text/html") */
+	if (! strncasecmp(ptr, "Content-Type:", 13))
+	    cv = ptr + 13;
+	else if (! strncasecmp(ptr, "Content-transfer-encoding:", 26))
+	    ce = ptr + 26;
+	if (cv != NULL) {
+	    while (cv < ptr + len && (*cv == ' ' || *cv == '\t'))
+		++cv;
 	}
-	if (! strncasecmp(ptr, "Content-Type: multipart", 23))
-	    Type |= ARTTYPE_MULTIPART;
-	if (! strncasecmp(ptr, "Content-transfer-encoding: base64", 33))
-	    CTEBase64 = 1;
-	if (! strncasecmp(ptr, "Content-transfer-encoding: X-Bommanews", 38))
-	    Type |= ARTTYPE_BOMMANEWS | ARTTYPE_BINARY;
-	if (! strncasecmp(ptr, "Content-transfer-encoding: X-UnidataEncoding", 44))
-	    Type |= ARTTYPE_UNIDATA | ARTTYPE_BINARY;
-	if (! strncasecmp(ptr, "Content-Type: application/postscript", 36))
-	    Type |= ARTTYPE_PS;
-	if (! strncasecmp(ptr, "Content-Type: application/mac-binhex40", 38))
-	    BinHex = 1;
-	/*
-	 * PGP/MIME (RFC 3156): application/pgp-encrypted, -signature and -keys
-	 * parts are PGP data.  In an encrypted article the encrypted data is
-	 * an octet-stream part, which is not a binary posting.
-	 */
-	if (! strncasecmp(ptr, "Content-Type: application/pgp-", 31))
-	    Type |= ARTTYPE_PGPMESSAGE;
-	if (! strncasecmp(ptr, "Content-Type: multipart/", 24) &&
-		(lineHas(ptr, len, "application/pgp-encrypted") ||
-		 lineHas(ptr, len, "application/pgp-signature")))
-	    Type |= ARTTYPE_PGPMESSAGE;
-	if (! strncasecmp(ptr, "Content-Type: application/pgp-encrypted", 39) ||
-		(! strncasecmp(ptr, "Content-Type: multipart/encrypted", 33) &&
-		 lineHas(ptr, len, "application/pgp-encrypted")))
-	    PGPMime = 1;
-	if (! strncasecmp(ptr, "Content-Type: application/octet-stream", 38) &&
-		!PGPMime)
-	    Type |= ARTTYPE_BINARY;
-	if (! strncasecmp(ptr, "Content-Type: message/partial", 29))
-	    Type |= ARTTYPE_PARTIAL;
+	if (ce != NULL) {
+	    while (ce < ptr + len && (*ce == ' ' || *ce == '\t'))
+		++ce;
+	}
+
+	if (cv != NULL) {
+	    Type |= ARTTYPE_MIME;
+	    CTText = (strncasecmp(cv, "text/", 5) == 0);
+	    if (! strncasecmp(cv, "text/html", 9))
+		Type |= ARTTYPE_HTML;
+	    if (! strncasecmp(cv, "multipart", 9))
+		Type |= ARTTYPE_MULTIPART;
+	    if (! strncasecmp(cv, "application/postscript", 22))
+		Type |= ARTTYPE_PS;
+	    if (! strncasecmp(cv, "application/mac-binhex40", 24))
+		BinHex = 1;
+	    /*
+	     * PGP/MIME (RFC 3156): application/pgp-encrypted, -signature and
+	     * -keys parts are PGP data.  In an encrypted article the encrypted
+	     * data is an octet-stream part, which is not a binary posting.
+	     */
+	    if (! strncasecmp(cv, "application/pgp-", 16))
+		Type |= ARTTYPE_PGPMESSAGE;
+	    if (! strncasecmp(cv, "multipart/", 10) &&
+		    (lineHas(cv, len - (int)(cv - ptr), "application/pgp-encrypted") ||
+		     lineHas(cv, len - (int)(cv - ptr), "application/pgp-signature")))
+		Type |= ARTTYPE_PGPMESSAGE;
+	    if (! strncasecmp(cv, "application/pgp-encrypted", 25) ||
+		    (! strncasecmp(cv, "multipart/encrypted", 19) &&
+		     lineHas(cv, len - (int)(cv - ptr), "application/pgp-encrypted")))
+		PGPMime = 1;
+	    if (! strncasecmp(cv, "application/octet-stream", 24) && !PGPMime)
+		Type |= ARTTYPE_BINARY;
+	    if (! strncasecmp(cv, "message/partial", 15))
+		Type |= ARTTYPE_PARTIAL;
+	}
+	if (ce != NULL) {
+	    if (! strncasecmp(ce, "base64", 6))
+		CTEBase64 = 1;
+	    if (! strncasecmp(ce, "X-Bommanews", 11))
+		Type |= ARTTYPE_BOMMANEWS | ARTTYPE_BINARY;
+	    if (! strncasecmp(ce, "X-UnidataEncoding", 17))
+		Type |= ARTTYPE_UNIDATA | ARTTYPE_BINARY;
+	}
     }
     if (first == '(' && strncasecmp(ptr, "(This file must be converted with BinHex 4.0)", 33) == 0)
 	BinHex = 1;
@@ -616,7 +637,7 @@ ArticleType(char *line, int len, int inheader)
 	Type |= ARTTYPE_BINARY|ARTTYPE_YENC;
 
     if (inheader) {
-	if (first == 'c' && tolower(*(ptr + 1) == 'o')) {
+	if (first == 'c' && tolower(*(ptr + 1)) == 'o') {
 	    if (! strncasecmp(ptr, "Control: ", 9))
 		Type |= ARTTYPE_CONTROL;
 	    if (! strncasecmp(ptr, "Control: cancel ", 16))
@@ -682,6 +703,7 @@ ArticleType(char *line, int len, int inheader)
 	    UUencode++;
 	    if (UUencode > 8) {
 		Type |= ARTTYPE_UUENCODE | ARTTYPE_BINARY;
+		Type &= ~ARTTYPE_DEFAULT;
 		return(Type);
 	    }
 	} else if (linetype & BHX) {
@@ -690,6 +712,7 @@ ArticleType(char *line, int len, int inheader)
 	    BinHex++;
 	    if (BinHex > 8) {
 		Type |= ARTTYPE_BINHEX | ARTTYPE_BINARY;
+		Type &= ~ARTTYPE_DEFAULT;
 		return(Type);
 	    }
 	} else if (linetype & B64) {
@@ -698,6 +721,7 @@ ArticleType(char *line, int len, int inheader)
 	    Base64++;
 	    if (Base64 > 8) {
 		Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
+		Type &= ~ARTTYPE_DEFAULT;
 		return(Type);
 	    }
 	} else {
