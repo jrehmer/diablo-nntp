@@ -49,6 +49,7 @@ Prototype int ArticleType(char *line, int len, int inheader);
 
 #define	PGP_ARMOR_MAX	100	/* lines of one armored PGP block that are not counted */
 
+static int lineHas(const char *line, int len, const char *needle);
 int isBinHexLine(char *line, int len, int firstline);
 int isUuencodedLine(char *buf, int len);
 
@@ -59,6 +60,7 @@ int Type = ARTTYPE_DEFAULT;
 int UUencode = 0;
 int BinHex = 0;
 int Base64 = 0;
+int PGPMime = 0;	/* in a PGP/MIME encrypted article: its octet-stream part is not a binary */
 int PGPArmor = 0;	/* lines left to skip in an ASCII-armored PGP block, 0 = not in one */
 
 /*
@@ -441,6 +443,7 @@ InitArticleType(void)
     BinHex = 0;
     Base64 = 0;
     PGPArmor = 0;
+    PGPMime = 0;
 }
 
 int
@@ -512,6 +515,23 @@ ArtTypeMatch(int articletype, ArtTypeList *acctypes)
     return(res);
 }
 
+/*
+ * Does the line (len bytes, not necessarily NUL terminated) contain
+ * needle, ignoring case?
+ */
+static int
+lineHas(const char *line, int len, const char *needle)
+{
+    int n = strlen(needle);
+    int i;
+
+    for (i = 0; i + n <= len; ++i) {
+	if (strncasecmp(line + i, needle, n) == 0)
+	    return(1);
+    }
+    return(0);
+}
+
 int
 ArticleType(char *line, int len, int inheader)
 {
@@ -549,7 +569,23 @@ ArticleType(char *line, int len, int inheader)
 	    Type |= ARTTYPE_PS;
 	if (! strncasecmp(ptr, "Content-Type: application/mac-binhex40", 38))
 	    BinHex = 1;
-	if (! strncasecmp(ptr, "Content-Type: application/octet-stream", 38))
+	/*
+	 * PGP/MIME (RFC 3156): application/pgp-encrypted, -signature and -keys
+	 * parts are PGP data.  In an encrypted article the encrypted data is
+	 * an octet-stream part, which is not a binary posting.
+	 */
+	if (! strncasecmp(ptr, "Content-Type: application/pgp-", 31))
+	    Type |= ARTTYPE_PGPMESSAGE;
+	if (! strncasecmp(ptr, "Content-Type: multipart/", 24) &&
+		(lineHas(ptr, len, "application/pgp-encrypted") ||
+		 lineHas(ptr, len, "application/pgp-signature")))
+	    Type |= ARTTYPE_PGPMESSAGE;
+	if (! strncasecmp(ptr, "Content-Type: application/pgp-encrypted", 39) ||
+		(! strncasecmp(ptr, "Content-Type: multipart/encrypted", 33) &&
+		 lineHas(ptr, len, "application/pgp-encrypted")))
+	    PGPMime = 1;
+	if (! strncasecmp(ptr, "Content-Type: application/octet-stream", 38) &&
+		!PGPMime)
 	    Type |= ARTTYPE_BINARY;
 	if (! strncasecmp(ptr, "Content-Type: message/partial", 29))
 	    Type |= ARTTYPE_PARTIAL;
@@ -608,8 +644,12 @@ ArticleType(char *line, int len, int inheader)
 	    linetype = 0;
 	} else {
 	    linetype = classifyLineAsTypes(ptr, len);
-	    if (*ptr == '-' && strncmp(ptr, "-----BEGIN PGP ", 15) == 0)
+	    if (*ptr == '-' && strncmp(ptr, "-----BEGIN PGP ", 15) == 0) {
+		/* any armor form: message (also a part), signed message,
+		 * signature, public or private key block */
+		Type |= ARTTYPE_PGPMESSAGE;
 		PGPArmor = PGP_ARMOR_MAX;
+	    }
 	}
 
 	if (linetype & UUE) {
@@ -637,9 +677,6 @@ ArticleType(char *line, int len, int inheader)
 		return(Type);
 	    }
 	} else {
-	    if (*ptr == '-' &&
-			strncmp(ptr, "-----BEGIN PGP MESSAGE-----", 27) == 0)
-		Type |= ARTTYPE_PGPMESSAGE;
 	    UUencode = 0;
 	    Base64 = 0;
 	    BinHex = 0;
