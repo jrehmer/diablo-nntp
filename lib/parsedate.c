@@ -76,7 +76,7 @@ pdMonth(const char *p, size_t len)
 
 /* Legacy names; unknown names are treated as UTC. Offsets are in minutes. */
 static int
-pdZone(const char *p, size_t len)
+pdZoneLookup(const char *p, size_t len, int *minutes)
 {
     static const struct { const char *name; int minutes; } zones[] = {
 	{ "UT", 0 }, { "UTC", 0 }, { "CUT", 0 }, { "GMT", 0 }, { "WET", 0 },
@@ -96,10 +96,23 @@ pdZone(const char *p, size_t len)
     int i;
 
     for (i = 0; zones[i].name; ++i) {
-	if (strlen(zones[i].name) == len && strncasecmp(p, zones[i].name, len) == 0)
-	    return(zones[i].minutes);
+	if (strlen(zones[i].name) == len && strncasecmp(p, zones[i].name, len) == 0) {
+	    *minutes = zones[i].minutes;
+	    return(1);
+	}
     }
+    *minutes = 0;
     return(0);
+}
+
+/* A zone name this file does not know is read as GMT. */
+static int
+pdZone(const char *p, size_t len)
+{
+    int minutes;
+
+    pdZoneLookup(p, len, &minutes);
+    return(minutes);
 }
 
 /* Gregorian days before the given year. year is positive. */
@@ -159,7 +172,9 @@ parsedate(char *date)
 	    word = p;
 	    while (isalpha((unsigned char)*p))
 		++p;
-	    zone = pdZone(word, p - word);
+	    /* ctime has no numeric zone: a name we do not know is a bad date */
+	    if (!pdZoneLookup(word, p - word, &zone))
+		return((time_t)-1);
 	    haveZone = 1;
 	    if ((p = pdSpace(p)) == NULL)
 		return((time_t)-1);
