@@ -463,8 +463,27 @@ addSpool(SpoolObject *so)
     if (!so->so_Path[0])
 	snprintf(so->so_Path, sizeof(so->so_Path), "P.%02d",
 				so->so_SpoolNum);
-    if (so->so_Weight < 0)
-	so->so_Weight = spoolSizeGb(so->so_Path);
+    if (so->so_Weight < 0) {
+	/*
+	 * The path of a spool is relative to path_spool unless it starts with
+	 * a '/'.  statfs() looks at the working directory of the program, which
+	 * is not the spool directory when dspool.ctl is read.
+	 */
+	char full[PATH_MAX];
+	int n;
+
+	if (so->so_Path[0] == '/')
+	    n = snprintf(full, sizeof(full), "%s", so->so_Path);
+	else if (so->so_Path[0])
+	    n = snprintf(full, sizeof(full), "%s/%s", PatExpand(SpoolHomePat),
+							so->so_Path);
+	else
+	    n = snprintf(full, sizeof(full), "%s", PatExpand(SpoolHomePat));
+	if (n < 0 || (size_t)n >= sizeof(full))
+	    so->so_Weight = 1;
+	else
+	    so->so_Weight = spoolSizeGb(full);
+    }
 
     if (so->so_SpoolDirs) {
 	for (i = 0; i < so->so_SpoolDirs; i++) {
