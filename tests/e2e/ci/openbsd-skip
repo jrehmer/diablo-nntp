@@ -9,7 +9,8 @@
 # change, which the maintainer decided against (2026-11-03). These are the
 # tests that fail on OpenBSD 7.9 for that reason, from the CI run of #272
 # (96a15fb), plus TestPipeliningFeederStreaming (a CHECK right after its
-# TAKETHIS misses the history entry; seen on #273).
+# TAKETHIS misses the history entry; seen on #273) and TestHistoryReopenAfterSwap
+# (#279: the first add is not seen through the map).
 TestCancelLockWithoutLibcanlock
 TestCheckgroupsChanges
 TestCheckgroupsDrop
@@ -49,6 +50,7 @@ TestFeederCompressedSpoolKeepsLock
 TestFeederSlotAliasKeepsLock
 TestFeederUnapprovedModerated
 TestHeaderFeedToReader
+TestHistoryReopenAfterSwap
 TestKPDBConcurrentUpdate
 TestKPDBLockRelookup
 TestModerationAliasStatus
