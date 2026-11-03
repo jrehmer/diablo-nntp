@@ -3112,7 +3112,7 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 		    continue;
 		}
 
-		hch = tolower(*p);
+		hch = tolower((unsigned char)*p);
 		if (bytes <= 2 && thisNl &&
 			(p[0] == '\n' || (p[0] == '\r' && p[1] == '\n'))) {
 		    /*
@@ -3377,7 +3377,7 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 
 		    while (i < bytes && (p[i] == ' ' || p[i] == '\t'))
 			++i;
-		    while (j < sizeof(control) - 1 && i < bytes && isalpha((int)p[i]))
+		    while (j < sizeof(control) - 1 && i < bytes && isalpha((unsigned char)p[i]))
 			control[j++] = p[i++];
 		    control[j] = 0;
 		} else if (hch == 'a' && bytes >= 9 &&
@@ -4544,7 +4544,7 @@ FeedList(FILE *fo)
 	while (!feof(f) && fgets(buf, sizeof(buf), f) != NULL) {
 	    buf[strlen(buf) - 1] = '\0';
 	    cmd = buf;
-	    for (p = cmd; *p && !isspace((int)*p); p++);
+	    for (p = cmd; *p && !isspace((unsigned char)*p); p++);
 	    *p = '\0';
 	    if (strcmp(cmd, "addgroup") == 0)
 		cmd = "feedadd";
@@ -4552,7 +4552,7 @@ FeedList(FILE *fo)
 		cmd = "feeddel";
 	    else if (strcmp(cmd, "delgroupany") == 0)
 		cmd = "feeddelany";
-	    for (pat = ++p; *pat && isspace((int)*pat); pat++);
+	    for (pat = ++p; *pat && isspace((unsigned char)*pat); pat++);
 	    xfprintf(fo, "%s %s\r\n", cmd, pat);
 	}
 	fclose(f);
@@ -4607,7 +4607,7 @@ FeedAddDel(FILE *fo, char *gwild, int add)
 	return;
     }
     for (i = 0; gwild[i]; ++i) {
-	if (isalnum((int)gwild[i]))
+	if (isalnum((unsigned char)gwild[i]))
 	    continue;
 	if (gwild[i] == '*')
 	    continue;

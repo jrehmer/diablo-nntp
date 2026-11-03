@@ -925,7 +925,7 @@ netRemoteAccounting(DnsReq *dreq)
 	    bad++;
 	}
 	while (*ptr) {
-	    if (! isdigit(*ptr)) {
+	    if (! isdigit((unsigned char)*ptr)) {
 		bad++;
 	    }
 	    ptr++;
@@ -938,7 +938,7 @@ netRemoteAccounting(DnsReq *dreq)
     }
 
     /* attach to remote server(s) */
-    if (isdigit(*confhn)) {
+    if (isdigit((unsigned char)*confhn)) {
         if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
             logit(LOG_ERR, "NetRemote socket create: %m");
 	    return;
@@ -1093,7 +1093,7 @@ netRemoteAuthenticate(char *user, char *pass, char *conf, char *localip, char *r
 	    bad++;
 	}
 	while (*ptr) {
-	    if (! isdigit(*ptr)) {
+	    if (! isdigit((unsigned char)*ptr)) {
 		bad++;
 	    }
 	    ptr++;
@@ -1106,7 +1106,7 @@ netRemoteAuthenticate(char *user, char *pass, char *conf, char *localip, char *r
     }
 
     /* attach to remote server(s) */
-    if (isdigit(*confhn)) {
+    if (isdigit((unsigned char)*confhn)) {
         if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
             logit(LOG_ERR, "NetRemote socket create: %m");
 	    return(NULL);
@@ -2824,7 +2824,7 @@ readAccessLine(FILE *af, char *fname, AccessDef *adef)
 	    return(0);
 	linecount++;
 	opt = buf;
-	while (isspace((int)*opt))
+	while (isspace((unsigned char)*opt))
 	    opt++;
 	if (*opt == '#' || *opt == '\n' || *opt == '\0')
 	    continue;
@@ -2832,7 +2832,7 @@ readAccessLine(FILE *af, char *fname, AccessDef *adef)
 	*p = '\0';
 	if (strcmp(opt, "access") == 0) {
 	   opt += 7;
-	   while (isspace((int)*opt))
+	   while (isspace((unsigned char)*opt))
 		opt++;
 	   bzero(adef, sizeof(AccessDef));
 	   break;
@@ -2860,7 +2860,7 @@ readAccessLine(FILE *af, char *fname, AccessDef *adef)
 	    needread = 1;
 	    return(0);
 	}
-	while (isspace((int)*val))
+	while (isspace((unsigned char)*val))
 	    val++;
 	if (*val == '#' || *val == '\n' || *val == '\0') {
 	    logit(LOG_ERR, "%s: Invalid readerdef in line %d",
@@ -3236,7 +3236,7 @@ InstallAccessCache(void) {
     while (fgets(buf, sizeof(buf), fp) != NULL) {
 	linecount++;
 	opt = buf;
-	while (isspace((int)*opt))
+	while (isspace((unsigned char)*opt))
 	    opt++;
 	opt = strtok(opt, " \t\n");
 	if (opt == NULL || *opt == '#' || *opt == '\n' || *opt == '\0')
@@ -3245,7 +3245,7 @@ InstallAccessCache(void) {
 	if (val == NULL || *val == '#')
 	    val = "";
 	else
-	    while (isspace((int)*val))
+	    while (isspace((unsigned char)*val))
 		val++;
 
 	if (strcmp(opt, "end") == 0) {
@@ -4415,9 +4415,9 @@ getRateLimitCmds(char *opt, ReaderDef *rd)
    char *p;
 
    rl = atoi(opt);
-   while (*opt && !isspace((int)*opt))
+   while (*opt && !isspace((unsigned char)*opt))
 	opt++;
-   while (*opt && isspace((int)*opt))
+   while (*opt && isspace((unsigned char)*opt))
 	opt++;
    if (!*opt)
 	for (i = 0; i < DRBC_XXXX; i++)

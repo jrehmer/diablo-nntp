@@ -179,7 +179,7 @@ NNFeedOverview(Connection *conn)
 	}
 	l -= line - art;
 
-	ch = tolower(*line);
+	ch = tolower((unsigned char)*line);
 
 	if (l == 0 || (l == 1 && line[0] == '\r')) {
 	    /* out of headers */
@@ -1829,7 +1829,7 @@ NNRetrieveHead(Connection *conn, int *povlen, const char **pmsgid, int *TimeRcvd
 
 	    while (scanLen > 0) {
 		int i;
-		char ch = tolower(scan[0]);
+		char ch = tolower((unsigned char)scan[0]);
 		for (i = 0; i < scanLen && scan[i] != '\n'; ++i)
 		    ;
 		if (pmsgid != NULL && ch == 'm' &&

@@ -547,7 +547,7 @@ OutputOverview(Connection *conn, const char *res, int resLen, int artSize)
 	rline = res;
 	rleft = resLen;
 
-	hch = tolower(*hdr);
+	hch = tolower((unsigned char)*hdr);
 
 	while (rleft) {
 	    int rlen;
@@ -586,7 +586,7 @@ OutputOverview(Connection *conn, const char *res, int resLen, int artSize)
 	    for (rrlen = 0; rrlen < rlen && rline[rrlen] != ':'; ++rrlen)
 		;
 
-	    ch = tolower(*rline);
+	    ch = tolower((unsigned char)*rline);
 	    if (rrlen == hhlen &&
 			ch == hch && strncasecmp(rline, hdr, hhlen) == 0) {
 		switch(conn->co_ArtMode) {

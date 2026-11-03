@@ -225,7 +225,7 @@ make_tcp_sockaddr(struct sockaddr_in *addr, char *ascii)
 	}
 
 	/* Check if it seems to be numeric. */
-	numeric = isdigit((int)*str);
+	numeric = isdigit((unsigned char)*str);
 
 	/* If numeric and four dots, we have a.b.c.d.6000 */
 	if (numeric && dots == 4) {
@@ -233,7 +233,7 @@ make_tcp_sockaddr(struct sockaddr_in *addr, char *ascii)
 		addr->sin_port = htons(atoi(lastdot + 1));
 	}
 	/* If nonnumeric and no colon, check if the last part is a port */
-	if (! numeric && ! colon && lastdot && isdigit((int)*(lastdot + 1))) {
+	if (! numeric && ! colon && lastdot && isdigit((unsigned char)*(lastdot + 1))) {
 		*lastdot = '\0';
 		addr->sin_port = htons(atoi(lastdot + 1));
 	}

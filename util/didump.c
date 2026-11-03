@@ -184,7 +184,7 @@ main(int ac, char **av)
 	    PrintVersion();
 	    break;
 	default:
-	    if (isdigit((int)ptr[-1])) {
+	    if (isdigit((unsigned char)ptr[-1])) {
 		FCount = strtol(ptr - 1, NULL, 0);
 	    } else {
 		fprintf(stderr, "illegal option: %s\n", ptr - 2);

@@ -588,7 +588,7 @@ DumpOVHeaders(Connection *conn, const char *ovdata, int ovlen)
 	    break;
 	if (ovdata[0] == '.')
 	    MBPrintf(&conn->co_TMBuf, ".");
-	ch = tolower(ovdata[0]);
+	ch = tolower((unsigned char)ovdata[0]);
 	if (*vserver && ch == 'p' && strncasecmp(ovdata, "Path:", 5) == 0) {
 	    int b = 5;
 	    char newpath[256];

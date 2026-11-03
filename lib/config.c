@@ -248,16 +248,18 @@ LoadDiabloConfig(int ac, char **av)
 	    }
 	    if ((cmd = strchr(buf, '#')) != NULL)
 		*cmd = 0;
-	    while (isspace((int)*opt))
+	    while (isspace((unsigned char)*opt))
 		opt++;
-	    while ((i = strlen(opt) - 1) >= 0 && isspace((int)opt[i]))
+	    while ((i = strlen(opt) - 1) >= 0 && isspace((unsigned char)opt[i]))
 		opt[i] = 0;
 	    if (strlen(opt) == 0)
 		continue;
 	    if ((cmd = strsep(&opt, " \t\n")) != NULL && (opt != NULL)) {
 		int optErr = 1;
 
-		while (isspace((int)*opt))
+		/* opt is not NULL anywhere in this block */
+
+		while (isspace((unsigned char)*opt))
 		    opt++;
 		cmdErr = 0;
 		if (strcasecmp(cmd, "version") == 0) {
@@ -272,91 +274,72 @@ LoadDiabloConfig(int ac, char **av)
 			/* Now unused */
 		    optErr = 0;
 		} else if (strcasecmp(cmd, "hash") == 0) {
-		    if (opt) {
-			char *p2;
-			if ((p2 = strchr(opt, '/')) != NULL)
-			    *p2++ = 0;
-			optErr = SetHashMethod(opt, &DOpts.HashMethod);
-			if (p2)
-			    optErr = SetHashMethod(p2, &DOpts.CompatHashMethod);
-		    }
+		    char *p2;
+		    if ((p2 = strchr(opt, '/')) != NULL)
+			*p2++ = 0;
+		    optErr = SetHashMethod(opt, &DOpts.HashMethod);
+		    if (p2)
+			optErr = SetHashMethod(p2, &DOpts.CompatHashMethod);
 		} else if (strcasecmp(cmd, "readergrouphash") == 0) {
-		    if (opt) {
-			optErr = SetGroupHashMethod(opt, &DOpts.ReaderGroupHashMethod);
-			if (optErr != 0)
-			    logit(LOG_CRIT, "Illegal reader group hash: %s", opt);
-		    }
+		    optErr = SetGroupHashMethod(opt, &DOpts.ReaderGroupHashMethod);
+		    if (optErr != 0)
+			logit(LOG_CRIT, "Illegal reader group hash: %s", opt);
 		} else if (strcasecmp(cmd, "hsize") == 0) {
-		    if (opt) {
-			uint32 n = bsizetol(opt);
+		    uint32 n = bsizetol(opt);
 
-			optErr = 0;
-			if (n < 256 * 1024 || n > (uint32)512 * 1024 * 1024) {
-			    optErr = 1;
-			    fprintf(stderr, "Illegal Hash size: %d\n", n);
-			    logit(LOG_CRIT, "Illegal Hash size: %d", n);
-			}
-			if ((n ^ (n - 1)) != (n << 1) - 1) {
-			    optErr = 1;
-			    fprintf(stderr, "Hash size not a power of 2: %d\n", n);
-			    logit(LOG_CRIT, "Hash size not a power of 2: %d", n);
-			}
-			if (optErr == 0)
-			    DOpts.HashSize = n;
+		    optErr = 0;
+		    if (n < 256 * 1024 || n > (uint32)512 * 1024 * 1024) {
+			optErr = 1;
+			fprintf(stderr, "Illegal Hash size: %d\n", n);
+			logit(LOG_CRIT, "Illegal Hash size: %d", n);
 		    }
+		    if ((n ^ (n - 1)) != (n << 1) - 1) {
+			optErr = 1;
+			fprintf(stderr, "Hash size not a power of 2: %d\n", n);
+			logit(LOG_CRIT, "Hash size not a power of 2: %d", n);
+		    }
+		    if (optErr == 0)
+			DOpts.HashSize = n;
 		} else if (strcasecmp(cmd, "active") == 0) {
-		    if (opt) {
-			if (strcasecmp(opt, "on") == 0) {
-			    optErr = 0;
-			    DOpts.FeederActiveEnabled = 1;
-			} else if (strcasecmp(opt, "off") == 0) {
-			    optErr = 0;
-			    DOpts.FeederActiveEnabled = 0;
-			} else if (opt[0] == '/') {
-			    optErr = 0;
-			    DOpts.FeederActiveEnabled = 1;
-			    ServerDActivePat = strdup(opt);
-			}
+		    if (strcasecmp(opt, "on") == 0) {
+			optErr = 0;
+			DOpts.FeederActiveEnabled = 1;
+		    } else if (strcasecmp(opt, "off") == 0) {
+			optErr = 0;
+			DOpts.FeederActiveEnabled = 0;
+		    } else if (opt[0] == '/') {
+			optErr = 0;
+			DOpts.FeederActiveEnabled = 1;
+			ServerDActivePat = strdup(opt);
 		    }
 		} else if (strcasecmp(cmd, "maxspool") == 0) {
 		    /* No longer used */
 		} else if (strcasecmp(cmd, "hiscachesize") == 0) {
-		    if (opt) {
-			SetPCommitExpire(-1, -1, atoi(opt));
-			optErr = 0;
-		    }
+		    SetPCommitExpire(-1, -1, atoi(opt));
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "wireformat") == 0) {
-		    if (opt) {
-			if (strcasecmp(opt, "on") == 0) {
-			    optErr = 0;
-			    DOpts.WireFormat = 1;
-			} else if (strcasecmp(opt, "off") == 0) {
-			    optErr = 0;
-			    DOpts.WireFormat = 0;
-			}
+		    if (strcasecmp(opt, "on") == 0) {
+			optErr = 0;
+			DOpts.WireFormat = 1;
+		    } else if (strcasecmp(opt, "off") == 0) {
+			optErr = 0;
+			DOpts.WireFormat = 0;
 		    }
 		} else if (strcasecmp(cmd, "readerdns") == 0) {
-		    if (opt) {
-			DOpts.ReaderDns = strtol(opt, NULL, 0);
-			optErr = 0;
-		    }
+		    DOpts.ReaderDns = strtol(opt, NULL, 0);
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "readerforks") == 0) {
-		    if (opt) {
-			optErr = SetReaderForks(opt, &DOpts.ReaderForks);
-			if (optErr != 0) {
-			    fprintf(stderr, "readerforks must be auto or 0..%d: %s\n",
-						READERFORKS_MAX, opt);
-			    logit(LOG_CRIT, "readerforks must be auto or 0..%d: %s",
-						READERFORKS_MAX, opt);
-			}
+		    optErr = SetReaderForks(opt, &DOpts.ReaderForks);
+		    if (optErr != 0) {
+			fprintf(stderr, "readerforks must be auto or 0..%d: %s\n",
+					    READERFORKS_MAX, opt);
+			logit(LOG_CRIT, "readerforks must be auto or 0..%d: %s",
+					    READERFORKS_MAX, opt);
 		    }
 		} else if (strcasecmp(cmd, "readerfeedforks") == 0) {
-		    if (opt) {
-			DOpts.ReaderFeedForks = strtol(opt, NULL, 0);
-			optErr = 0;
-		    }
+		    DOpts.ReaderFeedForks = strtol(opt, NULL, 0);
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "readerdnscachesize") == 0) {
-		    /* opt is never NULL here (see the strsep above) */
 		    if (confRange(opt, 0, 1048576, &DOpts.ReaderDnsCacheSize))
 			optErr = 0;
 		} else if (strncasecmp(cmd, "path_", 5) == 0) {
@@ -460,88 +443,70 @@ LoadDiabloConfig(int ac, char **av)
 		    /*
 		     * XXX check for zero or one '%s' in opt.
 		     */
-		    if (cmdErr == 0 && opt != NULL) {
+		    if (cmdErr == 0) {
 			*pptr = strdup(opt);
 			optErr = 0;
 		    }
 		} else if (strcasecmp(cmd, "spooldirs") == 0) {
 		    /* No longer used */
 		} else if (strcasecmp(cmd, "port") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.FeederPort, opt, "nntp");
-			strdupfree(&DOpts.ReaderPort, opt, "nntp");
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.FeederPort, opt, "nntp");
+		    strdupfree(&DOpts.ReaderPort, opt, "nntp");
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "feederbindport") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.FeederPort, opt, "nntp");
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.FeederPort, opt, "nntp");
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "feederbindhost") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.FeederBindHost, SanitiseAddr(opt), NULL);
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.FeederBindHost, SanitiseAddr(opt), NULL);
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "readerbindport") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.ReaderPort, opt, "nntp");
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.ReaderPort, opt, "nntp");
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "readerbindhost") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.ReaderBindHost, SanitiseAddr(opt), NULL);
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.ReaderBindHost, SanitiseAddr(opt), NULL);
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "readerpath") == 0) {
-		    if (opt) {
-			strdupfree(&DOpts.ReaderPathHost, opt, "");
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.ReaderPathHost, opt, "");
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "path") == 0) {
-		    if (opt) {
-			PathListType *pl = NULL;
+		    PathListType *pl = NULL;
 	
-			strdupfree(&DOpts.FeederPathHost, opt, "");
-			strdupfree(&DOpts.ReaderPathHost, opt, "");
-			pl = zalloc(&SysMemPool, sizeof(PathListType));
-			pl->pathent = strdup(DOpts.FeederPathHost);
-			pl->pathtype = 1;
-			pl->next = DOpts.PathList;
-			DOpts.PathList = pl;
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.FeederPathHost, opt, "");
+		    strdupfree(&DOpts.ReaderPathHost, opt, "");
+		    pl = zalloc(&SysMemPool, sizeof(PathListType));
+		    pl->pathent = strdup(DOpts.FeederPathHost);
+		    pl->pathtype = 1;
+		    pl->next = DOpts.PathList;
+		    DOpts.PathList = pl;
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "feederpath") == 0) {
-		    if (opt) {
-			PathListType *pl = NULL;
+		    PathListType *pl = NULL;
 
-			strdupfree(&DOpts.FeederPathHost, opt, "");
-			pl = zalloc(&SysMemPool, sizeof(PathListType));
-			pl->pathent = strdup(DOpts.FeederPathHost);
-			pl->pathtype = 1;
-			pl->next = DOpts.PathList;
-			DOpts.PathList = pl;
-			optErr = 0;
-		    }
+		    strdupfree(&DOpts.FeederPathHost, opt, "");
+		    pl = zalloc(&SysMemPool, sizeof(PathListType));
+		    pl->pathent = strdup(DOpts.FeederPathHost);
+		    pl->pathtype = 1;
+		    pl->next = DOpts.PathList;
+		    DOpts.PathList = pl;
+		    optErr = 0;
 		} else if (strcasecmp(cmd, "commonpath") == 0) {
-		    if (opt) {
-			PathListType *pl = NULL;
+		    PathListType *pl = NULL;
 	
-			pl = zalloc(&SysMemPool, sizeof(PathListType));
-			pl->pathent = strdup(opt);
-			pl->pathtype = 2;
-			pl->next = DOpts.PathList;
-			DOpts.PathList = pl;
-			optErr = 0;
-		    }
+		    pl = zalloc(&SysMemPool, sizeof(PathListType));
+		    pl->pathent = strdup(opt);
+		    pl->pathtype = 2;
+		    pl->next = DOpts.PathList;
+		    DOpts.PathList = pl;
+		    optErr = 0;
 		} else {
 		    optErr = SetCommand(stderr, cmd, opt, &cmdErr);
 		}
 		if (optErr) {
 		    exitMe = 1;
 		    fprintf(stderr, "Unknown diablo.config command: %s %s\n",
-						cmd, ((opt) ? opt : ""));
+						cmd, opt);
 		    logit(LOG_CRIT, "Unknown diablo.config command: %s %s",
-						cmd, ((opt) ? opt : ""));
+						cmd, opt);
 		}
 	    }
 	    if (cmdErr && cmd) {

@@ -113,14 +113,14 @@ SetSpamFilterOpt(void)
 		    break;
 		case 'B':
 		    ++ptr;
-		    if (!isdigit((int)*ptr)) {
+		    if (!isdigit((unsigned char)*ptr)) {
 			logit(LOG_ERR, "Invalid spam option: %s\n", oldopts);
 			free(oldopts);
 			return;
 		    }
 		    n = strtol(ptr, NULL, 0);
 		    SetSpamFilterTrip(n, -1);
-		    while (isdigit((int)*ptr))
+		    while (isdigit((unsigned char)*ptr))
 			++ptr;
 		    if (n > 0)
 			enabled = 1;
@@ -133,7 +133,7 @@ SetSpamFilterOpt(void)
 		    break;
 		case 'e':
 		    ++ptr;
-		    if (!enabled || !isdigit((int)*ptr)) {
+		    if (!enabled || !isdigit((unsigned char)*ptr)) {
 			logit(LOG_ERR, "Invalid spam option: %s\n", oldopts);
 			free(oldopts);
 			return;
@@ -151,19 +151,19 @@ SetSpamFilterOpt(void)
 			free(oldopts);
 			    return;
 		    }
-		    while (isdigit((int)*ptr))
+		    while (isdigit((unsigned char)*ptr))
 			++ptr;
 		    break;
 		case 'N':
 		    ++ptr;
-		    if (!isdigit((int)*ptr)) {
+		    if (!isdigit((unsigned char)*ptr)) {
 			logit(LOG_ERR, "Invalid spam option: %s\n", oldopts);
 			free(oldopts);
 			return;
 		    }
 		    n = strtol(ptr, NULL, 0);
 		    SetSpamFilterTrip(-1, n);
-		    while (isdigit((int)*ptr))
+		    while (isdigit((unsigned char)*ptr))
 			++ptr;
 		    if (n > 0)
 			enabled = 1;
@@ -171,7 +171,7 @@ SetSpamFilterOpt(void)
 		    break;
 		case 's':
 		    ++ptr;
-		    if (!enabled || !isdigit((int)*ptr)) {
+		    if (!enabled || !isdigit((unsigned char)*ptr)) {
 			logit(LOG_ERR, "Invalid spam option: %s\n", oldopts);
 			free(oldopts);
 			return;
@@ -206,7 +206,7 @@ SetSpamFilterOpt(void)
 			    free(oldopts);
 			    return;
 		    }
-		    while (isdigit((int)*ptr))
+		    while (isdigit((unsigned char)*ptr))
 			++ptr;
 		    break;
 		default:

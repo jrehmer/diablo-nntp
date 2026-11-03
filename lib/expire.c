@@ -84,7 +84,7 @@ loadExpireCtl(FILE *fi)
 	char *q = buf;
 
 	line++;
-	while (isspace((int)*p))
+	while (isspace((unsigned char)*p))
 	    p++;
 	if (*p == '/' || *p == '#')
 	    continue;

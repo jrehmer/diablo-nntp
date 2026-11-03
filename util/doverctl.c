@@ -472,8 +472,8 @@ CleanSpool(char *cleanDir)
 	struct stat st;
 
 	while ((den = readdir(dir)) != NULL) {
-	    if (isalnum((int)den->d_name[0]) &&
-		isalnum((int)den->d_name[1]) &&
+	    if (isalnum((unsigned char)den->d_name[0]) &&
+		isalnum((unsigned char)den->d_name[1]) &&
 	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode)
 		/*
 		 * We explicitly use the first char, because overview

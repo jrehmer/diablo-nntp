@@ -399,12 +399,12 @@ int ckhostname(char *name, int len)
 	/* Basic valid character checking */
 	for (ptr = buffer; *ptr; ptr++) {
 		/* All characters must be alnum, -, or . */ 
-		if (! isalnum((int)*ptr) && ! (*ptr == '-') && ! (*ptr == '.')) {
+		if (! isalnum((unsigned char)*ptr) && ! (*ptr == '-') && ! (*ptr == '.')) {
 			return(E_HNAMEILLEGAL);
 		}
 
 		/* Symbols must be separated by alnum */
-		if (((ptr != buffer) && ((*ptr == '-') || (*ptr == '.')) && ! isalnum((int)*(ptr - 1)))) {
+		if (((ptr != buffer) && ((*ptr == '-') || (*ptr == '.')) && ! isalnum((unsigned char)*(ptr - 1)))) {
 			return(E_HNAMESPECSEP);
 		}
 	}
@@ -418,7 +418,7 @@ int ckhostname(char *name, int len)
 		}
 
 		/* Host name leading char can not be a digit */
-		if (isdigit((int)*buffer)) {
+		if (isdigit((unsigned char)*buffer)) {
 			return(E_HNAMEDIGIT);
 		}
 
@@ -458,19 +458,19 @@ int ckusername(char *name, int len)
 	memcpy(buffer, name, len);
 
 	/* MUST start with alpha. */
-	if (! isalpha((int)*buffer)) {
+	if (! isalpha((unsigned char)*buffer)) {
 		return(E_UNAMEALPHA);
 	}
 
 	/* Basic valid character checking */
 	for (ptr = buffer; *ptr; ptr++) {
 		/* All characters must be alnum, -, _, or . */ 
-		if (! isalnum((int)*ptr) && ! (*ptr == '-') && ! (*ptr == '_') && ! (*ptr == '.')) {
+		if (! isalnum((unsigned char)*ptr) && ! (*ptr == '-') && ! (*ptr == '_') && ! (*ptr == '.')) {
 			return(E_UNAMEILLEGAL);
 		}
 
 		/* Symbols must be separated by alnum */
-		if (((ptr != buffer) && ((*ptr == '-') || (*ptr == '_') || (*ptr == '.')) && ! isalnum((int)*(ptr - 1)))) {
+		if (((ptr != buffer) && ((*ptr == '-') || (*ptr == '_') || (*ptr == '.')) && ! isalnum((unsigned char)*(ptr - 1)))) {
 			return(E_UNAMESPECSEP);
 		}
 	}
@@ -514,7 +514,7 @@ int ckaddress(char *addr)
 	/* Can't have an all-uppercase E-mail address */
 	flag = 0;
 	for (ptr = addr; *ptr; ptr++) {
-		if (isalpha((int)*ptr) && islower((int)*ptr)) {
+		if (isalpha((unsigned char)*ptr) && islower((unsigned char)*ptr)) {
 			flag = 1;
 			break;
 		}

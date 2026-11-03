@@ -630,7 +630,7 @@ loadSpoolCtl(FILE *fi)
 	char *arg;
 
 	line++;
-	while (isspace((int)*cmd))
+	while (isspace((unsigned char)*cmd))
 	    cmd++;
 	if (*cmd == '/' || *cmd == '#')
 	    continue;
@@ -829,11 +829,11 @@ loadSpoolCtl(FILE *fi)
 		}
 		continue;
 	    } else if (strcmp(cmd, "rejectarts") == 0) {
-		if (tolower((int)*arg) == 'y')
+		if (tolower((unsigned char)*arg) == 'y')
 		    metaSpool->ms_RejectArts = 1;
 		continue;
 	    } else if (strcmp(cmd, "dontstore") == 0) {
-		if (tolower((int)*arg) == 'y')
+		if (tolower((unsigned char)*arg) == 'y')
 		    metaSpool->ms_DontStore = 1;
 		continue;
 	    } else if (strcmp(cmd, "label") == 0) {

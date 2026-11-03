@@ -423,7 +423,7 @@ NNSpoolResponse2(Connection *conn)
 	 */
 
 	doneconn = 0;
-	ch = tolower(*buf);
+	ch = tolower((unsigned char)*buf);
 	if (*vserver && sreq->sr_CConn &&
 		!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoXrefHostUpdate &&
 		ch == 'x' && strncasecmp(buf, "Xref:", 5) == 0) {
@@ -438,11 +438,11 @@ NNSpoolResponse2(Connection *conn)
 		l--;
 
 	    ptr = buf + 5;
-	    while (isspace((int)*ptr))
+	    while (isspace((unsigned char)*ptr))
 		ptr++;
-	    while (*ptr && !isspace((int)*ptr))
+	    while (*ptr && !isspace((unsigned char)*ptr))
 		ptr++;
-	    while (isspace((int)*ptr))
+	    while (isspace((unsigned char)*ptr))
 		ptr++;
 	    if (*ptr) {
 		char line[8192];
@@ -484,7 +484,7 @@ NNSpoolResponse2(Connection *conn)
 		l--;
 
 	    ptr = buf + 5;
-	    while (isspace((int)*ptr))
+	    while (isspace((unsigned char)*ptr))
 		ptr++;
 	    if (*ptr && (strncmp(vserver, ptr, vsl) ||
 			 ((ptr[vsl] != '\0') &&

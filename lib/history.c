@@ -117,7 +117,9 @@ HistoryOpen(const char *fileName, int hflags)
     if (fileName == NULL)
 	fileName = strdup(PatDbExpand(DHistoryPat));
 
-    snprintf(HistoryFileName, sizeof(HistoryFileName), "%s", fileName);
+    /* a reopen passes HistoryFileName itself: copying onto it empties it */
+    if (fileName != HistoryFileName)
+	snprintf(HistoryFileName, sizeof(HistoryFileName), "%s", fileName);
 
     HFlags = hflags;
 

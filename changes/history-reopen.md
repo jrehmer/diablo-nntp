@@ -1,0 +1,1 @@
+- history: a reopen no longer empties the history file name; after `dhisexpire -a` a feeder or reader that found its history marked dead retried an empty path for six minutes and exited.

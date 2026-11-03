@@ -3258,7 +3258,7 @@ commandResponse(int cfd, char **rptr, const char *ctl, ...)
 
 	    printf("%s >> ", dtstamp());
 	    for (i = 0; tmp[i]; ++i) {
-		if (isprint((int)tmp[i]))
+		if (isprint((unsigned char)tmp[i]))
 		    printf("%c", tmp[i]);
 		else
 		    printf("[%02x]", tmp[i]);
@@ -4110,7 +4110,7 @@ extractFeedLine(const char *buf, char *relPath, char *msgId, off_t *poff, int *p
      */
 
     b = s;
-    if (isdigit((int)*s)) {
+    if (isdigit((unsigned char)*s)) {
 	long long offtmp;
 	sscanf(s, "%lld,%d", &offtmp, psize);
 	*poff = offtmp;

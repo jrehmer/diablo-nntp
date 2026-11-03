@@ -143,7 +143,7 @@ main(int ac, char **av)
 	inputFile = stdin;
     while (fgets(buf, sizeof(buf), inputFile) != NULL) {
 	msgid = buf;
-	while (isspace((int)*msgid))
+	while (isspace((unsigned char)*msgid))
 	    msgid++;
 	strtok(msgid, " \t\n");
 	if (HistoryCancel && !ForReal) {
@@ -308,7 +308,7 @@ getMsgId(int fd, char *buf, int hdrLen)
 	return(NULL);
     }
     p += 12;
-    while (isspace(*p))
+    while (isspace((unsigned char)*p))
 	p++;
     if (*p != '<') {
 	fprintf(stderr, "Invalid Message-ID header!\n");

@@ -255,7 +255,7 @@ NNAcceptArticle(Connection *conn)
 		    (len == 1 || buf[len-2] != '\r'));
 
 	if (conn->co_Flags & COF_INHEADER) {
-	    char ch = tolower(*buf);
+	    char ch = tolower((unsigned char)*buf);
 	    if (strcmp(buf, "\r") == 0 || len == 1) {	/* CRLF or LF only */
 		conn->co_Flags &= ~COF_INHEADER;
 	    } else if (ch == 'b' && strncasecmp(buf, "Bytes:", 6) == 0) {
