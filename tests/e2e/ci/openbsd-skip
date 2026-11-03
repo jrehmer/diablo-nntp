@@ -1,0 +1,81 @@
+# Tests skipped on OpenBSD (one name per line; "#" starts a comment). The
+# test binary embeds this file and sets -test.skip from it on OpenBSD, unless
+# -test.skip is given or E2E_OPENBSD_ALL=1 (platform_skip_test.go).
+#
+# OpenBSD has no unified buffer cache: data written with write()/pwrite() is
+# not seen through another process's MAP_SHARED mapping of the same file, so
+# Diablo's readers of the history, KPDB (dactive.kp) and overview files see
+# stale data there (ISSUES.md D-171). Supporting it would need a design
+# change, which the maintainer decided against (2026-11-03). These are the
+# tests that fail on OpenBSD 7.9 for that reason, from the CI run of #272
+# (96a15fb).
+TestCancelLockWithoutLibcanlock
+TestCheckgroupsChanges
+TestCheckgroupsDrop
+TestCheckgroupsEveryLine
+TestCheckgroupsExec
+TestCheckgroupsKeepsDescriptions
+TestCheckgroupsLaterLineWins
+TestCheckgroupsLimit
+TestCheckgroupsLimitLines
+TestCheckgroupsLineMatching
+TestCheckgroupsLocal
+TestCheckgroupsLongLine
+TestCheckgroupsMaxdocheckgroups
+TestCheckgroupsPgpverifyStatus
+TestCheckgroupsSenderAddress
+TestCheckgroupsVerifySkipped
+TestControlDuplicateHeadersRefused
+TestControlLogRuleReopenFailure
+TestControlMailRuleTempFile
+TestCtypeHighByteInGroupDesc
+TestDcancelDryRunReaderDoesNotCancelOverview
+TestDcontrolSamplesCheckgroupsTwoHierarchies
+TestDexpire
+TestDexpireKeepsNewestDir
+TestDexpireoverCompressionFailure
+TestDexpireoverGroupRemovedBeforeWriteBack
+TestDexpireoverGroupRemovedDuringResize
+TestDexpirescoringLastEntry
+TestDgrpctlCheckgroupsLongDescriptionStable
+TestDgrpctlGroupinfoTimes
+TestDjoblogLines
+TestDoverctlConvertCopyFailure
+TestDoverctlConvertMovesCompressedData
+TestFeedNoXrefLongXRefHost
+TestFeederArticleKeepsSpoolLock
+TestFeederCompressedSpoolKeepsLock
+TestFeederSlotAliasKeepsLock
+TestFeederUnapprovedModerated
+TestHeaderFeedToReader
+TestKPDBConcurrentUpdate
+TestKPDBLockRelookup
+TestModerationAliasStatus
+TestNewgroupsDates
+TestNewgroupsGMTAnyCase
+TestNewsgroupsEmptyEntryActive
+TestNewsgroupsSpaceActive
+TestOverToolsGroupRemovedWhileWaiting
+TestPeerIHAVE
+TestPipeliningReaderAlternating
+TestPipeliningReaderLarge
+TestPipeliningReaderMixed
+TestReaderCacheHeaderRewrite
+TestReaderCacheHitsConcurrent
+TestReaderCacheHitsOneEntry
+TestReaderCacheHitsZeroReadCount
+TestReaderCapabilities
+TestReaderCheckgroupsControl
+TestReaderConformanceAuthinfo
+TestReaderControlCancelNoNewsgroups
+TestReaderFeedAndRead
+TestReaderHtpasswdAuth
+TestReaderListWildcardTime
+TestReaderNewnewsKeepsSelectedGroup
+TestReaderNewnewsUnreadableOverview
+TestReaderRangeBeyondLimit
+TestReaderReplyCodes
+TestSpoolDirRemovedWhileWriting
+TestSpoolLongXrefPath
+TestStatWithLongSpoolPath
+TestWeightedAllocationWithZeroWeights

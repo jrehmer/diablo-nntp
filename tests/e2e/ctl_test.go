@@ -53,6 +53,7 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	platformSkip()
 	os.Exit(m.Run())
 }
 
