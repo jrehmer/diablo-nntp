@@ -1,1 +1,2 @@
 - `samples/diablo.config`: the `feederxrefslave` text says who numbers the articles (this diablo when off, the feeding server when on), what happens to incoming `Xref:` headers in each case, and that `slave` is the old name of the same option.
+- `samples/diablo.config`: the log paths list each log once with its real default (`path_drincominglog` is NONE, `path_postlog` goes into the general log), says what each log records, and that SYSLOG works for every log but `path_pathlog` and `path_artlog`; the `path_artlog` format names the first Path element, not the incoming label.
