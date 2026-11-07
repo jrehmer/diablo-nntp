@@ -22,10 +22,13 @@
  * In a heavily loaded system, the exclusive lock and append may become a
  * bottleneck.
  *
- * WARNING!  offsets stored in history records / hash table index are signed
- * 32 bits but cast to unsigned in any lseek() operations.  The history file
- * is thus currently limited to 4GB even with 64 bit capable filesystems.
- * 2GB on linux, 4GB under FreeBSD (which is 64 bit capable).
+ * Size limits.  In a version 1 file the hash table and the next links hold
+ * 32 bit byte offsets, so such a file is limited to 4GB.  A version 2 file
+ * (HVERSION, the format written now) holds record numbers (HistIndex,
+ * uint32) that recordOffset() turns into 64 bit file offsets: it is limited
+ * to 2^32 - 1 records (record 0 is the dummy written at creation), about
+ * 120GB of records plus the hash table.  HistoryAdd() does not check that
+ * limit; past it the record number would wrap.
  */
 
 #include "defs.h"

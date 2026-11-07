@@ -1,0 +1,1 @@
+- lib/history.c: the header comment gave the history file a 4GB limit; that applies only to version 1 files. A version 2 file (the current format) holds record numbers and is limited to 2^32 - 1 records, about 120GB. Comment only.
