@@ -151,6 +151,7 @@ initDOpts(void)
     DOpts.FeederMaxAcceptAge = DOpts.RememberSecs;
     DOpts.FeederStrictDate = 0;
     DOpts.HostCacheRebuildTime = 60 * 60;
+    DOpts.FeederLogFrequency = 1024;
     DOpts.DisplayAdminVersion = 1;
     DOpts.FeederRTStats = RTSTATS_NONE;
     DOpts.SpamFilterOpt = NULL;
@@ -600,6 +601,21 @@ SetCommand(FILE *fo, char *cmd, char *opt, int *cmdErr)
 		DOpts.HostCacheRebuildTime = strtol(opt, NULL, 0);
 		optErr = 0;
 	    }
+    } else if (strcasecmp(cmd, "feederlogfrequency") == 0) {
+	    /*
+	     * Articles between the status lines of an incoming connection
+	     * and of the totals, as INN's incominglogfrequency; 0: only
+	     * at the end of a connection.
+	     */
+	    char *e = NULL;
+	    long n = opt ? strtol(opt, &e, 10) : -1;
+
+	    if (opt && *opt && *e == 0 && n >= 0 && n <= 1000000000) {
+		DOpts.FeederLogFrequency = (int)n;
+		optErr = 0;
+	    } else if (fo != NULL) {
+		fprintf(fo, "feederlogfrequency requires a number of articles (0: none)\n");
+	    }
     } else if (strcasecmp(cmd, "activedrop") == 0) {
 	    if (opt) {
 		DOpts.FeederActiveDrop = enabled(opt);
@@ -961,6 +977,8 @@ dumpConfigFeeder(FILE *fo, char *cmd)
 	fprintf(fo, "maxconnect: %d\n", DOpts.MaxPerRemote);
     if (cmd == NULL || strcasecmp(cmd, "hostcacherebuildtime") == 0)
 	fprintf(fo, "hostcacherebuildtime: %d\n", DOpts.HostCacheRebuildTime);
+    if (cmd == NULL || strcasecmp(cmd, "feederlogfrequency") == 0)
+	fprintf(fo, "feederlogfrequency: %d\n", DOpts.FeederLogFrequency);
     if (cmd == NULL || strcasecmp(cmd, "activedrop") == 0)
 	fprintf(fo, "activedrop: %d\n", DOpts.FeederActiveDrop);
     if (cmd == NULL || strcasecmp(cmd, "precommittime") == 0)

@@ -1580,7 +1580,8 @@ DoPipe(int fd)
 		    TtlStats.ArtsBytes += (double)bytes;
 		}
 		TtlStats.ArtsReceived += 1.0;
-		if (++LogCount == 1024) {
+		if (DOpts.FeederLogFrequency > 0 &&
+		    ++LogCount >= DOpts.FeederLogFrequency) {
 		    LogCount = 0;
 		    LogSession2();
 		}
@@ -4086,7 +4087,9 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 	    }
 	}
 
-	if ((Stats.RecStats.Stats[STATS_RECEIVED] % 1024) == 0)
+	/* the counters restart after each status line (LogSession) */
+	if (DOpts.FeederLogFrequency > 0 &&
+	    Stats.RecStats.Stats[STATS_RECEIVED] >= DOpts.FeederLogFrequency)
 	    LogSession();
 
 	/*

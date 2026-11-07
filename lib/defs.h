@@ -259,6 +259,7 @@ struct DiabloOpts {
     int FeederStrictDate;
     int MaxPerRemote;
     int HostCacheRebuildTime;
+    int FeederLogFrequency;	/* feederlogfrequency: articles per status line, 0: none */
     int DisplayAdminVersion;
     int RejectArtsWithNul;
     int RejectArtsWithBareCR;

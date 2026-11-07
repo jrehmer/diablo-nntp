@@ -48,6 +48,7 @@ sharing: they contain system/process names and test-site log contents.
 | `TestPeerIHAVE` | diablo | IHAVE from the peer (127.0.0.2) is accepted (335, 235); a second offer gets 435 |
 | `TestStrangerRefused` | diablo | a host that no `dnewsfeeds` label lists gets `502 ... Transfer permission denied` |
 | `TestDicmdConfig` | diablo, dicmd | `dicmd config maxconnect 17` is applied and reported; `path_dumphist` is rejected (startup only) |
+| `TestFeederLogFrequency`, `TestFeederLogFrequencyDicmd` | diablo, dicmd | `feederlogfrequency`: 5 articles over one connection give one status line (`secs=... ihave=...`) every n articles plus one at the end, and a `DIABLO uptime=` total line every n accepted articles (default 1024: one line, no total; 2: three and two; 0: one at the end, no total); `dicmd config feederlogfrequency 3` applies to new connections and is shown, `abc`, `-1` and `3x` are refused. **Fails** on main: diablo does not know the option and exits at startup |
 | `TestGeneralLogNotWritable` | diablo | with an unwritable `path_generallog`, diablo reports it and keeps accepting articles instead of crashing |
 | `TestHostCacheLastPeerRemoved` | diablo, dprimehostcache | removing the last `inhost` empties `dhosts.cache`, and the former peer gets a permission denial, not "label missing" |
 | `TestHostCacheRebuildAfterFreshStart` | diablo | after a start without `dhosts.cache`, a peer added to `dnewsfeeds` is let in once the cache is rebuilt |
