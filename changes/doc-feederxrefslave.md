@@ -1,0 +1,1 @@
+- `samples/diablo.config`: the `feederxrefslave` text says who numbers the articles (this diablo when off, the feeding server when on), what happens to incoming `Xref:` headers in each case, and that `slave` is the old name of the same option.
