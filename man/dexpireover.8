@@ -83,6 +83,7 @@ articles are left in your local spool. This requires a local spool.
 .PP
 This option turns on -NB, -U, -s, and -y. These are the options used
 in a standard dexpireover run.
+Because of -s, a standard run also resizes the over.* index files (see -s).
 .PP
 .B \-e
 .PP
@@ -173,7 +174,7 @@ will rewrite data files to piecemeal remove unreferenced articles.
 .PP
 This works somewhat differently then expireover with standard options, takes
 a lot more time, and should typically be run only once a week.  The standard
-dexpireover, 'dexpireover -a', does not resize index files or rewrite data
+dexpireover, 'dexpireover -a', resizes index files (-s) but does not rewrite data
 files, it simply performs the expiration pass and deletes whole data files
 if none of the articles residing in them are referenced any longer.  This
 suffices for a daily expiration, but 'dexpireover -R -a' should be used once

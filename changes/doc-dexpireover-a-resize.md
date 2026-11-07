@@ -1,0 +1,1 @@
+- man/dexpireover.8: `dexpireover -a` resizes the over.* index files (it turns on -s); the man page said a standard run does not resize them.
