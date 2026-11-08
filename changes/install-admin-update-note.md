@@ -1,1 +1,1 @@
-install/bininstall: report the correct <name>.new path when preserving a locally changed maintenance script. The replacement was written correctly, but the note appended .new twice because copy_file changed its caller's destination variable.
+- install-portable.sh: install/bininstall report the correct `<name>.new` path when preserving a locally changed maintenance script. The replacement was written correctly, but the note appended `.new` twice because `copy_file` changed its caller's destination variable.

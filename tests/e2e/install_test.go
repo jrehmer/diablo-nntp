@@ -277,13 +277,30 @@ func TestInstallStopsWhenFindFails(t *testing.T) {
 
 // TestInstallReportsAdminUpdates checks that every advertised replacement exists,
 // including after another reinstall, and that local maintenance files survive.
+// Before the fix, the NOTE named <name>.new.new; the file written was <name>.new.
 func TestInstallReportsAdminUpdates(t *testing.T) {
 	root := sourceRoot(t)
+	files, err := filepath.Glob(filepath.Join(root, "samples", "adm", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, src := range files {
+		st, err := os.Stat(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().IsRegular() {
+			names = append(names, filepath.Base(src))
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no regular maintenance files in samples/adm")
+	}
 	for _, mode := range []string{"install", "bininstall"} {
 		t.Run(mode, func(t *testing.T) {
 			stage := t.TempDir()
 			install(t, root, "install", stage)
-			names := []string{"daily.atrim", "diablo-ctl.conf", "rc.news", "rot", "rot.conf"}
 			local := []byte("# local maintenance settings\n")
 			for _, name := range names {
 				path := filepath.Join(stage, "news", "adm", name)
