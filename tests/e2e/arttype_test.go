@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Article type bits, as in lib/defs.h.
@@ -1225,6 +1226,12 @@ func offerLines(t *testing.T, s *Site, lines []string) string {
 	t.Helper()
 	p := s.Peer(t)
 	defer p.ExpectCmd(205, "QUIT")
+	return offerOn(t, p, lines)
+}
+
+// offerOn offers an article on the connection p (it stays open) and returns the reply code.
+func offerOn(t *testing.T, p *client.Conn, lines []string) string {
+	t.Helper()
 	id := headerValue(lines[:slices.Index(lines, "")], "Message-ID")
 	p.ExpectCmd(335, "IHAVE %s", id)
 	p.MustSend(client.Stuff(lines))
@@ -1567,3 +1574,80 @@ func TestTextBinaryOutgoingFeed(t *testing.T) {
 		}
 	}
 }
+
+// TestTextBinaryLimitReload: the limits of dnewsfeeds are read before an article is measured,
+// not after the previous one. One peer connection stays open; its process loaded dnewsfeeds
+// with fsmall at textbinary 1k and fbig without. After fbig gets textbinary 4k (the largest
+// limit goes from 1k to 4k) and the once-a-minute reload window has passed, the first article on
+// that connection (1830 bytes of uuencode, over the old largest limit) must reach fbig, and a
+// 732-byte one reaches fsmall and fbig. Before the fix the first article was measured with the
+// old limit, got no size for the master, and reached neither (the second one did: FeedAdd had
+// reloaded dnewsfeeds by then). Takes up to a minute and a quarter: dnewsfeeds is checked once a
+// minute, and a file younger than 10 s is left alone.
+func TestTextBinaryLimitReload(t *testing.T) {
+	feed := func(name, extra string) string {
+		return "label " + name + "\n    hostname 127.0.0.1\n    alias e2e." + name +
+			"\n    addgroup *\n    arttypes !binary\n" + extra + "end\n"
+	}
+	cfg := func(small, big string) string {
+		return GlobalLabel + "label peer\n    inhost " + PeerIP + "\n    alias e2e.peer\n    addgroup *\nend\n" +
+			feed("fnone", "") + feed("fsmall", small) + feed("fbig", big)
+	}
+	s := NewSite(t, SiteOptions{Newsfeeds: cfg("    textbinary 1k\n", "")})
+	text := []string{"Here is the small program I mentioned, uuencoded."}
+	uu := func(n int) []string {
+		return append(append([]string{"begin 644 prog.bin"}, atLines(n, 60, uuAlphabet, "M")...), "end")
+	}
+	art := func(name string, body ...string) ([]string, string) {
+		lines := newArticle(msgID(t), "comp.misc", name, body...)
+		return lines, headerValue(lines[:slices.Index(lines, "")], "Message-ID")
+	}
+	p := s.Peer(t) // its process loads dnewsfeeds now and then again once a minute
+	defer p.ExpectCmd(205, "QUIT")
+	first := time.Now()
+	lines, _ := art("plain before", text...)
+	if got := offerOn(t, p, lines); got != "235" {
+		t.Fatalf("plain before: IHAVE %s, want 235", got)
+	}
+
+	s.WriteFile(t, "dnewsfeeds", cfg("    textbinary 1k\n", "    textbinary 4k\n"))
+	written := time.Now()
+	// the connection's process checks dnewsfeeds on its next article of a later minute, and the
+	// master a second after the minute starts; the file must be 10 s old
+	for time.Now().Unix()/60 <= first.Unix()/60 || time.Since(written) < 11*time.Second ||
+		time.Now().Unix()%60 < 3 {
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	arts := []struct {
+		name string
+		body []string
+		want []string // the feeds that get it
+	}{
+		{"text, 1830 bytes of uuencode, the first after the change", cat2(text, uu(30)), []string{"fbig"}},
+		{"text, 732 bytes of uuencode", cat2(text, uu(12)), []string{"fbig", "fsmall"}},
+		{"text, 8 KB of uuencode", cat2(text, uu(130)), nil},
+		{"plain text", text, []string{"fbig", "fnone", "fsmall"}},
+	}
+	ids := make([]string, len(arts))
+	for i, a := range arts {
+		var lines []string
+		lines, ids[i] = art(a.name, a.body...)
+		if got := offerOn(t, p, lines); got != "235" {
+			t.Fatalf("%s: IHAVE %s, want 235", a.name, got)
+		}
+	}
+	s.waitQueue(t, "fnone", 2) // the plain article before the change and the last one
+	for _, f := range []string{"fnone", "fsmall", "fbig"} {
+		q := s.queue(t, f)
+		for i, a := range arts {
+			has := !slices.Contains(deepRevMissing(q, []string{ids[i]}), ids[i])
+			if want := slices.Contains(a.want, f); has != want {
+				t.Errorf("feed %s, %s: queued %v, want %v\ndqueue/%s: %q", f, a.name, has, want, f, q)
+			}
+		}
+	}
+}
+
+// cat2 joins two slices of lines.
+func cat2(a, b []string) []string { return append(slices.Clone(a), b...) }

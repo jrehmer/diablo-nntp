@@ -3251,6 +3251,11 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 
 	if (DOpts.FeederArtTypes && artType != NULL) {
 	    arttype = ARTTYPE_DEFAULT;
+	    /*
+	     * The limits of dnewsfeeds as they are now, not as they were
+	     * at the last article: FeedAdd() reloads it only after one
+	     */
+	    LoadNewsFeed(t, 0, NULL);
 	    ArticleTypeTextBinary(FeedTextBinaryMax());
 	    InitArticleType();
 	}
