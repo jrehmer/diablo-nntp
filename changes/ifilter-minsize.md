@@ -1,0 +1,1 @@
+- `samples/dnewsfeeds`: documents `minsize` in the `IFILTER` label, which lets binaries of up to that size into non-binary groups (`minsize 80k` accepts the small uuencoded and BinHex files of early groups, refused as `IncomingFilter` before). diablo already read the option there; the size is the whole article as received, as logged. Test: `TestIncomingFilterMinsize`.

@@ -704,6 +704,12 @@ end
 #	 non-binary groups. This filter acts slightly differently to
 #	 the others in that any article that matches the "feed" are
 #	 rejected.
+#	 With 'minsize' in this label, an article of up to that size does
+#	 not match and is accepted: 'minsize 80k' lets through small
+#	 binaries posted for discussion, such as the uuencoded and BinHex
+#	 files of early comp.sources.* and comp.sys.mac.* groups.  Here the
+#	 size is the whole article as received (headers included), the
+#	 size diablo logs for it.
 #
 # These labels limit which articles are sent to each of the filters
 # and most dnewsfeeds options can be used (as you would with a newsfeed).
@@ -730,6 +736,7 @@ label IFILTER
     addgroup	*
     delgroup	*.bina*
     arttypes	binary
+#   minsize	80k
 end
 
 # Contact: xxx@example.com

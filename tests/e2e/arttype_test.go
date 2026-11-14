@@ -963,6 +963,75 @@ func TestChecksumListNotRejectedAsBinary(t *testing.T) {
 	}
 }
 
+// TestIncomingFilterMinsize: `minsize` in the IFILTER label lets a binary of up to that many
+// bytes through to a non-binary group, as some early groups carried small binaries (uuencoded
+// or BinHex files in comp.sources.* and comp.sys.mac.*). The size is the article as received:
+// headers, body, CRLFs and the final "." line, as diablo logs it. An article of exactly
+// minsize bytes is let through, one byte more is refused; without minsize, the same small
+// binary is refused. Binary groups and text articles are not changed.
+func TestIncomingFilterMinsize(t *testing.T) {
+	const limit = 2048 // minsize 2k
+	ifilter := "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\n"
+	uu := append([]string{"begin 644 file.bin"}, atLines(12, 60, uuAlphabet, "M")...)
+	uu = append(uu, "`", "end")
+	// article returns an article to group with the given body, its Subject padded so that
+	// the article is size bytes on the wire (size 0: no padding).
+	article := func(id, group string, body []string, size int) []string {
+		a := newArticle(id, group, "file", body...)
+		if size == 0 {
+			return a
+		}
+		n := size - len(client.Stuff(a))
+		if n < 0 {
+			t.Fatalf("article is %d bytes, more than %d", len(client.Stuff(a)), size)
+		}
+		a = newArticle(id, group, "file"+strings.Repeat("x", n), body...)
+		if got := len(client.Stuff(a)); got != size {
+			t.Fatalf("padded article is %d bytes, want %d", got, size)
+		}
+		return a
+	}
+	offer := func(s *Site, group string, body []string, size int) string {
+		id := msgID(t)
+		p := s.Peer(t)
+		defer p.ExpectCmd(205, "QUIT")
+		p.ExpectCmd(335, "IHAVE %s", id)
+		p.MustSend(client.Stuff(article(id, group, body, size)))
+		line, err := p.ReadLine()
+		if err != nil {
+			t.Fatalf("IHAVE: %v", err)
+		}
+		return line[:3]
+	}
+	big := append(append([]string{}, uu...), atLines(100, 60, uuAlphabet, "M")...)
+	text := atLines(100, 60, "abcdefghij klmnopqrstuvwxyz", "")
+
+	s := NewSite(t, SiteOptions{Newsfeeds: DefaultNewsfeeds + ifilter + "    minsize 2k\nend\n"})
+	for _, c := range []struct {
+		name, group string
+		body        []string
+		size        int
+		want        string
+	}{
+		{"small uuencoded file", "comp.misc", uu, 0, "235"},
+		{"binary of minsize bytes", "comp.misc", uu, limit, "235"},
+		{"binary of minsize+1 bytes", "comp.misc", uu, limit + 1, "437"},
+		{"large uuencoded file", "comp.misc", big, 0, "437"},
+		{"large uuencoded file to a binary group", "alt.binaries.test", big, 0, "235"},
+		{"large text article", "comp.misc", text, 0, "235"},
+	} {
+		if got := offer(s, c.group, c.body, c.size); got != c.want {
+			t.Errorf("minsize 2k, %s: IHAVE %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	// Without minsize, the small binary is refused.
+	s0 := NewSite(t, SiteOptions{Newsfeeds: DefaultNewsfeeds + ifilter + "end\n"})
+	if got := offer(s0, "comp.misc", uu, 0); got != "437" {
+		t.Errorf("no minsize, small uuencoded file: IHAVE %s, want 437", got)
+	}
+}
+
 // Header-looking text is body data (RFC 5536 section 2; RFC 2045 section 3).
 func TestArticleTypeBodyMimeLiterals(t *testing.T) {
 	s := NewSite(t, SiteOptions{Newsfeeds: GlobalLabel, NoStart: true})
