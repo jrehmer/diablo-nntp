@@ -37,6 +37,7 @@
  *  we find a different type. We never reset.
  *
  *  Once we have found a binary, we stop scanning the article - save CPU
+ *  (unless a binary in a text article is measured, see TextBinMax)
  *
  */
 
@@ -48,12 +49,16 @@ Prototype int ArtTypeMatch(int articletype, ArtTypeList *acctypes);
 Prototype int ArticleType(char *line, int len, int inheader);
 Prototype int ArticleTypePiece(char *line, int len, int inheader);
 Prototype int ArticleTypeEnd(void);
+Prototype void ArticleTypeTextBinary(int max);
+Prototype int ArticleTypeTextBinaryType(void);
+Prototype long ArticleTypeTextBinarySize(void);
 
 #define	ARMOR_MAX	100	/* lines of other armor that are not counted */
 #define	ARMOR_PGP_HEADERS -1	/* encrypted PGP message armor headers */
 #define	ARMOR_PGP_DATA	-2	/* encrypted PGP message radix-64 data */
 
 static int lineHas(const char *line, int len, const char *needle);
+static int tbResult(int t);
 int isBinHexLine(char *line, int len, int firstline);
 int isUuencodedLine(char *buf, int len);
 
@@ -97,6 +102,40 @@ static int QPPart = 0;	/* in the body of a part declared quoted-printable */
 static int QPEsc = 0;	/* an escape cut at the end of a piece: 1 = "=", 2 = "=H" */
 static int QPEscHi;	/* the H of "=H" */
 static int PieceMore = 0;	/* the last call was a piece: the line goes on */
+
+/*
+ * A binary in a text article (the 'textbinary' option of the IFILTER label
+ * in dnewsfeeds).  With TextBinMax set, the text before the article
+ * becomes a binary is counted: the lines of a body that is not MIME, or of
+ * a text part, except lines with only white space, part headers and MIME
+ * delimiters, the begin and end lines of a uuencoded or BinHex file and
+ * encoded lines (a run of fewer than 9 of them is not text either).  An
+ * article with such text is read on to its end, to measure its encoded
+ * data: the lines of each run of 9 or more uuencode, BinHex or base64
+ * lines, from the first line of the run, and the last short lines after
+ * it; once the article is a binary every encoded line counts, whatever the
+ * length of its run, and so does every line of a part sent as base64 that
+ * is not text.  Text after the binary does not count.  The type the caller
+ * gets stays the one the article had when it became a binary, as without
+ * the option.  An article with no text before its binary, and a binary of
+ * another kind (yEnc, an application/octet-stream part, base64 or
+ * quoted-printable text that decodes to binary data, X-Bommanews,
+ * X-UnidataEncoding), is not measured (TBOther), and neither is one whose
+ * encoded data is over the limit: such an article is not read on.
+ */
+static int TextBinMax = 0;	/* the limit in bytes, 0 = off */
+static int TBFrozen = 0;	/* the type the article had when it became a binary */
+static int TBOther = 0;		/* a binary that is not runs of encoded lines */
+static long TBEnc = 0;		/* bytes of encoded data */
+static long TBText = 0;		/* bytes of text before the article became a binary */
+static long TBPending = 0;	/* bytes of the run being read, not yet 9 lines */
+static int TBRunKind = 0;	/* UUE, BHX or B64: a run of 9 or more lines is being read */
+static int TBTrail = 0;		/* the kind of the run that just ended, for its last lines */
+static int TBTrailLeft = 0;	/* lines after a run that may still be its last short lines */
+static int TBRawB64 = 0;	/* in a part sent as base64 that is not text: all its lines are data */
+static int TBDelim = 0;		/* the line being read is a MIME delimiter */
+
+#define	TBACTIVE()	(TextBinMax > 0 && !TBOther && TBEnc <= TextBinMax)
 
 /*
  * Where a part's headers are.  A header block is the article's headers, or
@@ -574,6 +613,200 @@ InitArticleType(void)
     BndTop = 0;
     QPEsc = 0;
     PieceMore = 0;
+    TBFrozen = 0;
+    TBOther = 0;
+    TBEnc = 0;
+    TBText = 0;
+    TBPending = 0;
+    TBRunKind = 0;
+    TBTrail = 0;
+    TBTrailLeft = 0;
+    TBRawB64 = 0;
+    TBDelim = 0;
+}
+
+/*
+ * The 'textbinary' limit of the IFILTER label for the next articles, in
+ * bytes; 0 turns the measuring off.  Set it before InitArticleType().
+ */
+void
+ArticleTypeTextBinary(int max)
+{
+    TextBinMax = (max > 0) ? max : 0;
+}
+
+/*
+ * After ArticleTypeEnd(): when the article is a binary in a text article
+ * within the 'textbinary' limit (it has text, and encoded data of at most
+ * that many bytes, and no binary of another kind), the article's type
+ * without its binary bits (ARTTYPE_DEFAULT if no other bit is left), for
+ * the IFILTER label to be checked again with.  The type is the one of the
+ * whole article, read on to its end: a type that comes after the binary
+ * (an HTML part) is in it.  Otherwise -1.
+ */
+int
+ArticleTypeTextBinaryType(void)
+{
+    int t;
+
+    if (TextBinMax <= 0 || !(TBFrozen & ARTTYPE_BINARY) || TBOther ||
+	    TBEnc <= 0 || TBEnc > TextBinMax || TBText <= 0)
+	return(-1);
+    t = Type & ~(ARTTYPE_BINARY | ARTTYPE_UUENCODE | ARTTYPE_BINHEX |
+							ARTTYPE_BASE64);
+    if ((t & ~ARTTYPE_DEFAULT) == 0)
+	t = ARTTYPE_DEFAULT;
+    return(t);
+}
+
+/*
+ * After ArticleTypeEnd(): the bytes of encoded data of an article that is a
+ * binary in a text article within the limit set with ArticleTypeTextBinary()
+ * (the largest 'textbinary' of the IFILTER label and the feeds), the same
+ * conditions as ArticleTypeTextBinaryType(); otherwise -1.  A label checks
+ * it against its own 'textbinary'.
+ */
+long
+ArticleTypeTextBinarySize(void)
+{
+    if (TextBinMax <= 0 || !(TBFrozen & ARTTYPE_BINARY) || TBOther ||
+	    TBEnc <= 0 || TBEnc > TextBinMax || TBText <= 0)
+	return(-1);
+    return(TBEnc);
+}
+
+/*
+ * A run of encoded lines ended: one of fewer than 9 lines is neither text
+ * nor data (it does not make the article a binary); after one of 9 or more
+ * come its last short lines (tbLine).
+ */
+static void
+tbRunEnd(void)
+{
+    TBPending = 0;
+    if (TBRunKind) {
+	TBTrail = TBRunKind;
+	TBTrailLeft = 2;
+    }
+    TBRunKind = 0;
+}
+
+/* A line with only white space (and its line end) is not text. */
+static int
+tbBlank(const char *ptr, int len)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+	if (ptr[i] != ' ' && ptr[i] != '\t' && ptr[i] != '\r' &&
+							ptr[i] != '\n')
+	    return(0);
+    }
+    return(1);
+}
+
+/*
+ * Whether a line is made only of the characters of an encoding (kind is
+ * UUE, BHX or B64), as the last short line of its data is.  BinHex data
+ * ends with ':'.
+ */
+static int
+tbAlphabetOnly(const char *ptr, int len, int kind)
+{
+    int i;
+
+    if (len <= 0)
+	return(0);
+    for (i = 0; i < len; i++) {
+	unsigned char c = ptr[i];
+
+	if (c == '\r' && i == len - 1)
+	    continue;
+	if (kind == BHX && c == ':')
+	    continue;
+	if (kind == B64 && c == '=')
+	    continue;
+	if (!(charactermap[c] & kind) || c == '\n')
+	    return(0);
+    }
+    return(1);
+}
+
+/*
+ * The lines that frame an encoded file and are neither data nor text:
+ * "begin <mode> <name>" and "end" of a uuencoded file, the BinHex note and
+ * a BinHex line that starts or ends with ':'.
+ */
+static int
+tbFraming(const char *ptr, int len)
+{
+    while (len > 0 && (ptr[len - 1] == ' ' || ptr[len - 1] == '\t' ||
+							ptr[len - 1] == '\r'))
+	--len;
+    if (len >= 7 && strncmp(ptr, "begin ", 6) == 0 && ptr[6] >= '0' &&
+							ptr[6] <= '7')
+	return(1);
+    if (len == 3 && strncmp(ptr, "end", 3) == 0)
+	return(1);
+    if (len >= 33 && strncasecmp(ptr, "(This file must be converted with BinHex", 33) == 0)
+	return(1);
+    if (len > 1 && (ptr[0] == ':' || ptr[len - 1] == ':') &&
+					tbAlphabetOnly(ptr, len, BHX))
+	return(1);
+    return(0);
+}
+
+/*
+ * Measure a body line as it came (not a decoded one): kind is the encoding
+ * whose run it goes on (UUE, BHX or B64) and count the run's line count
+ * with it, or both 0 for a line that is not encoded data.  Before the
+ * article is a binary, a run counts as data from its 9th line on (and its
+ * first 8); once it is, every encoded line does, and in a part sent as
+ * base64 that is not text every line.
+ */
+static void
+tbLine(const char *ptr, int len, int kind, int count)
+{
+    int delim = TBDelim;
+
+    TBDelim = 0;
+    if (!TBACTIVE())
+	return;
+    if (count == 0) {
+	tbRunEnd();
+	if (TBTrailLeft > 0 && tbAlphabetOnly(ptr, len, TBTrail)) {
+	    --TBTrailLeft;
+	    TBEnc += len;
+	    return;
+	}
+	TBTrailLeft = 0;
+	if (TBFrozen) {
+	    if (TBRawB64 && !tbBlank(ptr, len))
+		TBEnc += len;
+	    return;
+	}
+	if (delim || tbFraming(ptr, len) || tbBlank(ptr, len))
+	    return;
+	if (!HdrBlock && (!CTSeen || CTText))
+	    TBText += len;
+	return;
+    }
+    if (count == 1) {
+	tbRunEnd();
+	TBTrailLeft = 0;
+    }
+    if (TBFrozen) {
+	TBEnc += len;
+	TBRunKind = kind;
+    } else if (count < 9) {
+	TBPending += len;
+    } else if (count == 9) {
+	TBEnc += TBPending + len;
+	TBPending = 0;
+	TBRunKind = kind;
+    } else {
+	TBEnc += len;
+    }
 }
 
 int
@@ -983,10 +1216,14 @@ static void
 yencLine(const char *ptr, int len)
 {
     if (len > 0 && *ptr == '=') {
-	if (hdrPrefix(ptr, len, "=ybegin part="))
+	if (hdrPrefix(ptr, len, "=ybegin part=")) {
 	    Type |= ARTTYPE_BINARY|ARTTYPE_PARTIAL|ARTTYPE_YENC;
-	if (hdrPrefix(ptr, len, "=ybegin line="))
+	    TBOther = 1;
+	}
+	if (hdrPrefix(ptr, len, "=ybegin line=")) {
 	    Type |= ARTTYPE_BINARY|ARTTYPE_YENC;
+	    TBOther = 1;
+	}
     }
 }
 
@@ -1112,6 +1349,18 @@ bodyLineTypes(char *ptr, int len, int *uu, int *bh, int *b64, int *armor)
 	}
     }
 
+    /* the lines as they came are measured, not decoded ones (tbLine) */
+    if (uu == &UUencode) {
+	if (linetype & UUE)
+	    tbLine(ptr, len, UUE, *uu + 1);
+	else if (linetype & BHX)
+	    tbLine(ptr, len, BHX, *bh + 1);
+	else if (linetype & B64)
+	    tbLine(ptr, len, B64, *b64 + 1);
+	else
+	    tbLine(ptr, len, 0, 0);
+    }
+
     if (linetype & UUE) {
 	*b64 = 0;
 	*bh = 0;
@@ -1153,9 +1402,14 @@ static int
 decodedLineTypes(char *ptr, int len)
 {
     yencLine(ptr, len);
-    if ((Type & ARTTYPE_BINARY) ||
+    /*
+     * A binary found before is no reason to stop (and to refuse the
+     * article) when it is measured: only this line counts
+     */
+    if (((Type & ARTTYPE_BINARY) && !TBACTIVE()) ||
 	    bodyLineTypes(ptr, len, &DecUUencode, &DecBinHex, &DecBase64,
 								&DecArmor)) {
+	TBOther = 1;
 	Type |= ARTTYPE_BASE64;
 	Type &= ~ARTTYPE_DEFAULT;
 	return(1);
@@ -1194,7 +1448,7 @@ b64Start(void)
 static void
 b64End(void)
 {
-    if (B64Part && DLineLen > 0 && !(Type & ARTTYPE_BINARY))
+    if (B64Part && DLineLen > 0 && (!(Type & ARTTYPE_BINARY) || TBACTIVE()))
 	(void)decodedLineTypes(DLine, DLineLen);
     B64Part = 0;
     B64Blank = 0;
@@ -1225,6 +1479,7 @@ b64Decode(const char *buf, int len)
     int dlen = DLineLen, cr = DLineCR;
     int i, v, b;
     int unclean = 0;
+    int tbtext = (TBACTIVE() && !TBFrozen);	/* count its text (TBText) */
 
     for (i = 0; i < len; i++) {
 	v = B64Val[(unsigned char)buf[i]];
@@ -1258,6 +1513,8 @@ b64Decode(const char *buf, int len)
 	if (b >= 0x20 && b != 0x7f) {
 	    /* the common case: a printable byte of the decoded line */
 	    cr = 0;
+	    if (tbtext && b != ' ')
+		TBText++;	/* decoded text, not its encoded lines */
 	    if (dlen < DLINE_MAX)
 		DLine[dlen++] = b;
 	    continue;
@@ -1265,6 +1522,7 @@ b64Decode(const char *buf, int len)
 	if (NOTTEXT(b)) {
 	    Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
 	    Type &= ~ARTTYPE_DEFAULT;
+	    TBOther = 1;
 	    break;
 	}
 	/* a decoded line ends at LF, CR or CRLF */
@@ -1312,6 +1570,7 @@ partReset(void)
     QPPart = 0;
     QPEsc = 0;
     CTCont = 0;
+    TBRawB64 = 0;
 }
 
 /*
@@ -1322,11 +1581,15 @@ partReset(void)
 int
 ArticleTypeEnd(void)
 {
+    if (TBFrozen && !TBACTIVE())
+	return(TBFrozen);
     if (B64Part)
 	b64End();
+    if (TBACTIVE())
+	tbRunEnd();
     if (Type != ARTTYPE_DEFAULT)
 	Type = Type & ~ARTTYPE_DEFAULT;
-    return(Type);
+    return(tbResult(Type));
 }
 
 /*
@@ -1338,22 +1601,46 @@ ArticleTypeEnd(void)
  */
 static int articleType(char *line, int len, int inheader);
 
+/*
+ * The type the caller gets: once the article is a binary, the type it had
+ * then, also while it is read on to be measured (TextBinMax).
+ */
+static int
+tbResult(int t)
+{
+    if (TBFrozen)
+	return(TBFrozen);
+    if (TextBinMax > 0 && (t & ARTTYPE_BINARY)) {
+	TBFrozen = t;
+	/* no text before the binary: it is not measured, nor read on */
+	if (TBText <= 0)
+	    TBOther = 1;
+    }
+    return(t);
+}
+
 int
 ArticleTypePiece(char *line, int len, int inheader)
 {
-    int t = articleType(line, len, inheader);
+    int t;
 
+    if (TBFrozen && !TBACTIVE())
+	return(TBFrozen);
+    t = articleType(line, len, inheader);
     PieceMore = 1;
-    return(t);
+    return(tbResult(t));
 }
 
 int
 ArticleType(char *line, int len, int inheader)
 {
-    int t = articleType(line, len, inheader);
+    int t;
 
+    if (TBFrozen && !TBACTIVE())
+	return(TBFrozen);
+    t = articleType(line, len, inheader);
     PieceMore = 0;
-    return(t);
+    return(tbResult(t));
 }
 
 static int
@@ -1389,6 +1676,7 @@ articleType(char *line, int len, int inheader)
 	    } else {
 		Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
 		Type &= ~ARTTYPE_DEFAULT;
+		TBRawB64 = 1;
 	    }
 	}
 	/* RFC 2046 section 5.2.1: the identity-encoded body starts
@@ -1408,9 +1696,10 @@ articleType(char *line, int len, int inheader)
 	HdrBlock = 0;
     }
     /*
-     * If we have found a binary, just keep it that way - saves CPU
+     * If we have found a binary, just keep it that way - saves CPU,
+     * unless it is measured (TextBinMax)
      */
-    if (Type & ARTTYPE_BINARY)
+    if ((Type & ARTTYPE_BINARY) && !TBACTIVE())
 	return(Type);
 
     /* an empty line carries no type to classify (and must not be read) */
@@ -1487,8 +1776,10 @@ articleType(char *line, int len, int inheader)
 		    (hdrPrefix(cv, cvlen, "multipart/encrypted") &&
 		     lineHas(cv, cvlen, "application/pgp-encrypted")))
 		PGPMime = 1;
-	    if (hdrPrefix(cv, cvlen, "application/octet-stream") && !PGPMime)
+	    if (hdrPrefix(cv, cvlen, "application/octet-stream") && !PGPMime) {
 		Type |= ARTTYPE_BINARY;
+		TBOther = 1;
+	    }
 	    if (hdrPrefix(cv, cvlen, "message/partial"))
 		Type |= ARTTYPE_PARTIAL;
 	}
@@ -1507,10 +1798,14 @@ articleType(char *line, int len, int inheader)
 		CTEBase64 = 1;
 	    if (HdrBlock && hdrPrefix(ce, celen, "quoted-printable"))
 		CTEQP = 1;
-	    if (hdrPrefix(ce, celen, "X-Bommanews"))
+	    if (hdrPrefix(ce, celen, "X-Bommanews")) {
 		Type |= ARTTYPE_BOMMANEWS | ARTTYPE_BINARY;
-	    if (hdrPrefix(ce, celen, "X-UnidataEncoding"))
+		TBOther = 1;
+	    }
+	    if (hdrPrefix(ce, celen, "X-UnidataEncoding")) {
 		Type |= ARTTYPE_UNIDATA | ARTTYPE_BINARY;
+		TBOther = 1;
+	    }
 	}
     }
     if (first == '(' && len >= 33 &&
@@ -1541,8 +1836,14 @@ articleType(char *line, int len, int inheader)
 	if (dl) {
 	    partReset();
 	    HdrBlock = (dl == 1);
+	    if (TBACTIVE()) {
+		tbRunEnd();
+		TBTrailLeft = 0;
+	    }
 	    if (Type & ARTTYPE_BINARY)
 		return(Type);
+	    if (TBACTIVE())
+		TBDelim = 1;	/* it is not text (tbLine) */
 	} else if (B64Part) {
 	    int k = 3;
 	    int bare = (len == 2 || (len == 3 && ptr[2] == '\r'));
@@ -1574,6 +1875,7 @@ articleType(char *line, int len, int inheader)
 	} else if (QPPart && QPTEXT() && qpBad(ptr, len)) {
 	    Type |= ARTTYPE_BINARY;
 	    Type &= ~ARTTYPE_DEFAULT;
+	    TBOther = 1;
 	    return(Type);
 	}
 

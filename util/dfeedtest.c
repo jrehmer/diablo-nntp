@@ -16,6 +16,9 @@ char *Size = "1000";
 char *NumPath = "1";
 char *MessageId = NULL;
 int ArtType = ARTTYPE_DEFAULT;
+int TextBinType = -1;	/* with 'textbinary' in a label: see ArticleTypeTextBinaryType() */
+long TextBinSize = -1;	/* and ArticleTypeTextBinarySize() */
+int TextBinSet = 0;
 int HeadOnly = 0;
 int Spam = 0;
 
@@ -203,6 +206,14 @@ main(int ac, char **av)
 	printf("\tMessage-ID: %s\n", MessageId != NULL ? MessageId : "NONE");
 	printf("\tNumPath: %s\n", NumPath);
 	printf("\tArtType: %s\n", artType);
+	if (TextBinSet) {
+	    /* the type a label with 'textbinary' is checked with, none = not within the limit */
+	    if (TextBinType < 0)
+		printf("\tTextBinaryType: none\n");
+	    else
+		printf("\tTextBinaryType: %06x\n", TextBinType);
+	    printf("\tTextBinarySize: %ld\n", TextBinSize);
+	}
 	printf("\tHeadOnly: %s\n", HeadOnly ? "Yes" : "No");
 	printf("\tSpam: %s\n", Spam ? "Yes" : "No");
 	if (SpoolMatch) {
@@ -227,7 +238,9 @@ main(int ac, char **av)
 	FeedWrite(0, fwCallBack, "", "",
 			offSize, Newsgroups, NumPath, Dist,
 			HeadOnly ? "1" : "0",
-			artType, Spam, -1, NULL);
+			artType, Spam, -1,
+			(TextBinSize > 0 && TextBinType >= 0) ? TextBinSize : -1,
+			TextBinType, NULL);
     }
 
     exit(0);
@@ -249,6 +262,9 @@ LoadArt(void)
     int npath = 1;
     int size = 0;
 
+    /* as LoadArticle() in diablo does: a binary in a text article is measured */
+    TextBinSet = (FeedTextBinaryMax() > 0);
+    ArticleTypeTextBinary(FeedTextBinaryMax());
     InitArticleType();
 
     while (fgets(buf, sizeof(buf), stdin) != NULL) {
@@ -285,6 +301,8 @@ LoadArt(void)
 
     }
     arttype = ArticleTypeEnd();	/* the last decoded line of a base64 text part */
+    TextBinSize = ArticleTypeTextBinarySize();
+    TextBinType = ArticleTypeTextBinaryType();
     sprintf(buf, "%d", npath);
     NumPath = strdup(buf);
     sprintf(buf, "%d", size);

@@ -11,8 +11,8 @@
 
 #include "defs.h"
 
-Prototype int FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, const char *cSize);
-Prototype int FeedWrite(int logIt, int (*callback)(const char *hlabel, const char *msgid, const char *path, const char *offsize, int plfo, int headOnly, const char *artType, int lines, const char *cSize), const char *msgid, const char *path, const char *offsize, const char *nglist, const char *npath, const char *dist, const char *headOnly, const char *artType, int spamArt, int lines, const char *cSize);
+Prototype int FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, long tbSize, int tbAlt, const char *cSize);
+Prototype int FeedWrite(int logIt, int (*callback)(const char *hlabel, const char *msgid, const char *path, const char *offsize, int plfo, int headOnly, const char *artType, int lines, const char *cSize), const char *msgid, const char *path, const char *offsize, const char *nglist, const char *npath, const char *dist, const char *headOnly, const char *artType, int spamArt, int lines, long tbSize, int tbAlt, const char *cSize);
 Prototype void FeedFlush(void);
 Prototype void LoadNewsFeed(time_t t, int force, const char *hlabel);
 Prototype void TouchNewsFeed(void);
@@ -32,6 +32,8 @@ Prototype int FeedPrecommitReject(const char *hlabel);
 Prototype LabelList *FeedLinkLabelList(void);
 Prototype NewslinkInfo *FeedLinkInfo(const char *hlabel);
 Prototype int FeedFilter(char *hlabel, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
+Prototype int FeedFilterTextBinary(void);
+Prototype int FeedTextBinaryMax(void);
 Prototype int FeedSpam(int which, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
 Prototype void DumpAllFeedInfo(FILE *fo);
 Prototype void DumpFeedInfo(FILE *fo, char *label);
@@ -68,6 +70,7 @@ typedef struct NewsFeed {
     int			nf_MinCrossPost;	/* 0=unlimited 		*/
     int			nf_MaxArtSize;		/* 0=unlimited 		*/
     int			nf_MinArtSize;		/* 0=unlimited 		*/
+    int			nf_TextBinary;		/* IFILTER: binary in a text article, max encoded bytes, 0=off */
     int			nf_MaxPathLen;		/* maximum outgoing path len */
     int			nf_MinPathLen;		/* minimum outgoing path len */
     int			nf_MaxConnect;		/* max connections	*/
@@ -112,6 +115,8 @@ char	NFBuf[16384];
 FILE	*FeedFo = NULL;
 MemPool	*NFMemPool = NULL;
 const char *SaveHLabel = NULL;
+static int TextBinaryAll = 0;	/* the largest 'textbinary' of a complete load, see FeedTextBinaryMax() */
+static int textBinaryLoaded(void);
 int FeedDebug = 0;
 int UseSpamAlias = 0;
 
@@ -160,9 +165,10 @@ int recursiveScan(NewsFeed *feed, int off, const void *data, int (*callback)(Nod
  */
 
 int 
-FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, const char *cSize)
+FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, long tbSize, int tbAlt, const char *cSize)
 {
     int r = 0;
+    char tbfield[48] = "";
 
     LoadNewsFeed(t, 0, NULL);
 
@@ -173,11 +179,16 @@ FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char 
 
 	/*
 	 * L<lines> (the body lines, D-174) comes before cSize: cSize may be
-	 * empty, and strtok() would then take the next field for it.
+	 * empty, and strtok() would then take the next field for it.  So
+	 * does T<size>:<type> for a binary in a text article (a feed with
+	 * 'textbinary', see FeedWrite()): its encoded bytes and the article's
+	 * type without its binary types, in hex.
 	 */
-	fprintf(FeedFo, "SOUT\t%s\t%lld,%ld\t%s\t%s\t%s\t%s\t%d\t%s\tL%d\t%s\n",
+	if (tbSize > 0 && tbAlt >= 0)
+	    snprintf(tbfield, sizeof(tbfield), "T%ld:%x\t", tbSize, tbAlt);
+	fprintf(FeedFo, "SOUT\t%s\t%lld,%ld\t%s\t%s\t%s\t%s\t%d\t%s\tL%d\t%s%s\n",
 	    path, (long long)h->boffset, (long)h->bsize, msgid, nglist, dist, npath,
-	    headerOnly, artType, lines, cSize
+	    headerOnly, artType, lines, tbfield, cSize
 	);
 	fflush(FeedFo);	/* simplify the parent reader on the pipe */
 	if (ferror(FeedFo)) {
@@ -206,6 +217,8 @@ FeedWrite(int logIt,
     const char *artType,
     int spamArt,
     int lines,
+    long tbSize,
+    int tbAlt,
     const char *cSize
 ) {
     NewsFeed *nf;
@@ -269,11 +282,22 @@ FeedWrite(int logIt,
     }
 
     for (nf = NFBase; nf; nf = nf->nf_Next) {
+	int at = strtol(artType, NULL, 16);
+
 	if (FeedDebug)
 	    printf(">>SCAN:%s\n", nf->nf_Label);
 	if (UseSpamAlias && feedQuerySpamPaths(nf, npath, bytes, msgid))
 	    break;
-	if (feedQueryPaths(nf, npath, bytes, strtol(artType, NULL, 16)) == 0 && 
+
+	/*
+	 * A feed with 'textbinary' takes a binary in a text article (tbSize
+	 * encoded bytes, see ArticleTypeTextBinarySize()) of at most that
+	 * many bytes for the type it has without its binary types (tbAlt)
+	 */
+	if (tbSize > 0 && tbAlt >= 0 && nf->nf_TextBinary > 0 &&
+						tbSize <= nf->nf_TextBinary)
+	    at = tbAlt;
+	if (feedQueryPaths(nf, npath, bytes, at) == 0 && 
 	    feedQueryGroups(nf, nglist) == 0 &&
 	    feedSpamFeedOK(nf->nf_SpamFeedOpt, spamArt) == 0 &&
 	    feedQueryDists(nf, dist) == 0 &&
@@ -1551,6 +1575,22 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 			    nf->nf_MaxArtSize = bsizetol(s2);
 			    err = 0;
 			}
+		    } else if (strcmp(s1, "textbinary") == 0) {
+			if (nf && s2) {
+			    if (strcmp(nf->nf_Label, "ISPAM") == 0 ||
+				    strcmp(nf->nf_Label, "ESPAM") == 0) {
+				logit(LOG_WARNING,
+				   "Newsfeed config line %d, textbinary does not apply to the %s label, ignored",
+				    lineNo, nf->nf_Label);
+			    } else {
+				long v = bsizetol(s2);
+
+				/* 2g and more is a limit nothing reaches, not off */
+				nf->nf_TextBinary = (v > 0x7fffffffL) ? 0x7fffffff :
+							(v < 0) ? 0 : (int)v;
+			    }
+			    err = 0;
+			}
 		    } else if (strcmp(s1, "groupdef") == 0) {
 			if (nf) {
 			    logit(LOG_CRIT,
@@ -2099,6 +2139,15 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 	    for (nf = GRBase; nf; nf = nf->nf_Next) {
 		resolveDefaults(nf, nf->nf_FilterBase);
 	    }
+
+	    /*
+	     * The largest 'textbinary' of a load of every label.  A
+	     * connection's process loads only its own label, but measures
+	     * its articles for the feeds (FeedTextBinaryMax()), and keeps
+	     * what the master saw.
+	     */
+	    if (SaveHLabel == NULL)
+		TextBinaryAll = textBinaryLoaded();
 	}
     }
 }
@@ -2375,6 +2424,8 @@ resolveDefaults(NewsFeed *nf, Node *no)
 	        nf->nf_MaxInboundRate = zallocStr(&NFMemPool, gl->nf_MaxInboundRate);
 	    if (nf->nf_ArtTypes == NULL && gl->nf_ArtTypes)
 		nf->nf_ArtTypes = gl->nf_ArtTypes;
+	    if (!nf->nf_TextBinary && gl->nf_TextBinary)
+		nf->nf_TextBinary = gl->nf_TextBinary;
 
 	    if (nf->nf_Dist == NULL && gl->nf_Dist)
 		zappendStr(&NFMemPool, &nf->nf_Dist, NULL, gl->nf_Dist);
@@ -2518,6 +2569,47 @@ FeedFilter(char *hlabel, const char *nglist, const char *npath, const char *dist
 	return(1);
     }
     return(0);
+}
+
+/*
+ * The 'textbinary' limit of the IFILTER label: a binary in a text article
+ * with at most that many bytes of encoded data is not filtered.  0 = off.
+ */
+int
+FeedFilterTextBinary(void)
+{
+    return((IFBase != NULL && IFBase->nf_TextBinary > 0) ? IFBase->nf_TextBinary : 0);
+}
+
+/*
+ * The largest 'textbinary' limit of the labels that are loaded.
+ */
+static int
+textBinaryLoaded(void)
+{
+    NewsFeed *nf;
+    int max = FeedFilterTextBinary();
+
+    for (nf = NFBase; nf; nf = nf->nf_Next) {
+	if (nf->nf_TextBinary > max)
+	    max = nf->nf_TextBinary;
+    }
+    return(max);
+}
+
+/*
+ * The largest 'textbinary' limit of the IFILTER label and the feeds: how far
+ * a binary in a text article is measured (ArticleTypeTextBinary()).  0 = off.
+ * A connection's process loads only its own label (and all of them when
+ * dnewsfeeds changes, LoadNewsFeed()), so it also keeps the largest limit of
+ * the last load of every label, which is what the master saw.
+ */
+int
+FeedTextBinaryMax(void)
+{
+    int max = textBinaryLoaded();
+
+    return((TextBinaryAll > max) ? TextBinaryAll : max);
 }
 
 int
@@ -2712,6 +2804,7 @@ DumpFeedInfo(FILE *fo, char *label)
     fprintf(fo, "  MinCrossPost   : %d\n", nf->nf_MinCrossPost);
     fprintf(fo, "  MaxArtSize     : %d\n", nf->nf_MaxArtSize);
     fprintf(fo, "  MinArtSize     : %d\n", nf->nf_MinArtSize);
+    fprintf(fo, "  TextBinary     : %d\n", nf->nf_TextBinary);
     fprintf(fo, "  MaxPathLen     : %d\n", nf->nf_MaxPathLen);
     fprintf(fo, "  MinPathLen     : %d\n", nf->nf_MinPathLen);
     fprintf(fo, "  MaxConnect     : %d\n", nf->nf_MaxConnect);
