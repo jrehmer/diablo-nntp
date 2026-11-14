@@ -1583,7 +1583,7 @@ func TestTextBinaryOutgoingFeed(t *testing.T) {
 // 732-byte one reaches fsmall and fbig. Before the fix the first article was measured with the
 // old limit, got no size for the master, and reached neither (the second one did: FeedAdd had
 // reloaded dnewsfeeds by then). Takes up to a minute and a quarter: dnewsfeeds is checked once a
-// minute, and a file younger than 10 s is left alone.
+// minute, and a file younger than 10 s is left alone for that minute.
 func TestTextBinaryLimitReload(t *testing.T) {
 	feed := func(name, extra string) string {
 		return "label " + name + "\n    hostname 127.0.0.1\n    alias e2e." + name +
@@ -1604,7 +1604,6 @@ func TestTextBinaryLimitReload(t *testing.T) {
 	}
 	p := s.Peer(t) // its process loads dnewsfeeds now and then again once a minute
 	defer p.ExpectCmd(205, "QUIT")
-	first := time.Now()
 	lines, _ := art("plain before", text...)
 	if got := offerOn(t, p, lines); got != "235" {
 		t.Fatalf("plain before: IHAVE %s, want 235", got)
@@ -1614,12 +1613,15 @@ func TestTextBinaryLimitReload(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	s.WriteFile(t, "dnewsfeeds", cfg("    textbinary 1k\n", "    textbinary 4k\n"))
 	written := time.Now()
-	// the connection's process checks dnewsfeeds on its next article of a later minute, and the
-	// master a second after the minute starts; the file must be 10 s old
-	for time.Now().Unix()/60 <= first.Unix()/60 || time.Since(written) < 11*time.Second ||
-		time.Now().Unix()%60 < 3 {
-		time.Sleep(500 * time.Millisecond)
+	// diablo checks dnewsfeeds once a minute, at the first call in a new minute (the master
+	// at least every 5 s, the connection's process at its next article), and a file younger
+	// than 10 s is left alone for that minute: the first check must come after a minute
+	// boundary that is 11 s or more behind the write, and a few seconds into the minute
+	boundary := written.Truncate(time.Minute).Add(time.Minute)
+	if boundary.Sub(written) < 11*time.Second {
+		boundary = boundary.Add(time.Minute)
 	}
+	time.Sleep(time.Until(boundary.Add(3 * time.Second)))
 
 	arts := []struct {
 		name string
