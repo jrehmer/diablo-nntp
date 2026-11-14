@@ -116,6 +116,7 @@ FILE	*FeedFo = NULL;
 MemPool	*NFMemPool = NULL;
 const char *SaveHLabel = NULL;
 static int TextBinaryAll = 0;	/* the largest 'textbinary' of a complete load, see FeedTextBinaryMax() */
+static int textBinaryLoaded(void);
 int FeedDebug = 0;
 int UseSpamAlias = 0;
 
@@ -2146,7 +2147,7 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 	     * what the master saw.
 	     */
 	    if (SaveHLabel == NULL)
-		TextBinaryAll = FeedTextBinaryMax();
+		TextBinaryAll = textBinaryLoaded();
 	}
     }
 }
@@ -2581,23 +2582,34 @@ FeedFilterTextBinary(void)
 }
 
 /*
- * The largest 'textbinary' limit of the IFILTER label and the feeds: how far
- * a binary in a text article is measured (ArticleTypeTextBinary()).  0 = off.
+ * The largest 'textbinary' limit of the labels that are loaded.
  */
-int
-FeedTextBinaryMax(void)
+static int
+textBinaryLoaded(void)
 {
     NewsFeed *nf;
     int max = FeedFilterTextBinary();
-
-    if (SaveHLabel != NULL && TextBinaryAll > max)
-	max = TextBinaryAll;
 
     for (nf = NFBase; nf; nf = nf->nf_Next) {
 	if (nf->nf_TextBinary > max)
 	    max = nf->nf_TextBinary;
     }
     return(max);
+}
+
+/*
+ * The largest 'textbinary' limit of the IFILTER label and the feeds: how far
+ * a binary in a text article is measured (ArticleTypeTextBinary()).  0 = off.
+ * A connection's process loads only its own label (and all of them when
+ * dnewsfeeds changes, LoadNewsFeed()), so it also keeps the largest limit of
+ * the last load of every label, which is what the master saw.
+ */
+int
+FeedTextBinaryMax(void)
+{
+    int max = textBinaryLoaded();
+
+    return((TextBinaryAll > max) ? TextBinaryAll : max);
 }
 
 int
