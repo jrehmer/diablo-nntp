@@ -106,18 +106,21 @@ static int PieceMore = 0;	/* the last call was a piece: the line goes on */
  * A binary in a text article (the 'textbinary' option of the IFILTER label
  * in dnewsfeeds).  With TextBinMax set, the text before the article
  * becomes a binary is counted: the lines of a body that is not MIME, or of
- * a text part, but blank lines, part headers, the begin and end lines of a
- * uuencoded or BinHex file and runs of encoded lines.  An article with such
- * text is read on to its end, to measure its encoded data: the lines of
- * each run of 9 or more uuencode, BinHex or base64 lines, from the first
- * line of the run, and the last short lines after it.  Text after the
- * binary does not count.  The type the caller gets stays the one the
- * article had when it became a binary, as without the option.  An article
- * with no text before its binary, and a binary of another kind (yEnc, an
- * application/octet-stream part, base64 or quoted-printable text that
- * decodes to binary data, X-Bommanews, X-UnidataEncoding), is not measured
- * (TBOther), and neither is one whose encoded data is over the limit: such
- * an article is not read on.
+ * a text part, except lines with only white space, part headers and MIME
+ * delimiters, the begin and end lines of a uuencoded or BinHex file and
+ * encoded lines (a run of fewer than 9 of them is not text either).  An
+ * article with such text is read on to its end, to measure its encoded
+ * data: the lines of each run of 9 or more uuencode, BinHex or base64
+ * lines, from the first line of the run, and the last short lines after
+ * it; once the article is a binary every encoded line counts, whatever the
+ * length of its run, and so does every line of a part sent as base64 that
+ * is not text.  Text after the binary does not count.  The type the caller
+ * gets stays the one the article had when it became a binary, as without
+ * the option.  An article with no text before its binary, and a binary of
+ * another kind (yEnc, an application/octet-stream part, base64 or
+ * quoted-printable text that decodes to binary data, X-Bommanews,
+ * X-UnidataEncoding), is not measured (TBOther), and neither is one whose
+ * encoded data is over the limit: such an article is not read on.
  */
 static int TextBinMax = 0;	/* the limit in bytes, 0 = off */
 static int TBFrozen = 0;	/* the type the article had when it became a binary */
@@ -128,6 +131,8 @@ static long TBPending = 0;	/* bytes of the run being read, not yet 9 lines */
 static int TBRunKind = 0;	/* UUE, BHX or B64: a run of 9 or more lines is being read */
 static int TBTrail = 0;		/* the kind of the run that just ended, for its last lines */
 static int TBTrailLeft = 0;	/* lines after a run that may still be its last short lines */
+static int TBRawB64 = 0;	/* in a part sent as base64 that is not text: all its lines are data */
+static int TBDelim = 0;		/* the line being read is a MIME delimiter */
 
 #define	TBACTIVE()	(TextBinMax > 0 && !TBOther && TBEnc <= TextBinMax)
 
@@ -615,6 +620,8 @@ InitArticleType(void)
     TBRunKind = 0;
     TBTrail = 0;
     TBTrailLeft = 0;
+    TBRawB64 = 0;
+    TBDelim = 0;
 }
 
 /*
@@ -632,7 +639,9 @@ ArticleTypeTextBinary(int max)
  * within the 'textbinary' limit (it has text, and encoded data of at most
  * that many bytes, and no binary of another kind), the article's type
  * without its binary bits (ARTTYPE_DEFAULT if no other bit is left), for
- * the IFILTER label to be checked again with.  Otherwise -1.
+ * the IFILTER label to be checked again with.  The type is the one of the
+ * whole article, read on to its end: a type that comes after the binary
+ * (an HTML part) is in it.  Otherwise -1.
  */
 int
 ArticleTypeTextBinaryType(void)
@@ -642,7 +651,7 @@ ArticleTypeTextBinaryType(void)
     if (TextBinMax <= 0 || !(TBFrozen & ARTTYPE_BINARY) || TBOther ||
 	    TBEnc <= 0 || TBEnc > TextBinMax || TBText <= 0)
 	return(-1);
-    t = TBFrozen & ~(ARTTYPE_BINARY | ARTTYPE_UUENCODE | ARTTYPE_BINHEX |
+    t = Type & ~(ARTTYPE_BINARY | ARTTYPE_UUENCODE | ARTTYPE_BINHEX |
 							ARTTYPE_BASE64);
     if ((t & ~ARTTYPE_DEFAULT) == 0)
 	t = ARTTYPE_DEFAULT;
@@ -650,20 +659,33 @@ ArticleTypeTextBinaryType(void)
 }
 
 /*
- * A run of encoded lines ended: one of fewer than 9 lines was text, after
- * one of 9 or more come its last short lines (tbLine).
+ * A run of encoded lines ended: one of fewer than 9 lines is neither text
+ * nor data (it does not make the article a binary); after one of 9 or more
+ * come its last short lines (tbLine).
  */
 static void
 tbRunEnd(void)
 {
-    if (TBPending > 0 && !TBFrozen && !HdrBlock && (!CTSeen || CTText))
-	TBText += TBPending;
     TBPending = 0;
     if (TBRunKind) {
 	TBTrail = TBRunKind;
 	TBTrailLeft = 2;
     }
     TBRunKind = 0;
+}
+
+/* A line with only white space (and its line end) is not text. */
+static int
+tbBlank(const char *ptr, int len)
+{
+    int i;
+
+    for (i = 0; i < len; i++) {
+	if (ptr[i] != ' ' && ptr[i] != '\t' && ptr[i] != '\r' &&
+							ptr[i] != '\n')
+	    return(0);
+    }
+    return(1);
 }
 
 /*
@@ -720,11 +742,17 @@ tbFraming(const char *ptr, int len)
 /*
  * Measure a body line as it came (not a decoded one): kind is the encoding
  * whose run it goes on (UUE, BHX or B64) and count the run's line count
- * with it, or both 0 for a line that is not encoded data.
+ * with it, or both 0 for a line that is not encoded data.  Before the
+ * article is a binary, a run counts as data from its 9th line on (and its
+ * first 8); once it is, every encoded line does, and in a part sent as
+ * base64 that is not text every line.
  */
 static void
 tbLine(const char *ptr, int len, int kind, int count)
 {
+    int delim = TBDelim;
+
+    TBDelim = 0;
     if (!TBACTIVE())
 	return;
     if (count == 0) {
@@ -735,9 +763,14 @@ tbLine(const char *ptr, int len, int kind, int count)
 	    return;
 	}
 	TBTrailLeft = 0;
-	if (tbFraming(ptr, len))
+	if (TBFrozen) {
+	    if (TBRawB64 && !tbBlank(ptr, len))
+		TBEnc += len;
 	    return;
-	if (!TBFrozen && !HdrBlock && (!CTSeen || CTText))
+	}
+	if (delim || tbFraming(ptr, len) || tbBlank(ptr, len))
+	    return;
+	if (!HdrBlock && (!CTSeen || CTText))
 	    TBText += len;
 	return;
     }
@@ -745,7 +778,10 @@ tbLine(const char *ptr, int len, int kind, int count)
 	tbRunEnd();
 	TBTrailLeft = 0;
     }
-    if (count < 9) {
+    if (TBFrozen) {
+	TBEnc += len;
+	TBRunKind = kind;
+    } else if (count < 9) {
 	TBPending += len;
     } else if (count == 9) {
 	TBEnc += TBPending + len;
@@ -1349,7 +1385,11 @@ static int
 decodedLineTypes(char *ptr, int len)
 {
     yencLine(ptr, len);
-    if ((Type & ARTTYPE_BINARY) ||
+    /*
+     * A binary found before is no reason to stop (and to refuse the
+     * article) when it is measured: only this line counts
+     */
+    if (((Type & ARTTYPE_BINARY) && !TBACTIVE()) ||
 	    bodyLineTypes(ptr, len, &DecUUencode, &DecBinHex, &DecBase64,
 								&DecArmor)) {
 	TBOther = 1;
@@ -1391,7 +1431,7 @@ b64Start(void)
 static void
 b64End(void)
 {
-    if (B64Part && DLineLen > 0 && !(Type & ARTTYPE_BINARY))
+    if (B64Part && DLineLen > 0 && (!(Type & ARTTYPE_BINARY) || TBACTIVE()))
 	(void)decodedLineTypes(DLine, DLineLen);
     B64Part = 0;
     B64Blank = 0;
@@ -1510,6 +1550,7 @@ partReset(void)
     QPPart = 0;
     QPEsc = 0;
     CTCont = 0;
+    TBRawB64 = 0;
 }
 
 /*
@@ -1615,6 +1656,7 @@ articleType(char *line, int len, int inheader)
 	    } else {
 		Type |= ARTTYPE_BASE64 | ARTTYPE_BINARY;
 		Type &= ~ARTTYPE_DEFAULT;
+		TBRawB64 = 1;
 	    }
 	}
 	/* RFC 2046 section 5.2.1: the identity-encoded body starts
@@ -1780,6 +1822,8 @@ articleType(char *line, int len, int inheader)
 	    }
 	    if (Type & ARTTYPE_BINARY)
 		return(Type);
+	    if (TBACTIVE())
+		TBDelim = 1;	/* it is not text (tbLine) */
 	} else if (B64Part) {
 	    int k = 3;
 	    int bare = (len == 2 || (len == 3 && ptr[2] == '\r'));
@@ -1806,7 +1850,7 @@ articleType(char *line, int len, int inheader)
 		 * as base64 lines.  A line with characters that are not
 		 * base64 also gets the checks of a line as it came.
 		 */
-		if (TBACTIVE() && !TBFrozen)
+		if (TBACTIVE() && !TBFrozen && !tbBlank(ptr, len))
 		    TBText += len;
 		return(Type);
 	    }

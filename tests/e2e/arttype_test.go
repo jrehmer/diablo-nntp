@@ -1224,8 +1224,11 @@ func TestNestedMessageHeaderScope(t *testing.T) {
 // text in its body before a binary of at most <size> bytes of encoded data (the lines of its
 // uuencode, BinHex or base64 runs, without line ends) is not refused in a non-binary group, as
 // in early groups where small files were posted with their discussion. An article that is only
-// a binary, one with its text only after the binary, one whose binary is over the limit, a yEnc binary and an article the label also
-// filters for another type (html) are refused as before.
+// a binary (also one whose "text" is white space, part headers, a MIME delimiter or short runs
+// of encoded lines), one with its text only after the binary, one whose binary is over the
+// limit (also one cut into runs of 8 lines, or a base64 part that is not text), a yEnc binary
+// and an article the label also filters for another type (html, in the article header or in a
+// part after the binary) are refused as before.
 func TestIncomingFilterTextBinary(t *testing.T) {
 	ifilter := func(types, extra string) string {
 		return DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes " + types + "\n" + extra + "end\n"
@@ -1262,6 +1265,37 @@ func TestIncomingFilterTextBinary(t *testing.T) {
 		i := slices.Index(a, "")
 		return slices.Insert(a, i, "Mime-Version: 1.0", "Content-Type: text/html")
 	}
+	mime := func(ctype string, body []string) []string {
+		a := art(body)
+		i := slices.Index(a, "")
+		return slices.Insert(a, i, "Mime-Version: 1.0", "Content-Type: "+ctype)
+	}
+	plain := func(l ...string) []string { return append([]string{"Content-Type: text/plain", ""}, l...) }
+	uuRaw := func(n int) []string { return atLines(n, 60, uuAlphabet, "M") }
+	// 9 lines, then runs of 8 lines each ended by a line of text: a binary cut into short runs
+	// after its first one, which counts as a run of 9 or more lines.
+	cut := func(groups int) []string {
+		l := uuRaw(9)
+		for i := 0; i < groups; i++ {
+			l = append(append(l, uuRaw(8)...), "x")
+		}
+		return l
+	}
+	b64Cut := func(groups int) []string {
+		l := atLines(9, 76, b64Alphabet, "")
+		for i := 0; i < groups; i++ {
+			l = append(append(l, atLines(8, 76, b64Alphabet, "")...), atLines(1, 56, b64Alphabet, "")...)
+		}
+		return l
+	}
+	b64One := func(s string) []string { // a base64 text part of one line, no trailing newline in the data
+		return []string{"Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "",
+			base64.StdEncoding.EncodeToString([]byte(s))}
+	}
+	nestedEmpty := append([]string{"Content-Type: multipart/mixed; boundary=i", ""}, mpBody("i", plain())...)
+	imagePart := func(data []string) []string {
+		return append([]string{"Content-Type: image/jpeg", "Content-Transfer-Encoding: base64", ""}, data...)
+	}
 
 	// Without the option, a small binary in a text article is refused (the control).
 	s0 := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary", "")})
@@ -1282,7 +1316,34 @@ func TestIncomingFilterTextBinary(t *testing.T) {
 		{"text with a uuencoded file over the limit", art(cat(text, uu(100))), "437"},
 		{"a uuencoded file alone", art(uu(12)), "437"},
 		{"a uuencoded file with the text after it", art(cat(uu(12), text)), "437"},
-		{"a uuencoded file with its last short lines", art(append(append(uu(12)[:13], "&9F%L<V4*", "`"), "end")), "437"},
+		{"a uuencoded file with its last short lines, no text", art(append(append(uu(12)[:13], "&9F%L<V4*", "`"), "end")), "437"},
+		{"text with a uuencoded file and its last short lines", art(cat(text, append(append(uu(12)[:13], "&9F%L<V4*", "`"), "end"))), "235"},
+		// 1: after the binary every encoded line counts, whatever the length of its run
+		{"text with a uuencoded file cut into runs of 8 lines", art(cat(text, cut(10))), "437"},
+		{"text with a small cut uuencoded file", art(cat(text, cut(1))), "235"},
+		{"text with an image part cut into runs of 8 lines",
+			mime("multipart/mixed; boundary=b", mpBody("b", plain(text...), imagePart(b64Cut(10)))), "437"},
+		{"text with a small image part", mime("multipart/mixed; boundary=b",
+			mpBody("b", plain(text...), imagePart(atLines(12, 76, b64Alphabet, "")))), "235"},
+		// 2, 3, 4: encoded runs of fewer than 9 lines, white space and a MIME delimiter are not text
+		{"short runs of uuencode lines, no text", art(cat(uu(8), uu(9))), "437"},
+		{"white space and a uuencoded file", art(cat([]string{" ", "\t"}, uu(12))), "437"},
+		{"a closed multipart and a part with only a uuencoded file", mime("multipart/mixed; boundary=o",
+			mpBody("o", nestedEmpty, plain(uu(12)...))), "437"},
+		{"a closed multipart and a part with text and a uuencoded file", mime("multipart/mixed; boundary=o",
+			mpBody("o", nestedEmpty, plain(cat(text, uu(12))...))), "235"},
+		// 5, 6: a base64 text part after the binary is checked on its own
+		{"text with a small uuencoded file, then a base64 text part", mime("multipart/mixed; boundary=b",
+			mpBody("b", plain(cat(text, uu(12))...), b64TextPart())), "235"},
+		{"text with a small uuencoded file, then a base64 text part that decodes to a yEnc header",
+			mime("multipart/mixed; boundary=b", mpBody("b", plain(cat(text, uu(12))...),
+				b64One("=ybegin line=128 size=6 name=a.bin"))), "437"},
+		{"text with a small uuencoded file, then a base64 text part of one line without a newline",
+			mime("multipart/mixed; boundary=b", mpBody("b", plain(cat(text, uu(12))...),
+				b64One("Signed: Jesse"))), "235"},
+		// 7: a type that comes after the binary is checked too, by a label that filters it
+		{"text with a small uuencoded file, then an HTML part", mime("multipart/alternative; boundary=b",
+			mpBody("b", plain(cat(text, uu(12))...), []string{"Content-Type: text/html", "", "<p>hi</p>"})), "235"},
 		{"text with a small yEnc file", art(cat(text, []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"})), "437"},
 		{"text with a small uuencoded file and a yEnc file", art(cat(text, uu(12), []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"})), "437"},
 	} {
@@ -1308,5 +1369,89 @@ func TestIncomingFilterTextBinary(t *testing.T) {
 	}
 	if got := offer(sh, art(cat(text, uu(12)))); got != "235" {
 		t.Errorf("arttypes binary,html, text with a small uuencoded file: IHAVE %s, want 235", got)
+	}
+	alt := mime("multipart/alternative; boundary=b", mpBody("b", plain(cat(text, uu(12))...),
+		[]string{"Content-Type: text/html", "", "<p>hi</p>"}))
+	if got := offer(sh, alt); got != "437" {
+		t.Errorf("arttypes binary,html, a small uuencoded file in a text part, then an HTML part: IHAVE %s, want 437", got)
+	}
+
+	// 8: a limit of 2g or more is not off
+	sg := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary", "    textbinary 4g\n")})
+	if got := offer(sg, art(cat(text, uu(12)))); got != "235" {
+		t.Errorf("textbinary 4g, text with a small uuencoded file: IHAVE %s, want 235", got)
+	}
+}
+
+// TestTextBinaryArtType: with `textbinary` in the IFILTER label the ArtType that diablo logs and
+// feeds match on is the one the article has without it (frozen when the article became a
+// binary), and the type the label is checked again with is the article's without its binary
+// bits, including what comes after the binary; it is none for an article that is refused.
+// dfeedtest -a does what LoadArticle() does.
+func TestTextBinaryArtType(t *testing.T) {
+	ifilter := func(extra string) string {
+		return DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes binary\n" + extra + "end\n"
+	}
+	off := NewSite(t, SiteOptions{Newsfeeds: ifilter(""), NoStart: true})
+	on := NewSite(t, SiteOptions{Newsfeeds: ifilter("    textbinary 4k\n"), NoStart: true})
+	text := []string{"Here is the small program I mentioned, uuencoded."}
+	uu := func(n int) []string {
+		return append(append([]string{"begin 644 prog.bin"}, atLines(n, 60, uuAlphabet, "M")...), "end")
+	}
+	cat := func(parts ...[]string) []string {
+		var l []string
+		for _, p := range parts {
+			l = append(l, p...)
+		}
+		return l
+	}
+	tbType := func(s *Site, lines []string) string {
+		t.Helper()
+		cmd := exec.Command(filepath.Join(s.Bin, "dfeedtest"), "-a")
+		cmd.Dir = s.Dir
+		cmd.Env = append(os.Environ(), s.Env...)
+		cmd.Stdin = strings.NewReader(strings.Join(lines, "\n") + "\n")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("dfeedtest -a: %v\n%s", err, out)
+		}
+		for _, l := range strings.Split(string(out), "\n") {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(l), "TextBinaryType: "); ok {
+				return v
+			}
+		}
+		return "-"
+	}
+	html := []string{"Content-Type: text/html", "", "<p>hi</p>"}
+	mix := func(ctype string, parts ...[]string) []string {
+		return atArticle([]string{"Mime-Version: 1.0", "Content-Type: " + ctype}, mpBody("b", parts...))
+	}
+	txt := func(l ...string) []string { return append([]string{"Content-Type: text/plain", ""}, l...) }
+
+	for _, c := range []struct {
+		name  string
+		lines []string
+		want  string // the type of the second check; "none" = the article is refused
+	}{
+		{"text, small uuencoded file", atArticle(nil, cat(text, uu(12))), fmt.Sprintf("%06x", atDefault)},
+		{"text, uuencoded file over the limit", atArticle(nil, cat(text, uu(100))), "none"},
+		{"uuencoded file only", atArticle(nil, uu(12)), "none"},
+		{"multipart, text with a small uuencoded file, then an HTML part",
+			mix("multipart/alternative; boundary=b", txt(cat(text, uu(12))...), html),
+			fmt.Sprintf("%06x", atMIME|atMultipart|atHTML)},
+		{"multipart, text with a small uuencoded file, then a yEnc part",
+			mix("multipart/mixed; boundary=b", txt(cat(text, uu(12))...),
+				txt("=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6")), "none"},
+	} {
+		got := artTypeOf(t, on, c.lines)
+		if want := artTypeOf(t, off, c.lines); got != want {
+			t.Errorf("%s: ArtType with textbinary %06x, without it %06x; it must not change", c.name, got, want)
+		}
+		if v := tbType(on, c.lines); v != c.want {
+			t.Errorf("%s: TextBinaryType %s, want %s", c.name, v, c.want)
+		}
+		if v := tbType(off, c.lines); v != "-" {
+			t.Errorf("%s: without textbinary TextBinaryType is shown (%s)", c.name, v)
+		}
 	}
 }

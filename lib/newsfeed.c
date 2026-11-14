@@ -1555,7 +1555,17 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 			}
 		    } else if (strcmp(s1, "textbinary") == 0) {
 			if (nf && s2) {
-			    nf->nf_TextBinary = bsizetol(s2);
+			    if (strcmp(nf->nf_Label, "IFILTER") != 0) {
+				logit(LOG_WARNING,
+				   "Newsfeed config line %d, textbinary only applies to the IFILTER label, ignored",
+				    lineNo);
+			    } else {
+				long v = bsizetol(s2);
+
+				/* 2g and more is a limit nothing reaches, not off */
+				nf->nf_TextBinary = (v > 0x7fffffffL) ? 0x7fffffff :
+							(v < 0) ? 0 : (int)v;
+			    }
 			    err = 0;
 			}
 		    } else if (strcmp(s1, "groupdef") == 0) {
