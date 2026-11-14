@@ -1462,6 +1462,7 @@ b64Decode(const char *buf, int len)
     int dlen = DLineLen, cr = DLineCR;
     int i, v, b;
     int unclean = 0;
+    int tbtext = (TBACTIVE() && !TBFrozen);	/* count its text (TBText) */
 
     for (i = 0; i < len; i++) {
 	v = B64Val[(unsigned char)buf[i]];
@@ -1495,6 +1496,8 @@ b64Decode(const char *buf, int len)
 	if (b >= 0x20 && b != 0x7f) {
 	    /* the common case: a printable byte of the decoded line */
 	    cr = 0;
+	    if (tbtext && b != ' ')
+		TBText++;	/* decoded text, not its encoded lines */
 	    if (dlen < DLINE_MAX)
 		DLine[dlen++] = b;
 	    continue;
@@ -1850,8 +1853,6 @@ articleType(char *line, int len, int inheader)
 		 * as base64 lines.  A line with characters that are not
 		 * base64 also gets the checks of a line as it came.
 		 */
-		if (TBACTIVE() && !TBFrozen && !tbBlank(ptr, len))
-		    TBText += len;
 		return(Type);
 	    }
 	} else if (QPPart && QPTEXT() && qpBad(ptr, len)) {

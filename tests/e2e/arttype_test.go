@@ -1332,6 +1332,13 @@ func TestIncomingFilterTextBinary(t *testing.T) {
 			mpBody("o", nestedEmpty, plain(uu(12)...))), "437"},
 		{"a closed multipart and a part with text and a uuencoded file", mime("multipart/mixed; boundary=o",
 			mpBody("o", nestedEmpty, plain(cat(text, uu(12))...))), "235"},
+		// review of chatgpt-1: the text of a base64 text part is its decoded text
+		{"a base64 text part of white space, then a part with a uuencoded file", mime("multipart/mixed; boundary=b",
+			mpBody("b", b64One(" \t\n"), plain(uu(12)...))), "437"},
+		{"a base64 text part of a line end, then a part with a uuencoded file", mime("multipart/mixed; boundary=b",
+			mpBody("b", b64One("\n"), plain(uu(12)...))), "437"},
+		{"a base64 text part with text, then a part with a uuencoded file", mime("multipart/mixed; boundary=b",
+			mpBody("b", b64One("Real discussion.\n"), plain(uu(12)...))), "235"},
 		// 5, 6: a base64 text part after the binary is checked on its own
 		{"text with a small uuencoded file, then a base64 text part", mime("multipart/mixed; boundary=b",
 			mpBody("b", plain(cat(text, uu(12))...), b64TextPart())), "235"},
