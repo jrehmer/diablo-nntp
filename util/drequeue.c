@@ -145,7 +145,7 @@ main(int ac, char **av)
 			cSize != NULL ? cSize : ""
 		    );
 
-    		FeedWrite(0, fwCallBack, msgid, path, offsize, nglist, npath, dist, headOnly, artType, spamArt, lines, cSize);
+    		FeedWrite(0, fwCallBack, msgid, path, offsize, nglist, npath, dist, headOnly, artType, spamArt, lines, -1, -1, cSize);
 	    }
 	}
     }

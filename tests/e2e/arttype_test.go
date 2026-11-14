@@ -1220,6 +1220,21 @@ func TestNestedMessageHeaderScope(t *testing.T) {
 	}
 }
 
+// offerLines offers an article to the site with IHAVE from the peer and returns the reply code.
+func offerLines(t *testing.T, s *Site, lines []string) string {
+	t.Helper()
+	p := s.Peer(t)
+	defer p.ExpectCmd(205, "QUIT")
+	id := headerValue(lines[:slices.Index(lines, "")], "Message-ID")
+	p.ExpectCmd(335, "IHAVE %s", id)
+	p.MustSend(client.Stuff(lines))
+	line, err := p.ReadLine()
+	if err != nil {
+		t.Fatalf("IHAVE: %v", err)
+	}
+	return line[:3]
+}
+
 // TestIncomingFilterTextBinary: with `textbinary <size>` in the IFILTER label, an article with
 // text in its body before a binary of at most <size> bytes of encoded data (the lines of its
 // uuencode, BinHex or base64 runs, without line ends) is not refused in a non-binary group, as
@@ -1247,18 +1262,7 @@ func TestIncomingFilterTextBinary(t *testing.T) {
 		}
 		return l
 	}
-	offer := func(s *Site, lines []string) string {
-		p := s.Peer(t)
-		defer p.ExpectCmd(205, "QUIT")
-		id := headerValue(lines[:slices.Index(lines, "")], "Message-ID")
-		p.ExpectCmd(335, "IHAVE %s", id)
-		p.MustSend(client.Stuff(lines))
-		line, err := p.ReadLine()
-		if err != nil {
-			t.Fatalf("IHAVE: %v", err)
-		}
-		return line[:3]
-	}
+	offer := func(s *Site, lines []string) string { return offerLines(t, s, lines) }
 	art := func(body []string) []string { return newArticle(msgID(t), "comp.misc", "a program", body...) }
 	html := func(body []string) []string {
 		a := art(body)
@@ -1401,6 +1405,7 @@ func TestTextBinaryArtType(t *testing.T) {
 	}
 	off := NewSite(t, SiteOptions{Newsfeeds: ifilter(""), NoStart: true})
 	on := NewSite(t, SiteOptions{Newsfeeds: ifilter("    textbinary 4k\n"), NoStart: true})
+	feeds := NewSite(t, SiteOptions{Newsfeeds: textBinFeeds, NoStart: true})
 	text := []string{"Here is the small program I mentioned, uuencoded."}
 	uu := func(n int) []string {
 		return append(append([]string{"begin 644 prog.bin"}, atLines(n, 60, uuAlphabet, "M")...), "end")
@@ -1435,6 +1440,43 @@ func TestTextBinaryArtType(t *testing.T) {
 	}
 	txt := func(l ...string) []string { return append([]string{"Content-Type: text/plain", ""}, l...) }
 
+	// matched returns the feed labels dfeedtest -a says the article goes to.
+	matched := func(lines []string) []string {
+		t.Helper()
+		cmd := exec.Command(filepath.Join(feeds.Bin, "dfeedtest"), "-a")
+		cmd.Dir = feeds.Dir
+		cmd.Env = append(os.Environ(), feeds.Env...)
+		cmd.Stdin = strings.NewReader(strings.Join(lines, "\n") + "\n")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("dfeedtest -a: %v\n%s", err, out)
+		}
+		var l []string
+		for _, ln := range strings.Split(string(out), "\n") {
+			if v, ok := strings.CutPrefix(ln, "Matched: "); ok {
+				l = append(l, v)
+			}
+		}
+		slices.Sort(l)
+		return l
+	}
+	for _, c := range []struct {
+		name  string
+		lines []string
+		want  []string // the feeds (arttypes !binary, none / 1k / 4k textbinary) that get the article
+	}{
+		{"plain text", atArticle(nil, text), []string{"fbig", "fnone", "fsmall"}},
+		{"text, 732 bytes of uuencode", atArticle(nil, cat(text, uu(12))), []string{"fbig", "fsmall"}},
+		{"text, 1830 bytes of uuencode", atArticle(nil, cat(text, uu(30))), []string{"fbig"}},
+		{"text, 8 KB of uuencode", atArticle(nil, cat(text, uu(130))), nil},
+		{"uuencode, no text", atArticle(nil, uu(12)), nil},
+		{"text, small uuencode, yEnc", atArticle(nil, cat(text, uu(12), []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"})), nil},
+	} {
+		if got := matched(c.lines); !slices.Equal(got, c.want) {
+			t.Errorf("%s: feeds %q, want %q", c.name, got, c.want)
+		}
+	}
+
 	for _, c := range []struct {
 		name  string
 		lines []string
@@ -1459,6 +1501,69 @@ func TestTextBinaryArtType(t *testing.T) {
 		}
 		if v := tbType(off, c.lines); v != "-" {
 			t.Errorf("%s: without textbinary TextBinaryType is shown (%s)", c.name, v)
+		}
+	}
+}
+
+// textBinFeeds: a peer and three outgoing feeds that take no binary (arttypes !binary), the
+// first without textbinary, the others with 1k and 4k.
+var textBinFeeds = func() string {
+	feed := func(name, extra string) string {
+		return "label " + name + "\n    hostname 127.0.0.1\n    alias e2e." + name +
+			"\n    addgroup *\n    arttypes !binary\n" + extra + "end\n"
+	}
+	return GlobalLabel + "label peer\n    inhost " + PeerIP + "\n    alias e2e.peer\n    addgroup *\nend\n" +
+		feed("fnone", "") + feed("fsmall", "    textbinary 1k\n") + feed("fbig", "    textbinary 4k\n")
+}()
+
+// TestTextBinaryOutgoingFeed: `textbinary <size>` in an outgoing feed makes its arttypes ignore
+// the binary of an article with text before a binary of at most <size> bytes of encoded data
+// (the feeds here have arttypes !binary). The article goes through the master as diablo
+// takes it in, with no IFILTER label: a feed without the option, a binary over the feed's
+// limit, a binary with no text before it and one with a yEnc file after it do not get it.
+func TestTextBinaryOutgoingFeed(t *testing.T) {
+	s := NewSite(t, SiteOptions{Newsfeeds: textBinFeeds})
+	text := []string{"Here is the small program I mentioned, uuencoded."}
+	uu := func(n int) []string {
+		return append(append([]string{"begin 644 prog.bin"}, atLines(n, 60, uuAlphabet, "M")...), "end")
+	}
+	cat := func(parts ...[]string) []string {
+		var l []string
+		for _, p := range parts {
+			l = append(l, p...)
+		}
+		return l
+	}
+	arts := []struct {
+		name string
+		body []string
+		want []string // the feeds that get it
+	}{
+		{"plain text", text, []string{"fbig", "fnone", "fsmall"}},
+		{"text, 732 bytes of uuencode", cat(text, uu(12)), []string{"fbig", "fsmall"}},
+		{"text, 1830 bytes of uuencode", cat(text, uu(30)), []string{"fbig"}},
+		{"text, 8 KB of uuencode", cat(text, uu(130)), nil},
+		{"uuencode, no text", uu(12), nil},
+		{"text, small uuencode, yEnc", cat(text, uu(12), []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"}), nil},
+	}
+	ids := make([]string, len(arts))
+	for i, a := range arts {
+		lines := newArticle(msgID(t), "comp.misc", a.name, a.body...)
+		ids[i] = headerValue(lines[:slices.Index(lines, "")], "Message-ID")
+		if got := offerLines(t, s, lines); got != "235" {
+			t.Fatalf("%s: IHAVE %s, want 235 (there is no IFILTER label)", a.name, got)
+		}
+	}
+	// the plain article reaches every feed; the master writes the queues in the order it
+	// got the articles, so when fnone has it the others were decided too
+	s.waitQueue(t, "fnone", 1)
+	for _, f := range []string{"fnone", "fsmall", "fbig"} {
+		q := s.queue(t, f)
+		for i, a := range arts {
+			has := !slices.Contains(deepRevMissing(q, []string{ids[i]}), ids[i])
+			if want := slices.Contains(a.want, f); has != want {
+				t.Errorf("feed %s, %s: queued %v, want %v\ndqueue/%s: %q", f, a.name, has, want, f, q)
+			}
 		}
 	}
 }

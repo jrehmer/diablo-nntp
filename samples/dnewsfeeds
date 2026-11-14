@@ -150,29 +150,11 @@
 #
 #  textbinary	Y	-
 #
-#	Only in the IFILTER label.  An article with text in its body before
-#	a binary (a uuencoded, BinHex or base64 file posted with its
-#	discussion, as in early groups) is not rejected when the binary
-#	has at most the specified number of bytes of encoded data, and the
-#	label is checked again with the article's type without its binary
-#	types.  The encoded data are the lines of each run of 9 or more
-#	uuencode, BinHex or base64 lines (and the short lines that end
-#	it), without line ends.  Text after the binary does not count.
-#	An article that is only a binary (its begin and end lines do not
-#	count as text), one with no text before its binary, a yEnc binary, an
-#	application/octet-stream part and base64 or quoted-printable text
-#	that decodes to binary data are rejected as before.  'k' and 'm'
-#	can be used as for maxsize.  The default, 0, is off.
-#	Without this option, diablo stops looking at an article once it
-#	has found a binary in it, to save CPU.  With it, a binary article
-#	with text before its binary is read on to its end (until its
-#	encoded data is over the limit or a binary of another kind is
-#	found) to measure it, which costs CPU for such articles in every
-#	group; one with no text before its binary is not read on.  The
-#	article type is not
-#	changed by this: it stays the type the article had when it was
-#	found to be a binary, as diablo logs it and as the 'arttypes' of
-#	the feeds see it.
+#	Allow a binary (uuencode, BinHex or base64) that follows plain text
+#	in the body, up to the given size of encoded data ('k' and 'm' can
+#	be used as for maxsize).  In the IFILTER label the article is not
+#	rejected for the binary; in a feed, 'arttypes' does not count the
+#	binary for it.  The default, 0, is off.
 #
 #  incomingpriority	Y	-
 #

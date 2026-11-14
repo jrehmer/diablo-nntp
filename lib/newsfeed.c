@@ -11,8 +11,8 @@
 
 #include "defs.h"
 
-Prototype int FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, const char *cSize);
-Prototype int FeedWrite(int logIt, int (*callback)(const char *hlabel, const char *msgid, const char *path, const char *offsize, int plfo, int headOnly, const char *artType, int lines, const char *cSize), const char *msgid, const char *path, const char *offsize, const char *nglist, const char *npath, const char *dist, const char *headOnly, const char *artType, int spamArt, int lines, const char *cSize);
+Prototype int FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, long tbSize, int tbAlt, const char *cSize);
+Prototype int FeedWrite(int logIt, int (*callback)(const char *hlabel, const char *msgid, const char *path, const char *offsize, int plfo, int headOnly, const char *artType, int lines, const char *cSize), const char *msgid, const char *path, const char *offsize, const char *nglist, const char *npath, const char *dist, const char *headOnly, const char *artType, int spamArt, int lines, long tbSize, int tbAlt, const char *cSize);
 Prototype void FeedFlush(void);
 Prototype void LoadNewsFeed(time_t t, int force, const char *hlabel);
 Prototype void TouchNewsFeed(void);
@@ -33,6 +33,7 @@ Prototype LabelList *FeedLinkLabelList(void);
 Prototype NewslinkInfo *FeedLinkInfo(const char *hlabel);
 Prototype int FeedFilter(char *hlabel, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
 Prototype int FeedFilterTextBinary(void);
+Prototype int FeedTextBinaryMax(void);
 Prototype int FeedSpam(int which, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
 Prototype void DumpAllFeedInfo(FILE *fo);
 Prototype void DumpFeedInfo(FILE *fo, char *label);
@@ -162,9 +163,10 @@ int recursiveScan(NewsFeed *feed, int off, const void *data, int (*callback)(Nod
  */
 
 int 
-FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, const char *cSize)
+FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char *npath, const char *dist, int headerOnly, const char *artType, int lines, long tbSize, int tbAlt, const char *cSize)
 {
     int r = 0;
+    char tbfield[48] = "";
 
     LoadNewsFeed(t, 0, NULL);
 
@@ -175,11 +177,16 @@ FeedAdd(const char *msgid, time_t t, History *h, const char *nglist, const char 
 
 	/*
 	 * L<lines> (the body lines, D-174) comes before cSize: cSize may be
-	 * empty, and strtok() would then take the next field for it.
+	 * empty, and strtok() would then take the next field for it.  So
+	 * does T<size>:<type> for a binary in a text article (a feed with
+	 * 'textbinary', see FeedWrite()): its encoded bytes and the article's
+	 * type without its binary types, in hex.
 	 */
-	fprintf(FeedFo, "SOUT\t%s\t%lld,%ld\t%s\t%s\t%s\t%s\t%d\t%s\tL%d\t%s\n",
+	if (tbSize > 0 && tbAlt >= 0)
+	    snprintf(tbfield, sizeof(tbfield), "T%ld:%x\t", tbSize, tbAlt);
+	fprintf(FeedFo, "SOUT\t%s\t%lld,%ld\t%s\t%s\t%s\t%s\t%d\t%s\tL%d\t%s%s\n",
 	    path, (long long)h->boffset, (long)h->bsize, msgid, nglist, dist, npath,
-	    headerOnly, artType, lines, cSize
+	    headerOnly, artType, lines, tbfield, cSize
 	);
 	fflush(FeedFo);	/* simplify the parent reader on the pipe */
 	if (ferror(FeedFo)) {
@@ -208,6 +215,8 @@ FeedWrite(int logIt,
     const char *artType,
     int spamArt,
     int lines,
+    long tbSize,
+    int tbAlt,
     const char *cSize
 ) {
     NewsFeed *nf;
@@ -271,11 +280,22 @@ FeedWrite(int logIt,
     }
 
     for (nf = NFBase; nf; nf = nf->nf_Next) {
+	int at = strtol(artType, NULL, 16);
+
 	if (FeedDebug)
 	    printf(">>SCAN:%s\n", nf->nf_Label);
 	if (UseSpamAlias && feedQuerySpamPaths(nf, npath, bytes, msgid))
 	    break;
-	if (feedQueryPaths(nf, npath, bytes, strtol(artType, NULL, 16)) == 0 && 
+
+	/*
+	 * A feed with 'textbinary' takes a binary in a text article (tbSize
+	 * encoded bytes, see ArticleTypeTextBinarySize()) of at most that
+	 * many bytes for the type it has without its binary types (tbAlt)
+	 */
+	if (tbSize > 0 && tbAlt >= 0 && nf->nf_TextBinary > 0 &&
+						tbSize <= nf->nf_TextBinary)
+	    at = tbAlt;
+	if (feedQueryPaths(nf, npath, bytes, at) == 0 && 
 	    feedQueryGroups(nf, nglist) == 0 &&
 	    feedSpamFeedOK(nf->nf_SpamFeedOpt, spamArt) == 0 &&
 	    feedQueryDists(nf, dist) == 0 &&
@@ -1555,10 +1575,11 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 			}
 		    } else if (strcmp(s1, "textbinary") == 0) {
 			if (nf && s2) {
-			    if (strcmp(nf->nf_Label, "IFILTER") != 0) {
+			    if (strcmp(nf->nf_Label, "ISPAM") == 0 ||
+				    strcmp(nf->nf_Label, "ESPAM") == 0) {
 				logit(LOG_WARNING,
-				   "Newsfeed config line %d, textbinary only applies to the IFILTER label, ignored",
-				    lineNo);
+				   "Newsfeed config line %d, textbinary does not apply to the %s label, ignored",
+				    lineNo, nf->nf_Label);
 			    } else {
 				long v = bsizetol(s2);
 
@@ -2392,6 +2413,8 @@ resolveDefaults(NewsFeed *nf, Node *no)
 	        nf->nf_MaxInboundRate = zallocStr(&NFMemPool, gl->nf_MaxInboundRate);
 	    if (nf->nf_ArtTypes == NULL && gl->nf_ArtTypes)
 		nf->nf_ArtTypes = gl->nf_ArtTypes;
+	    if (!nf->nf_TextBinary && gl->nf_TextBinary)
+		nf->nf_TextBinary = gl->nf_TextBinary;
 
 	    if (nf->nf_Dist == NULL && gl->nf_Dist)
 		zappendStr(&NFMemPool, &nf->nf_Dist, NULL, gl->nf_Dist);
@@ -2545,6 +2568,23 @@ int
 FeedFilterTextBinary(void)
 {
     return((IFBase != NULL && IFBase->nf_TextBinary > 0) ? IFBase->nf_TextBinary : 0);
+}
+
+/*
+ * The largest 'textbinary' limit of the IFILTER label and the feeds: how far
+ * a binary in a text article is measured (ArticleTypeTextBinary()).  0 = off.
+ */
+int
+FeedTextBinaryMax(void)
+{
+    NewsFeed *nf;
+    int max = FeedFilterTextBinary();
+
+    for (nf = NFBase; nf; nf = nf->nf_Next) {
+	if (nf->nf_TextBinary > max)
+	    max = nf->nf_TextBinary;
+    }
+    return(max);
 }
 
 int

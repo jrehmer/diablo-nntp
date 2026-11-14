@@ -1607,10 +1607,23 @@ DoPipe(int fd)
 	    char *artType = strtok(NULL, "\t\n");
 	    char *cSize = strtok(NULL, "\t\n");
 	    int lines = -1;
+	    long tbSize = -1;
+	    int tbAlt = -1;
 
 	    /* L<lines> (D-174), before cSize: see FeedAdd() */
 	    if (cSize != NULL && cSize[0] == 'L') {
 		lines = (int)strtol(cSize + 1, NULL, 10);
+		cSize = strtok(NULL, "\t\n");
+	    }
+	    /* T<size>:<type>, a binary in a text article, also before cSize */
+	    if (cSize != NULL && cSize[0] == 'T') {
+		char *e;
+
+		tbSize = strtol(cSize + 1, &e, 10);
+		if (*e == ':')
+		    tbAlt = (int)strtol(e + 1, NULL, 16);
+		else
+		    tbSize = -1;
 		cSize = strtok(NULL, "\t\n");
 	    }
 
@@ -1648,7 +1661,8 @@ DoPipe(int fd)
 		    spamArt = DiabFilter(DOpts.FeederFilter, loc, DOpts.WireFormat);
 		}
 		FeedWrite(1, fwCallBack, msgid, path, offsize, nglist,
-				npath, dist, headOnly, artType, spamArt, lines, cSize);
+				npath, dist, headOnly, artType, spamArt, lines,
+				tbSize, tbAlt, cSize);
 		{
 		    TtlStats.ArtsBytes += (double)bytes;
 		}
@@ -3173,6 +3187,8 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 	int artLines = 0;	/* body lines, for the queue's L<lines> */
 	int addRejectToHistory = 0;
 	int arttype = ARTTYPE_DEFAULT;
+	long tbSize = -1;	/* a binary in a text article: its encoded bytes, see ArticleTypeTextBinarySize() */
+	int tbAlt = -1;		/* and the type it has without its binary types */
 	char nglist[MAXLINE];
 	char npath[MAXLINE];
 	char xrefdata[MAXLINE];
@@ -3235,7 +3251,7 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 
 	if (DOpts.FeederArtTypes && artType != NULL) {
 	    arttype = ARTTYPE_DEFAULT;
-	    ArticleTypeTextBinary(FeedFilterTextBinary());
+	    ArticleTypeTextBinary(FeedTextBinaryMax());
 	    InitArticleType();
 	}
 	while ((p = bgets(bi, &bytes)) != NULL && p != (char *)-1) {
@@ -3728,6 +3744,10 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 
 	if (artType)
 	    sprintf(artType, "%06x", arttype);
+	if (DOpts.FeederArtTypes && artType != NULL) {
+	    tbSize = ArticleTypeTextBinarySize();
+	    tbAlt = (tbSize > 0) ? ArticleTypeTextBinaryType() : -1;
+	}
 
 	/*
 	 * noWrite==1 means we received an article that we knew was going
@@ -3837,8 +3857,8 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 	     * article's type without its binary bits, so it still
 	     * filters the article for its other types
 	     */
-	    if (DOpts.FeederArtTypes && artType != NULL)
-		tt = ArticleTypeTextBinaryType();
+	    if (tbSize > 0 && tbSize <= FeedFilterTextBinary())
+		tt = tbAlt;
 	    if (tt < 0) {
 		artError |= LAERR_INCFILTER;
 	    } else {
@@ -4275,7 +4295,8 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 		/* a header-only article has no body here to count */
 		if (FeedAdd(msgid, t, &h, nglist, npath, dist,
 					headerOnly, artType,
-					headerOnly ? -1 : artLines, cSize) < 0) {
+					headerOnly ? -1 : artLines,
+					tbSize, tbAlt, cSize) < 0) {
 		    /*
 		     * If we lose our pipe, exit immediately.
 		     */

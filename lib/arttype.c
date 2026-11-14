@@ -51,6 +51,7 @@ Prototype int ArticleTypePiece(char *line, int len, int inheader);
 Prototype int ArticleTypeEnd(void);
 Prototype void ArticleTypeTextBinary(int max);
 Prototype int ArticleTypeTextBinaryType(void);
+Prototype long ArticleTypeTextBinarySize(void);
 
 #define	ARMOR_MAX	100	/* lines of other armor that are not counted */
 #define	ARMOR_PGP_HEADERS -1	/* encrypted PGP message armor headers */
@@ -656,6 +657,22 @@ ArticleTypeTextBinaryType(void)
     if ((t & ~ARTTYPE_DEFAULT) == 0)
 	t = ARTTYPE_DEFAULT;
     return(t);
+}
+
+/*
+ * After ArticleTypeEnd(): the bytes of encoded data of an article that is a
+ * binary in a text article within the limit set with ArticleTypeTextBinary()
+ * (the largest 'textbinary' of the IFILTER label and the feeds), the same
+ * conditions as ArticleTypeTextBinaryType(); otherwise -1.  A label checks
+ * it against its own 'textbinary'.
+ */
+long
+ArticleTypeTextBinarySize(void)
+{
+    if (TextBinMax <= 0 || !(TBFrozen & ARTTYPE_BINARY) || TBOther ||
+	    TBEnc <= 0 || TBEnc > TextBinMax || TBText <= 0)
+	return(-1);
+    return(TBEnc);
 }
 
 /*
