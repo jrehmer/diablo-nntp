@@ -1610,6 +1610,8 @@ func TestTextBinaryLimitReload(t *testing.T) {
 		t.Fatalf("plain before: IHAVE %s, want 235", got)
 	}
 
+	// diablo notices a change by the file's modification time in whole seconds
+	time.Sleep(1100 * time.Millisecond)
 	s.WriteFile(t, "dnewsfeeds", cfg("    textbinary 1k\n", "    textbinary 4k\n"))
 	written := time.Now()
 	// the connection's process checks dnewsfeeds on its next article of a later minute, and the
