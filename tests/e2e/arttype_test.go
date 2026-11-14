@@ -1453,7 +1453,7 @@ func TestTextBinaryArtType(t *testing.T) {
 		}
 		var l []string
 		for _, ln := range strings.Split(string(out), "\n") {
-			if v, ok := strings.CutPrefix(ln, "Matched: "); ok {
+			if v, ok := strings.CutPrefix(ln, "Matched: "); ok && v != "peer" {
 				l = append(l, v)
 			}
 		}

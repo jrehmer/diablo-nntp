@@ -115,6 +115,7 @@ char	NFBuf[16384];
 FILE	*FeedFo = NULL;
 MemPool	*NFMemPool = NULL;
 const char *SaveHLabel = NULL;
+static int TextBinaryAll = 0;	/* the largest 'textbinary' of a complete load, see FeedTextBinaryMax() */
 int FeedDebug = 0;
 int UseSpamAlias = 0;
 
@@ -2137,6 +2138,15 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 	    for (nf = GRBase; nf; nf = nf->nf_Next) {
 		resolveDefaults(nf, nf->nf_FilterBase);
 	    }
+
+	    /*
+	     * The largest 'textbinary' of a load of every label.  A
+	     * connection's process loads only its own label, but measures
+	     * its articles for the feeds (FeedTextBinaryMax()), and keeps
+	     * what the master saw.
+	     */
+	    if (SaveHLabel == NULL)
+		TextBinaryAll = FeedTextBinaryMax();
 	}
     }
 }
@@ -2579,6 +2589,9 @@ FeedTextBinaryMax(void)
 {
     NewsFeed *nf;
     int max = FeedFilterTextBinary();
+
+    if (SaveHLabel != NULL && TextBinaryAll > max)
+	max = TextBinaryAll;
 
     for (nf = NFBase; nf; nf = nf->nf_Next) {
 	if (nf->nf_TextBinary > max)
