@@ -154,7 +154,8 @@
 #	in the body, up to the given size of encoded data ('k' and 'm' can
 #	be used as for maxsize).  In the IFILTER label the article is not
 #	rejected for the binary; in a feed, 'arttypes' does not count the
-#	binary for it.  The default, 0, is off.
+#	binary for it.  The default, 0, is off.  This does add CPU: diablo
+#	reads such an article to its end instead of stopping at its binary.
 #
 #  incomingpriority	Y	-
 #
