@@ -3235,6 +3235,7 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 
 	if (DOpts.FeederArtTypes && artType != NULL) {
 	    arttype = ARTTYPE_DEFAULT;
+	    ArticleTypeTextBinary(FeedFilterTextBinary());
 	    InitArticleType();
 	}
 	while ((p = bgets(bi, &bytes)) != NULL && p != (char *)-1) {
@@ -3827,8 +3828,27 @@ LoadArticle(Buffer *bi, const char *msgid, int noWrite, int headerOnly, char *re
 	 * Check that the article passes the incoming filter(s)
 	 */
 	if (retcode == RCOK && !artError &&
-		FeedFilter(HLabel, nglist, npath, dist, artType, size))
-	    artError |= LAERR_INCFILTER;
+		FeedFilter(HLabel, nglist, npath, dist, artType, size)) {
+	    int tt = -1;
+
+	    /*
+	     * A binary in a text article within the IFILTER label's
+	     * 'textbinary' limit: the label is checked again with the
+	     * article's type without its binary bits, so it still
+	     * filters the article for its other types
+	     */
+	    if (DOpts.FeederArtTypes && artType != NULL)
+		tt = ArticleTypeTextBinaryType();
+	    if (tt < 0) {
+		artError |= LAERR_INCFILTER;
+	    } else {
+		char tbuf[16];
+
+		snprintf(tbuf, sizeof(tbuf), "%06x", tt);
+		if (FeedFilter(HLabel, nglist, npath, dist, tbuf, size))
+		    artError |= LAERR_INCFILTER;
+	    }
+	}
 
 	/*
 	 * XXX put other inbound filters here.  Be careful in regards to

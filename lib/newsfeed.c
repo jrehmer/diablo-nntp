@@ -32,6 +32,7 @@ Prototype int FeedPrecommitReject(const char *hlabel);
 Prototype LabelList *FeedLinkLabelList(void);
 Prototype NewslinkInfo *FeedLinkInfo(const char *hlabel);
 Prototype int FeedFilter(char *hlabel, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
+Prototype int FeedFilterTextBinary(void);
 Prototype int FeedSpam(int which, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes);
 Prototype void DumpAllFeedInfo(FILE *fo);
 Prototype void DumpFeedInfo(FILE *fo, char *label);
@@ -68,6 +69,7 @@ typedef struct NewsFeed {
     int			nf_MinCrossPost;	/* 0=unlimited 		*/
     int			nf_MaxArtSize;		/* 0=unlimited 		*/
     int			nf_MinArtSize;		/* 0=unlimited 		*/
+    int			nf_TextBinary;		/* IFILTER: binary in a text article, max encoded bytes, 0=off */
     int			nf_MaxPathLen;		/* maximum outgoing path len */
     int			nf_MinPathLen;		/* minimum outgoing path len */
     int			nf_MaxConnect;		/* max connections	*/
@@ -1551,6 +1553,11 @@ LoadNewsFeed(time_t t, int force, const char *hlabel)
 			    nf->nf_MaxArtSize = bsizetol(s2);
 			    err = 0;
 			}
+		    } else if (strcmp(s1, "textbinary") == 0) {
+			if (nf && s2) {
+			    nf->nf_TextBinary = bsizetol(s2);
+			    err = 0;
+			}
 		    } else if (strcmp(s1, "groupdef") == 0) {
 			if (nf) {
 			    logit(LOG_CRIT,
@@ -2520,6 +2527,16 @@ FeedFilter(char *hlabel, const char *nglist, const char *npath, const char *dist
     return(0);
 }
 
+/*
+ * The 'textbinary' limit of the IFILTER label: a binary in a text article
+ * with at most that many bytes of encoded data is not filtered.  0 = off.
+ */
+int
+FeedFilterTextBinary(void)
+{
+    return((IFBase != NULL && IFBase->nf_TextBinary > 0) ? IFBase->nf_TextBinary : 0);
+}
+
 int
 FeedSpam(int which, const char *nglist, const char *npath, const char *dist, const char *artType, int bytes)
 {
@@ -2712,6 +2729,7 @@ DumpFeedInfo(FILE *fo, char *label)
     fprintf(fo, "  MinCrossPost   : %d\n", nf->nf_MinCrossPost);
     fprintf(fo, "  MaxArtSize     : %d\n", nf->nf_MaxArtSize);
     fprintf(fo, "  MinArtSize     : %d\n", nf->nf_MinArtSize);
+    fprintf(fo, "  TextBinary     : %d\n", nf->nf_TextBinary);
     fprintf(fo, "  MaxPathLen     : %d\n", nf->nf_MaxPathLen);
     fprintf(fo, "  MinPathLen     : %d\n", nf->nf_MinPathLen);
     fprintf(fo, "  MaxConnect     : %d\n", nf->nf_MaxConnect);

@@ -148,6 +148,32 @@
 #		all	: Any type of article (DEFAULT)
 #	Specifying a '!' before a type negates that type
 #
+#  textbinary	Y	-
+#
+#	Only in the IFILTER label.  An article with text in its body before
+#	a binary (a uuencoded, BinHex or base64 file posted with its
+#	discussion, as in early groups) is not rejected when the binary
+#	has at most the specified number of bytes of encoded data, and the
+#	label is checked again with the article's type without its binary
+#	types.  The encoded data are the lines of each run of 9 or more
+#	uuencode, BinHex or base64 lines (and the short lines that end
+#	it), without line ends.  Text after the binary does not count.
+#	An article that is only a binary (its begin and end lines do not
+#	count as text), one with no text before its binary, a yEnc binary, an
+#	application/octet-stream part and base64 or quoted-printable text
+#	that decodes to binary data are rejected as before.  'k' and 'm'
+#	can be used as for maxsize.  The default, 0, is off.
+#	Without this option, diablo stops looking at an article once it
+#	has found a binary in it, to save CPU.  With it, a binary article
+#	with text before its binary is read on to its end (until its
+#	encoded data is over the limit or a binary of another kind is
+#	found) to measure it, which costs CPU for such articles in every
+#	group; one with no text before its binary is not read on.  The
+#	article type is not
+#	changed by this: it stays the type the article had when it was
+#	found to be a binary, as diablo logs it and as the 'arttypes' of
+#	the feeds see it.
+#
 #  incomingpriority	Y	-
 #
 #	Set a priority for incoming feeds (sets the nice value of the process)
@@ -704,6 +730,7 @@ end
 #	 non-binary groups. This filter acts slightly differently to
 #	 the others in that any article that matches the "feed" are
 #	 rejected.
+#	 See 'textbinary' for small binaries in text articles.
 #
 # These labels limit which articles are sent to each of the filters
 # and most dnewsfeeds options can be used (as you would with a newsfeed).

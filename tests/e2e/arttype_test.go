@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1216,5 +1217,96 @@ func TestNestedMessageHeaderScope(t *testing.T) {
 	body = append(body, "--outer", "Content-Type: application/octet-stream", "", "binary attachment", "--outer--")
 	if got := artTypeOf(t, s, atArticle([]string{"Content-Type: multipart/mixed; boundary=outer"}, body)); got&atBinary == 0 {
 		t.Errorf("outer binary sibling: ArtType=%06x, want binary", got)
+	}
+}
+
+// TestIncomingFilterTextBinary: with `textbinary <size>` in the IFILTER label, an article with
+// text in its body before a binary of at most <size> bytes of encoded data (the lines of its
+// uuencode, BinHex or base64 runs, without line ends) is not refused in a non-binary group, as
+// in early groups where small files were posted with their discussion. An article that is only
+// a binary, one with its text only after the binary, one whose binary is over the limit, a yEnc binary and an article the label also
+// filters for another type (html) are refused as before.
+func TestIncomingFilterTextBinary(t *testing.T) {
+	ifilter := func(types, extra string) string {
+		return DefaultNewsfeeds + "label IFILTER\n    addgroup *\n    delgroup *.bina*\n    arttypes " + types + "\n" + extra + "end\n"
+	}
+	text := []string{"Here is the small program I mentioned, uuencoded.", "It runs on any model."}
+	uu := func(n int) []string {
+		return append(append([]string{"begin 644 prog.bin"}, atLines(n, 60, uuAlphabet, "M")...), "end")
+	}
+	const bhxAlphabet = "!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr"
+	binhex := append(append([]string{"(This file must be converted with BinHex 4.0)", ":" + strings.Repeat("!", 63)},
+		atLines(12, 64, bhxAlphabet, "")...), "!!!!:")
+	cat := func(parts ...[]string) []string {
+		var l []string
+		for _, p := range parts {
+			l = append(l, p...)
+		}
+		return l
+	}
+	offer := func(s *Site, lines []string) string {
+		p := s.Peer(t)
+		defer p.ExpectCmd(205, "QUIT")
+		id := headerValue(lines[:slices.Index(lines, "")], "Message-ID")
+		p.ExpectCmd(335, "IHAVE %s", id)
+		p.MustSend(client.Stuff(lines))
+		line, err := p.ReadLine()
+		if err != nil {
+			t.Fatalf("IHAVE: %v", err)
+		}
+		return line[:3]
+	}
+	art := func(body []string) []string { return newArticle(msgID(t), "comp.misc", "a program", body...) }
+	html := func(body []string) []string {
+		a := art(body)
+		i := slices.Index(a, "")
+		return slices.Insert(a, i, "Mime-Version: 1.0", "Content-Type: text/html")
+	}
+
+	// Without the option, a small binary in a text article is refused (the control).
+	s0 := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary", "")})
+	if got := offer(s0, art(cat(text, uu(12)))); got != "437" {
+		t.Errorf("no textbinary, text with a small uuencoded file: IHAVE %s, want 437", got)
+	}
+
+	s := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary", "    textbinary 4k\n")})
+	for _, c := range []struct {
+		name string
+		art  []string
+		want string
+	}{
+		{"text with a small uuencoded file", art(cat(text, uu(12), text)), "235"},
+		{"uuencoded file after the text", art(cat(text, uu(40))), "235"},
+		{"text with a small BinHex file", art(cat(text, binhex)), "235"},
+		{"text with base64 lines", art(cat(text, atLines(12, 64, b64Alphabet, ""))), "235"},
+		{"text with a uuencoded file over the limit", art(cat(text, uu(100))), "437"},
+		{"a uuencoded file alone", art(uu(12)), "437"},
+		{"a uuencoded file with the text after it", art(cat(uu(12), text)), "437"},
+		{"a uuencoded file with its last short lines", art(append(append(uu(12)[:13], "&9F%L<V4*", "`"), "end")), "437"},
+		{"text with a small yEnc file", art(cat(text, []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"})), "437"},
+		{"text with a small uuencoded file and a yEnc file", art(cat(text, uu(12), []string{"=ybegin line=128 size=6 name=a.bin", "abcdef", "=yend size=6"})), "437"},
+	} {
+		if got := offer(s, c.art); got != c.want {
+			t.Errorf("textbinary 4k, %s: IHAVE %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	// The limit is the bytes of the encoded lines: 12 lines of 61 are 732 bytes.
+	sb := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary", "    textbinary 732\n")})
+	if got := offer(sb, art(cat(text, uu(12)))); got != "235" {
+		t.Errorf("textbinary 732, 732 bytes of uuencode: IHAVE %s, want 235", got)
+	}
+	if got := offer(sb, art(cat(text, uu(13)))); got != "437" {
+		t.Errorf("textbinary 732, 793 bytes of uuencode: IHAVE %s, want 437", got)
+	}
+
+	// A label that also filters html still refuses an HTML article with a small binary,
+	// and lets a plain text one through.
+	sh := NewSite(t, SiteOptions{Newsfeeds: ifilter("binary,html", "    textbinary 4k\n")})
+	if got := offer(sh, html(cat(text, uu(12)))); got != "437" {
+		t.Errorf("arttypes binary,html, HTML with a small uuencoded file: IHAVE %s, want 437", got)
+	}
+	if got := offer(sh, art(cat(text, uu(12)))); got != "235" {
+		t.Errorf("arttypes binary,html, text with a small uuencoded file: IHAVE %s, want 235", got)
 	}
 }
