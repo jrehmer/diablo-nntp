@@ -396,8 +396,8 @@ TestDnewslinkRejectsExcessiveBatchTemplateWidth 0.00
 TestDnewslinkRejectsInvalidBatchTemplate 0.00
 TestDnewslinkSmallMaxstream 5.02
 TestDnewslinkSpoolErrorKept 0.08
-TestDnewslinkStreamReplyOutOfStep 0.06
 TestDnewslinkStreaming 0.04
+TestDnewslinkStreamReplyOutOfStep 0.06
 TestDnewslinkTakethis431Defers 10.02
 TestDnewslinkTakethis431KeptDuringReplay 5.02
 TestDnewslinkTakethis431RejectedBytes 0.30
