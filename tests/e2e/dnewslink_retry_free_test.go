@@ -13,11 +13,10 @@ import (
 )
 
 // poolMapSource notes in the file SHIM_MARK every time a memory pool of lib/zalloc.c is
-// taken from lib/alloc.c (pagealloc): there it is a malloc() of 65536 bytes on Linux and
-// illumos (USE_ANON_MMAP is not set for them in lib/config.h), and an mmap() of 65536 bytes
-// on the BSDs. The pools never shrink, so the number of notes is the number of pools
-// dnewslink needed: a string that is not given back to its pool shows up as pools that
-// keep coming.
+// taken from lib/alloc.c: pagealloc() maps it with a 64 KB MAP_PRIVATE read/write mmap(),
+// anonymous (USE_ANON_MMAP) on Linux and the BSDs, of /dev/zero (USE_ZERO_MMAP) on
+// illumos. The pools never shrink, so the number of notes is the number of pools dnewslink
+// needed: a string that is not given back to its pool shows up as pools that keep coming.
 const poolMapSource = `#define _GNU_SOURCE
 #define __EXTENSIONS__
 #include <dlfcn.h>
@@ -31,7 +30,6 @@ const poolMapSource = `#define _GNU_SOURCE
 #include <unistd.h>
 /*MARK*/
 typedef void *(*mmap_fn)(void *, size_t, int, int, int, off_t);
-typedef void *(*malloc_fn)(size_t);
 
 void *
 mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
@@ -48,7 +46,7 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 #if defined(__linux__)
 /*
  * A program built with _FILE_OFFSET_BITS=64 calls mmap64().  On illumos the 64-bit mmap64
- * is mmap itself (<sys/mman.h> renames it), and the pools there are malloc()s anyway.
+ * is mmap itself (<sys/mman.h> renames it).
  */
 void *
 mmap64(void *addr, size_t len, int prot, int flags, int fd, off_t off)
@@ -60,35 +58,6 @@ mmap64(void *addr, size_t len, int prot, int flags, int fd, off_t off)
     if (len == 65536 && prot == (PROT_READ|PROT_WRITE) && (flags & MAP_PRIVATE) != 0)
 	shim_mark("pool");
     return real(addr, len, prot, flags, fd, off);
-}
-#endif
-
-#if defined(__linux__) || defined(__sun)
-/*
- * Here the pools are malloc()s.  On the BSDs they are mmap()s (USE_ANON_MMAP in
- * lib/config.h), so malloc is left alone there: a dlsym wrapper with a static boot buffer
- * is not needed and risks a crash.
- */
-void *
-malloc(size_t n)
-{
-    static malloc_fn real;
-    static int busy;
-    static char boot[256];
-
-    if (real == NULL) {
-	if (busy)		/* dlsym() asking for memory itself */
-	    return n <= sizeof(boot) ? boot : NULL;
-	busy = 1;
-	real = (malloc_fn)dlsym(RTLD_NEXT, "malloc");
-	busy = 0;
-    }
-    if (n == 65536 && !busy) {
-	busy = 1;
-	shim_mark("pool");
-	busy = 0;
-    }
-    return real(n);
 }
 #endif
 `
