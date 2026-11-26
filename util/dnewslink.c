@@ -250,7 +250,7 @@ typedef struct Stream {
 } Stream;
 
 int connectTo(const char *hostName, const char *serviceName, int defPort);
-int Transact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, char *stage, char *reason, char *buf, int *sentSize);
+int Transact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, int again, char *stage, char *reason, char *buf, int *sentSize);
 /*
  * An article mapped from the spool, from MapArticle() until DumpArticle()
  * or UnmapArticle() releases it.
@@ -272,7 +272,7 @@ int MapArticle(const char *relPath, off_t off, int size, int cSize, int lines, A
 void UnmapArticle(ArtMap *am);
 int DumpArticle(int cfd, ArtMap *am);
 int writeLarge(int cfd, char *buffer, size_t size);
-int StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, char *stage, char *reason, char *buf, int *sentSize);
+int StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, int again, char *stage, char *reason, char *buf, int *sentSize);
 void StreamReload(int cfd);
 Stream *LocateStream(const char *msgId, int state);
 int RefilePendingStreams(FILE *fo);
@@ -282,7 +282,7 @@ int commandWrite(int cfd, const void *buf, int bytes, int artdata);
 void clearResponseBuf(void);
 void readreset(int fd);
 void dl_logit(const char *ctl, ...);
-int readretry(char *buf, int size);
+int readretry(char *buf, int size, int *again);
 int readline(int fd, char *buf, int size, time_t t);
 void logStats(const char *description);
 int ValidMsgId(char *msgid);
@@ -926,6 +926,7 @@ main(int ac, char **av)
 	    FILE *fo = NULL;
 	    int connectCount = 0;
 	    int bufInval = 1;
+	    int bufAgain = 0;	/* buf is a deferred entry kept for a retry */
 	    int loggedMark = 0;
 	    int more = 0;
 	    int deferbegin = 0;
@@ -971,7 +972,7 @@ main(int ac, char **av)
 		    if (DebugOpt > 1)
 			printf("clear watermark\n");
 		    HiWaterMark = 0;	/* reset WaterMark */
-		    if (readretry(buf, sizeof(buf)) == 0) {
+		    if (readretry(buf, sizeof(buf), &bufAgain) == 0) {
 			/*
 			 * Entries kept for a retry after a reconnect come
 			 * first: a new entry takes the slot behind the
@@ -1004,7 +1005,7 @@ main(int ac, char **av)
 			     * from file" mode.
 			     */
 			    deferbegin = deferend = 0;
-			if ((bufInval = readretry(buf, sizeof(buf))) != 0)
+			if ((bufInval = readretry(buf, sizeof(buf), &bufAgain)) != 0)
 			    bufInval = readline(fd, buf, sizeof(buf), TimeNow);
 		    }
 		}
@@ -1116,7 +1117,7 @@ main(int ac, char **av)
 		    stprintf("%s %s process %d", HostName, CurrentBatchFile + CBFIndex, connectCount);
 
 		    if (bufInval)
-			t = Transact(cfd, NULL, msgId, 0, 0, 0, -1, (deferbegin > 0),
+			t = Transact(cfd, NULL, msgId, 0, 0, 0, -1, (deferbegin > 0), 0,
 				     stage, reason, buf, &sentFileSize);
 		    else {
 			if (fileSize == 0) {
@@ -1141,7 +1142,7 @@ main(int ac, char **av)
 			} else 
 			t = Transact(cfd, relPath, msgId, fileOff, fileSize,
 				     cSize, qLines,
-				     (deferbegin > 0), stage, reason, buf,
+				     (deferbegin > 0), bufAgain, stage, reason, buf,
 				     &sentFileSize);
 		    }
 
@@ -2454,7 +2455,7 @@ keepQueueLine(FILE **pfo, const char *path, int *keepOld, const char *line)
  */
 
 int
-Transact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, char *stage, char *reason, char *buf, int *sentSize)
+Transact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, int again, char *stage, char *reason, char *buf, int *sentSize)
 {
     int r = 0;
     static char *ptr = NULL;
@@ -2477,7 +2478,7 @@ Transact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSi
     }
 #endif
     if (StreamMode == STREAM_ON) {
-	r = StreamTransact(cfd, relPath, msgId, off, size, cSize, lines, defers, stage, reason, buf, sentSize);
+	r = StreamTransact(cfd, relPath, msgId, off, size, cSize, lines, defers, again, stage, reason, buf, sentSize);
 	if (r)
 	    return(r);
     }
@@ -2908,7 +2909,7 @@ StreamReload(int cfd)
 #define STAGE_UNSET(st)	((st) != NULL && ((st)[0] == 0 || strcmp((st), "-") == 0))
 
 int
-StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, char *stage, char *reason, char *buf, int *sentSize)
+StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, int cSize, int lines, int defers, int again, char *stage, char *reason, char *buf, int *sentSize)
 {
     Stream *s;
     int r = T_STREAMING;
@@ -2933,9 +2934,10 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 	s->st_Lines = lines;
 	/*
 	 * The reply comes later, when deferbegin may be reset already:
-	 * the entry keeps whether it is a defer sent again.
+	 * the entry keeps whether it is a defer sent again.  It stays
+	 * one when a lost connection made it a retry (again).
 	 */
-	s->st_Defers = defers;
+	s->st_Defers = defers || again;
 	if (NoCheckOpt) {
 	    ArtMap am;
 
@@ -3000,9 +3002,11 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 	    /*
 	     * 431 to TAKETHIS is not in RFC 4644, but Diablo's feeder sends
 	     * it (history busy or failed).  A one-line reply: defer the
-	     * article once, as for CHECK below.  A fresh article answered
-	     * during replay is kept in the batch queue; a repeated defer
-	     * and a fresh reply during realtime replay reject.
+	     * article once, as for CHECK below.  An article answered
+	     * during replay, or one that was deferred already, is kept in
+	     * the batch queue (the peer can take it on a later run, as
+	     * innfeed requeues a deferral); a realtime feed has no queue
+	     * to write it to and rejects.
 	     */
 	    if ((s = LocateStream(ptr, STATE_POSTED)) != NULL) {
 		delMe = 1;
@@ -3012,12 +3016,12 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 		StrnCpyNull(reason, ptr, MAXREASON);
 		if (sentSize)
 		    *sentSize = s->st_Size;
-		if (s->st_Defers || (defers && RealTimeOpt)) {
+		if ((s->st_Defers || defers) && RealTimeOpt) {
 		    r = T_REJECTED;
 		} else {
 		    char cst[32];
 
-		    r = defers ? T_REQUEUE : T_DEFERIT;
+		    r = (defers || s->st_Defers) ? T_REQUEUE : T_DEFERIT;
 		    if (r == T_REQUEUE) {
 			StrnCpyNull(buf, s->st_QueueLine, QLINESIZE);
 		    } else {
@@ -3168,6 +3172,22 @@ StreamTransact(int cfd, const char *relPath, char *msgId, off_t off, int size, i
 	    StrnCpyNull(reason, (ptr ? ptr : "<Unexpected EOF>"), MAXREASON);
 	    r = T_FAILED;
 	    break;
+	}
+	if (r == T_STREAMING && s == NULL) {
+	    /*
+	     * A stream reply that matches no pending article in the state
+	     * it answers (RFC 4644 2.4.2, 2.5.2: 238 and 438 answer a CHECK,
+	     * 239 and 439 a TAKETHIS, each with the article's Message-ID):
+	     * the peer is out of step.  The reply the oldest pending entry
+	     * waits for may never come, so do not wait for it until the
+	     * read timeout: fail the connection as for an unknown reply
+	     * code; the pending entries are refiled and offered again.
+	     */
+	    dl_logit("stream reply matches no pending article, closing: %.100s", ptr ? ptr : "");
+	    if (STAGE_UNSET(stage))
+		StrnCpyNull(stage, (defers? "resend-stream": "stream"), MAXREASON);
+	    StrnCpyNull(reason, (ptr ? ptr : "<Unexpected EOF>"), MAXREASON);
+	    r = T_FAILED;
 	}
 	if (delMe) {
 	    --StreamPend;
@@ -3939,9 +3959,11 @@ readreset(int fd)
  */
 
 int
-readretry(char *buf, int size)
+readretry(char *buf, int size, int *again)
 {
     int inval = 1;
+
+    *again = 0;
 
     if (StreamRetry) {
 	int i;
@@ -3967,6 +3989,7 @@ readretry(char *buf, int size)
 		} else {
 		    snprintf(buf, size, "%s\t%s\n", s->st_RelPath, s->st_MsgId);
 		}
+		*again = s->st_Defers;	/* the mark of a deferred entry sent again */
 		zfreeStr(&SysMemPool, &s->st_QueueLine);
 		memset(s, 0, sizeof(Stream));
 		inval = 0;
