@@ -460,6 +460,7 @@ typedef struct TimeRestrict {
 #define HDRCPY		-3
 #define HDRDEL		-4
 #define WRDDEL		-5
+#define PATHCHK		-6
 
 #define BLOCK_OK	0
 #define BLOCK_ERROR	1
@@ -479,6 +480,14 @@ typedef struct TimeRestrict {
  */
 #define DFA_BUFSIZE	65536
 
+/*
+ * What follows "Path:" in a header line, held back until it is known whether
+ * this site's name is first in the value (dfa.c): up to DFA_PATHWS characters
+ * of white space, then up to 64 of the value (the cluster name is shorter).
+ */
+#define DFA_PATHWS	256
+#define DFA_PATHBUF	(DFA_PATHWS + 66)
+
 typedef struct DirectFileAccess {
 #if USE_AIO
     struct aiocb *dfa_AIOcb;
@@ -489,6 +498,11 @@ typedef struct DirectFileAccess {
     int		dfa_Size;
     char	dfa_Buffer[DFA_BUFSIZE];
     char	dfa_Field[MAX_HDR_CC];
+    char	dfa_PBuf[DFA_PATHBUF];
+    short	dfa_PLen;
+    short	dfa_PLead;	/* white space held in front of the value */
+    signed char	dfa_PInLead;	/* still in that white space */
+    signed char	dfa_POut;	/* some of it was written already */
     /*
      * Parser states: both hold the negative codes above (INBODY ...
      * WRDDEL) and are compared with < 0, so they must be signed.  Plain

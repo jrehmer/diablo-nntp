@@ -25,6 +25,7 @@ Prototype void NNSendLocalArticle(Connection *conn);
 
 int NNCopyLocalArticle(Connection *conn, int rs);
 void DFADataWrite(ServReq *sreq, const void *data, int len);
+void DFAPathDecide(ServReq *sreq, DirectFileAccess *dfa, const char *vs);
 void NNSLA_Loop(Connection *conn);
 
 #if USE_AIO
@@ -125,6 +126,12 @@ NewDFA(Connection *conn, int lf, int offset, int size)
 
     el->dfa_Size   = size ;
     el->dfa_LF     = 0 ;
+    el->dfa_Flag   = 0 ;
+    el->dfa_PLen   = 0 ;
+    el->dfa_PLead  = 0 ;
+    el->dfa_PInLead = 0 ;
+    el->dfa_POut   = 0 ;
+    memset(el->dfa_Field, 0, sizeof(el->dfa_Field)) ;
     el->dfa_Next   = NULL ;
 
     switch(conn->co_SReq->sr_CConn->co_ArtMode) {
@@ -244,6 +251,36 @@ DFADataWrite(ServReq *sreq, const void *data, int len)
       fwrite(data, 1, len, sreq->sr_Cache);
 }
 
+/*
+ * What follows "Path:" in the line is in dfa_PBuf: the white space right after
+ * the colon (up to DFA_PATHWS characters, dfa_PLead of them) and then the
+ * first characters of the value, or all of the line when it ends sooner.  Put
+ * this site's name in front of the value unless it is there already, as
+ * NNSpoolResponse2 does for an article fetched over NNTP: "Path: <name>!<value>",
+ * the white space dropped; an empty value, or one that starts with the name
+ * and a "!", leaves the line as it was.  White space beyond DFA_PATHWS is
+ * written out as it comes (dfa_POut), and the name then goes after it.
+ */
+void
+DFAPathDecide(ServReq *sreq, DirectFileAccess *dfa, const char *vs)
+{
+    int lead = dfa->dfa_PInLead ? dfa->dfa_PLen : dfa->dfa_PLead ;
+    const char *p = dfa->dfa_PBuf + lead ;
+    int n = dfa->dfa_PLen - lead ;
+    int vsl = strlen(vs) ;
+
+    if (n > 0 && !(n > vsl && strncmp(p, vs, vsl) == 0 && p[vsl] == '!')) {
+      if (!dfa->dfa_POut)
+          DFADataWrite(sreq, " ", 1) ;
+      DFADataWrite(sreq, vs, vsl) ;
+      DFADataWrite(sreq, "!", 1) ;
+      DFADataWrite(sreq, p, n) ;
+    } else {
+      DFADataWrite(sreq, dfa->dfa_PBuf, dfa->dfa_PLen) ;
+    }
+    dfa->dfa_PLen = 0 ;
+}
+
 /* Reading buffer */
 void
 NNSLA_Loop(Connection *conn)
@@ -280,6 +317,9 @@ NNSLA_Loop(Connection *conn)
           case BLOCK_OK :
               dfa->dfa_Size -= rs ;
               if (!dfa->dfa_Size) {
+                  /* an article that ends inside a Path header: what was held back goes out */
+                  if (dfa->dfa_InHdr == PATHCHK && sreq->sr_CConn)
+                          DFAPathDecide(sreq, dfa, sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName) ;
                   if (sreq->sr_CConn)
                           MBCopy(&sreq->sr_CConn->co_ArtBuf, &sreq->sr_CConn->co_TMBuf);
                   if (sreq->sr_Cache) {
@@ -395,7 +435,9 @@ NNCopyLocalArticle(Connection *conn, int rs)
               }
               while ( (dfa->dfa_Buffer[i]!='\n') && (i+1<rs)) i++ ;
               if (dfa->dfa_Buffer[i]=='\n') 
-                  dfa->dfa_LF = LF ;
+                  /* the body starts after the blank line: its first line is at the start
+                   * of a line like any other, so a "." there is doubled */
+                  dfa->dfa_LF = (dfa->dfa_InHdr == INBODY) ? CRLF : LF ;
               else
                   dfa->dfa_LF = 0 ;
               ptr = i + 1 ;
@@ -406,7 +448,8 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       && (dfa->dfa_Buffer[i]!='\r') && (dfa->dfa_Buffer[i]!='\n') )
                   i++ ;
               ptr = i ;
-              if (i==rs) { /* end of buffer... */
+              if (i==rs) { /* end of buffer: the word may go on in the next one */
+                  i-- ; /* the i++ below must leave i at rs, not past it */
                   break ;
               }
               dfa->dfa_LF = 0 ;
@@ -436,6 +479,43 @@ NNCopyLocalArticle(Connection *conn, int rs)
                   default :
                       dfa->dfa_LF = 0 ;
                       break ;
+              }
+              break ;
+          case PATHCHK : /* Path: header, the start of what follows the colon */
+              switch (dfa->dfa_Buffer[i]) {
+                  case '\n' :
+                  case '\r' :
+                      /* the line ends: decide, then HDRCPY ends it (same character) */
+                      DFAPathDecide(sreq, dfa, sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName) ;
+                      dfa->dfa_InHdr = HDRCPY ;
+                      continue ;
+                  default : {
+                      /*
+                       * Held back until it is known whether the name is there already.
+                       * The white space in front of the value does not count towards
+                       * the characters that decide that; of that, DFA_PATHWS are held
+                       * and the rest goes out at once.
+                       */
+                      const char *vs = sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName ;
+                      int white = isspace((unsigned char)dfa->dfa_Buffer[i]) ;
+
+                      if (dfa->dfa_PInLead && white && dfa->dfa_PLen >= DFA_PATHWS) {
+                          DFADataWrite(sreq, dfa->dfa_PBuf, dfa->dfa_PLen) ;
+                          dfa->dfa_PLen = 0 ;
+                          dfa->dfa_POut = 1 ;
+                      }
+                      if (dfa->dfa_PInLead && !white) {
+                          dfa->dfa_PInLead = 0 ;
+                          dfa->dfa_PLead = dfa->dfa_PLen ;
+                      }
+                      dfa->dfa_PBuf[dfa->dfa_PLen++] = dfa->dfa_Buffer[i] ;
+                      ptr = i + 1 ;
+                      if (!dfa->dfa_PInLead && dfa->dfa_PLen - dfa->dfa_PLead > (int)strlen(vs)) {
+                          DFAPathDecide(sreq, dfa, vs) ;
+                          dfa->dfa_InHdr = HDRCPY ;
+                      }
+                      break ;
+                  }
               }
               break ;
           case HDRDEL : /* header, drop the rest of the current line */ /* unused */
@@ -472,29 +552,11 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       /* dfa->dfa_InHdr = 0 ; */
                       break ;
                   case '\n' : /* fin des entetes */
-                      if (!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoReadPath 
-                           && (vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
-                           && ((dfa->dfa_Flag&FLAG_PATH) != FLAG_PATH)
-                         ) { /* Missing Path */
-                          if (i-ptr) DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr) ;
-                          ptr = i ;
-                          DFADataWrite(sreq, "Path: ", 6) ;
-                          DFADataWrite(sreq, vs, strlen(vs)) ;
-                          DFADataWrite(sreq, "!not-for-mail\r\n", 15);
-                          dfa->dfa_Flag = dfa->dfa_Flag | FLAG_PATH ;
-                      }
-                      if (!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoXrefHostUpdate
-                           &&(vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
-                           && ((dfa->dfa_Flag&FLAG_XREF) != FLAG_XREF) 
-                         ) { /* Missing Xref */
-                          if (i-ptr) DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr) ;
-                          ptr = i ;
-                          DFADataWrite(sreq, "XRef: ", 6) ;
-                          DFADataWrite(sreq, vs, strlen(vs)) ;
-                          DFADataWrite(sreq, " no-xref\r\n", 10) ;
-                          dfa->dfa_Flag = dfa->dfa_Flag | FLAG_XREF ;
-                      }
-
+                      /*
+                       * A missing Path or Xref header is not made up: the
+                       * article is sent as the spool has it, as when it is
+                       * fetched over NNTP.
+                       */
                       if (sreq->sr_CConn->co_ArtMode == COM_HEAD) { /* end of header in HEAD mode */
                           if (i-ptr) DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr) ;
                           return BLOCK_END;
@@ -508,6 +570,13 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       dfa->dfa_LF = CRLF ;
                       dfa->dfa_InHdr = INBODY ;
                       break ;
+                  case '.' :
+                      /* a header line that starts with a dot goes out with it doubled,
+                       * as SendArticle() sends it: the dot is written now and the line
+                       * (from the dot) after it */
+                      DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr+1) ;
+                      ptr = i ;
+                      /* fall through */
                   default :
                       dfa->dfa_LF = 0 ;
                       dfa->dfa_Field[(int)dfa->dfa_InHdr] = dfa->dfa_Buffer[i] ;
@@ -519,10 +588,10 @@ NNCopyLocalArticle(Connection *conn, int rs)
               switch (dfa->dfa_Buffer[i]) {
                   case ' ' :
                       if (!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoXrefHostUpdate
-                           && (vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
+                           && *(vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
                            && (strncasecmp(dfa->dfa_Field, "Xref:",5) == 0)
                          ) {
-                          /* copying & adding a CRLF */
+                          /* copying up to the space */
                           DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr+1) ;
                           ptr = i + 1 ;
                           /* We just replace hostname in Xref, maybe we should
@@ -530,25 +599,40 @@ NNCopyLocalArticle(Connection *conn, int rs)
                           DFADataWrite(sreq, vs, strlen(vs)) ;
                           dfa->dfa_InHdr = WRDDEL ;
                           dfa->dfa_Flag = dfa->dfa_Flag | FLAG_XREF ;
-                      } else if ( !sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoReadPath 
-                                  && (vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
-                                  && (strncasecmp(dfa->dfa_Field, "Path:",5) == 0)  
-                                ) {  /* it is possible to "double" path if reader & spooler has 
-                                      * the same name but it would be painfull to check the first
-                                      * path host... */
-                          DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr+1) ;
-                          ptr = i + 1 ;
-                          DFADataWrite(sreq, vs, strlen(vs)) ;
-                          DFADataWrite(sreq, "!", 1) ;
-                          dfa->dfa_InHdr = HDRCPY ;
-                          dfa->dfa_Flag = dfa->dfa_Flag | FLAG_PATH ;
-                      } else {
-                          dfa->dfa_InHdr = HDRCPY ;
+                          break ;
                       }
-                      break ;
+                      /* fall through */
                   default : /* no more check... */
+                      if (!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoReadPath
+                           && *(vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
+                           && (strncasecmp(dfa->dfa_Field, "Path:",5) == 0)
+                         ) {
+                          /*
+                           * This site's name goes in front of the path, unless it is the
+                           * first element already (DFAPathDecide).  What follows the colon,
+                           * this character too, is held back (PATHCHK); only "Path:" goes out.
+                           */
+                          if (i-ptr) DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr) ;
+                          ptr = i ;
+                          dfa->dfa_PLen = 0 ;
+                          dfa->dfa_PLead = 0 ;
+                          dfa->dfa_PInLead = 1 ;
+                          dfa->dfa_POut = 0 ;
+                          dfa->dfa_InHdr = PATHCHK ;
+                          dfa->dfa_Flag = dfa->dfa_Flag | FLAG_PATH ;
+                          continue ;
+                      }
                       dfa->dfa_InHdr = HDRCPY ;
                       break ;
+                  case '\n' :
+                  case '\r' :
+                      /* a line of exactly 5 characters ends here: the end of
+                       * the line goes the way it does for any other length
+                       * (the generic state, 6), not into HDRCPY, which would
+                       * take the line after it for the rest of this one and
+                       * lose the end of the headers when that is the blank line */
+                      dfa->dfa_InHdr = 6 ;
+                      continue ;
               }
               break ;
           default : /* Else, we are reading firsts chars on headers lines */

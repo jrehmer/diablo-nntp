@@ -265,6 +265,7 @@ NNGetLocal1(Connection *conn)
 	    if (filename != NULL && offset >= 0 && size >= 0) {
 		int lf;
 		int n;
+		int headered = 0;
 		static char filepath[PATH_MAX];
 		if (DebugOpt)
 		    printf("NNGetLocal1 : whereis returned file %s offset %ld size %ld\n",
@@ -282,6 +283,28 @@ NNGetLocal1(Connection *conn)
 		    lf = -1;
 		} else {
 		    lf = open(filepath, O_RDONLY);
+		}
+		/*
+		 * D-233: the range must be article text.  One that starts with
+		 * a spool record header (SpoolArtHdr) is not: a diablo spool
+		 * server that names the whole record (an old one does, also
+		 * for gzip and wire-format records) would have the client
+		 * receive binary bytes before the headers, a compressed
+		 * article or a dot-stuffed one.  An article never starts with
+		 * 0xff 0x99, so fetch such a record over NNTP instead.
+		 */
+		if (lf >= 0 && size >= 2) {
+		    unsigned char mg[2];
+
+		    if (pread(lf, mg, 2, offset) == 2 &&
+			    mg[0] == STORE_MAGIC1 && mg[1] == STORE_MAGIC2) {
+			logit(LOG_NOTICE,
+			    "NNGetLocal1 : %s in %s starts with a spool record header, not article text: fetching it from %s",
+			    sreq->sr_MsgId, filepath, conn->co_Desc->d_Id);
+			close(lf);
+			lf = -1;
+			headered = 1;
+		    }
 		}
 		/*
 		 * D-195: read the header first for the groups check.  If the
@@ -311,7 +334,9 @@ NNGetLocal1(Connection *conn)
 		if (lf >= 0 && NewDFA(conn, lf, offset, size)) {
 		    NNSendLocalArticle(conn);
 		} else {
-		    if (lf == -1) {
+		    if (headered) {
+			/* said so above */
+		    } else if (lf == -1) {
 			logit(LOG_ERR, "NNGetLocal1 : problem while openning file %s",
 							filepath);
 		    } else {

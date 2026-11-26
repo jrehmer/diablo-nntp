@@ -253,3 +253,15 @@
 
 	  (line wrap added for this document)
 
+	The offset and length are those of the article text in the file,
+	after the 24-byte record header diablo writes in front of every
+	article. An article stored gzip-compressed (compresslvl in
+	dspool.ctl) or in wire format (wireformat on) cannot be read in
+	place, and neither can a record that cannot be read or that holds
+	only the header: WHEREIS answers
+
+	  503 whereis <id>: the record is compressed, use ARTICLE
+
+	(or "is in wire format", ...), and the reader fetches the article
+	with ARTICLE instead (dreaderd does so with a localspool= entry).
+

@@ -111,6 +111,7 @@ void CloseRetain(void);
 int QueueRange(const char *label, int *pqnum, int *pqarts, int *pqrun);
 int countFds(fd_set *rfds);
 int ArticleOpen(History *h, const char *msgid, char **pfi, int32 *rsize, int *pmart, int *pheadOnly, int *compressed);
+int ArticleWhere(History *h, long long *off, long long *len, const char **why);
 
 void DoArtStats(int statgroup, int which, int bytes);
 void DoSpoolStats(int which);
@@ -2541,11 +2542,18 @@ DoSession(int fd, int count)
 		xfprintf(fo, "443 Bad Message-ID\r\n");
 	    } else if (HistoryLookup(msgid, &h) == 0 && !H_EXPIRED(h.exp)) {
 		char path[PATH_MAX];
+		long long woff = 0;
+		long long wlen = 0;
+		const char *why = NULL;
+
 		if (how != NULL && strncmp(how, "REL", 3) == 0)
 		    ArticleFileName(path, sizeof(path), &h, ARTFILE_FILE_REL);
 		else
 		    ArticleFileName(path, sizeof(path), &h, ARTFILE_FILE);
-		xfprintf(fo, "223 0 whereis %s in %s offset %i length %i\r\n", msgid, path, h.boffset, h.bsize) ;
+		if (ArticleWhere(&h, &woff, &wlen, &why) == 0)
+		    xfprintf(fo, "223 0 whereis %s in %s offset %lld length %lld\r\n", msgid, path, woff, wlen);
+		else
+		    xfprintf(fo, "503 whereis %s: %s, use ARTICLE\r\n", msgid, why);
 	    } else {
 		if (H_EXPIRED(h.exp) && h.iter != (unsigned short)-1) {
 		    xfprintf(fo, "430 Article expired\r\n");
@@ -5959,6 +5967,87 @@ ArticleOpen(History *h, const char *msgid, char **pfi, int32 *rsize, int *pmart,
    if (pfi && *pfi)
 	r = 0;
     return(r);
+}
+
+/*
+ * ARTICLEWHERE() - where a reader that opens the spool file itself (dreaderd's
+ *		    localspool=, the "whereis" command) finds the text of an
+ *		    article: its offset in the spool file and its length.
+ *
+ *		    The reader sends what it finds there to its client as the
+ *		    article, so the range must be the article text as stored
+ *		    for a plain text spool: the SpoolArtHdr in front of it is
+ *		    not part of it, and a gzip record (compresslvl) or a wire
+ *		    format one (dot-stuffed, CRLF, with its own terminator) is
+ *		    not article text at all.  Those and any record that cannot
+ *		    be read are refused with *why set; the reader then fetches
+ *		    the article with ARTICLE.  A record that has no SpoolArtHdr
+ *		    (an article of an old spool) is plain text from its first
+ *		    byte.
+ *
+ *		    Returns 0 with *off and *len set, or -1.
+ */
+int
+ArticleWhere(History *h, long long *off, long long *len, const char **why)
+{
+    char path[PATH_MAX];
+    SpoolArtHdr tah = { 0 };
+    ssize_t n;
+    int fd;
+    int keepfd = 0;
+
+    if (h->exp & EXPF_HEADONLY) {
+	*why = "only the header is stored";
+	return(-1);
+    }
+    ArticleFileName(path, sizeof(path), h, ARTFILE_FILE);
+
+    /*
+     * As in ArticleOpen(): a spool file this process has open for appending
+     * is read through that descriptor and left open, since closing any
+     * descriptor for the file would release our lock on it.
+     */
+    fd = ArticleFileCached(path);
+    if (fd >= 0)
+	keepfd = 1;
+    else if ((fd = cdopen(path, O_RDONLY, 0)) < 0) {
+	*why = "the spool file cannot be opened";
+	return(-1);
+    }
+    n = pread(fd, &tah, sizeof(tah), h->boffset);
+    if (!keepfd)
+	close(fd);
+    if (n != (ssize_t)sizeof(tah) || h->bsize <= 0) {
+	*why = "the record cannot be read";
+	return(-1);
+    }
+
+    if ((uint8)tah.Magic1 == STORE_MAGIC1 && (uint8)tah.Magic2 == STORE_MAGIC2) {
+	if (tah.StoreType & STORETYPE_GZIP) {
+	    *why = "the record is compressed";
+	    return(-1);
+	}
+	if (tah.StoreType & STORETYPE_WIRE) {
+	    *why = "the record is in wire format";
+	    return(-1);
+	}
+	if (tah.HeadLen < 8 || tah.HeadLen > sizeof(SpoolArtHdr) ||
+		h->bsize <= (int32)tah.HeadLen ||
+		tah.ArtHdrLen > (uint32)h->bsize - tah.HeadLen) {
+	    *why = "the record header is corrupt";
+	    return(-1);
+	}
+	*off = (long long)h->boffset + tah.HeadLen;
+	*len = (long long)h->bsize - tah.HeadLen;
+    } else {
+	if (SpoolCompressed(H_SPOOL(h->exp))) {
+	    *why = "the record is compressed";
+	    return(-1);
+	}
+	*off = (long long)h->boffset;
+	*len = (long long)h->bsize;
+    }
+    return(0);
 }
 
 void
