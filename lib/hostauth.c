@@ -53,6 +53,7 @@ static HAKept *HAKeptList = NULL;
 int convHost(char *host, HostAccess *HA, FILE *fo);
 static int keepOldHost(const char *host, HostAccess *HA, FILE *fo, const char *why);
 static int haWritten(const HostAccess *HA);
+static void haTerminate(HostAccess *HA);
 void loadDiabloHosts(FILE *fo, int t, int *count);
 void loadDnewsFeeds(FILE *fo, int t, int *count);
 
@@ -545,36 +546,169 @@ loadDnewsFeeds(FILE *fo, int t, int *count)
 }
 
 /*
+ * The longest a feeder session waits for the name of a connecting address
+ * that no address entry matches (D-242).  The reverse and the forward
+ * query run one after the other, and glibc's default resolver timeout is
+ * 5 s per query: with the first nameserver in resolv.conf dead the two
+ * take about 10 s, so 20 s leaves room for that.
+ */
+#define HOSTAUTH_DNS_SECS	20
+
+/*
+ * peerName() - the name of the address res (ipst, pname as text) whose
+ *	reverse (PTR) lookup a forward lookup of that name confirms, or NULL.
+ *
+ *	getnameinfo() and getaddrinfo() have no time limit of their own, and
+ *	whoever answers the PTR query of an address can make them wait.  A
+ *	lookup cut short by a signal would leave the resolver's state undefined
+ *	in a process that goes on to serve the peer, so both lookups run in a
+ *	child process that writes the name to a pipe; after secs seconds it is
+ *	killed and the address has no name.
+ */
+static char *
+peerName(struct sockaddr *res, char *ipst, const char *pname, int secs)
+{
+    char buf[NI_MAXHOST];
+    size_t got = 0;
+    int done = 0;
+    int p[2];
+    pid_t pid;
+    time_t end;
+
+    if (pipe(p) < 0) {
+	logit(LOG_ERR, "DNS lookup of %s: pipe: %s", pname, strerror(errno));
+	return(NULL);
+    }
+    if ((pid = fork()) < 0) {
+	logit(LOG_ERR, "DNS lookup of %s: fork: %s", pname, strerror(errno));
+	close(p[0]);
+	close(p[1]);
+	return(NULL);
+    }
+    if (pid == 0) {
+	char hostst[NI_MAXHOST];
+	int ok = 0;
+
+	close(p[0]);
+#ifdef INET6
+	if (getnameinfo(res, SA_LEN(res), hostst, sizeof(hostst),
+					NULL, 0, NI_NAMEREQD) == 0 &&
+	    TestForwardLookup(hostst, (const char *)ipst, res) >= 0)
+	    ok = 1;
+#else
+	{
+	    struct sockaddr_in *sin = (struct sockaddr_in *)res;
+	    struct hostent *he;
+
+	    he = gethostbyaddr((char *)&sin->sin_addr, sizeof(sin->sin_addr),
+								AF_INET);
+	    if (he != NULL && strlen(he->h_name) < sizeof(hostst)) {
+		strcpy(hostst, he->h_name);
+		if (TestForwardLookup(hostst, (const char *)ipst, res) >= 0)
+		    ok = 1;
+	    }
+	}
+#endif
+	if (ok)
+	    (void)write(p[1], hostst, strlen(hostst));
+	_exit(0);
+    }
+    close(p[1]);
+    end = time(NULL) + secs;
+    for (;;) {
+	struct pollfd pfd;
+	time_t left = end - time(NULL);
+	ssize_t n;
+
+	if (left <= 0)
+	    break;
+	pfd.fd = p[0];
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	if ((n = poll(&pfd, 1, (int)left * 1000)) < 0) {
+	    if (errno == EINTR)
+		continue;
+	    break;
+	}
+	if (n == 0)
+	    continue;
+	if ((n = read(p[0], buf + got, sizeof(buf) - 1 - got)) < 0) {
+	    if (errno == EINTR)
+		continue;
+	    break;
+	}
+	if (n == 0) {
+	    done = 1;
+	    break;
+	}
+	got += n;
+	if (got == sizeof(buf) - 1) {	/* more than a name can be */
+	    got = 0;
+	    done = 1;
+	    break;
+	}
+    }
+    if (!done) {
+	kill(pid, SIGKILL);
+	logit(LOG_NOTICE, "DNS lookup of %s took longer than %d s, "
+			"its name is not used", pname, secs);
+	got = 0;
+    }
+    close(p[0]);
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+	;
+    if (got == 0)
+	return(NULL);
+    buf[got] = 0;
+    return(zallocStr(&SysMemPool, buf));
+}
+
+/*
+ * A record read from the cache file is not trusted to hold terminated
+ * strings.
+ */
+static void
+haTerminate(HostAccess *HA)
+{
+    HA->entry[sizeof(HA->entry) - 1] = 0;
+    HA->addrst[sizeof(HA->addrst) - 1] = 0;
+    HA->label[sizeof(HA->label) - 1] = 0;
+}
+
+/*
  * AUTHENTICATION()	- authenticate a new connection
  *
- *   We follow the following procedure:
+ *   We follow the following procedure (D-242: no DNS before the cheap
+ *   checks):
  *
- *	- if access entry is IP, only match with IP
- *	- if access entry is FQDN, only match with FQDN
- *	- if IP has no hostname, only match IP
- *	- if IP Fwd/Rev mismatch, only match IP
- *	- if IP has valid hname, match with IP or hname
+ *	- first the entries that match an address: IP entries, CIDR and
+ *	  wildcard-IP entries, and name entries by the addresses the host
+ *	  cache has for them; no lookup is done for these
+ *	- only when none matches and a wildcard name entry exists are the
+ *	  reverse and forward lookups done, in a child, at most
+ *	  HOSTAUTH_DNS_SECS seconds; a name only counts when the forward
+ *	  lookup confirms it
+ *	- an address that matches no address entry gets no lookup unless a
+ *	  wildcard name entry exists (then every such connection gets it)
  *
- *	Returns the hostname or IP if hostname not found/invalid
+ *	Returns the host name: the entry's name for a name entry matched by
+ *	its cached address, the confirmed name for a match by name, the IP
+ *	address for an IP, CIDR or wildcard-IP entry.  NULL: no match.
+ *
+ *	label: at least sizeof(HostAccess.label) (256) bytes; set to the
+ *	label of the matching entry, or "".
  */
 
 char *
 Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 {
-    char *hname = NULL;		/* authenticated hostname or NULL */
+    char *hname = NULL;		/* the host name returned, or NULL */
     char *pname = NULL;		/* IP address (as string)	  */
     int isValid = 0;
-
-    /*
-     * check reverse lookup verses forward lookup, set either hname or uname
-     * or neither, but never both.
-     */
 
 #ifdef INET6
     {
 	char *st;
-	char hostst[NI_MAXHOST];
-	int error;
 
 	st = NetAddrToSt(0, res, 1, 0, 0);
 	if (st != NULL) {
@@ -584,40 +718,13 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 	    return(NULL);
 	}
 	st[0]= 0;
-	if ((error = getnameinfo(res, SA_LEN(res), hostst, sizeof(hostst),
-					NULL, 0, NI_NAMEREQD)) == 0) {
-	    if (TestForwardLookup(hostst, (const char *)ipst, res) >= 0)
-		hname = zallocStr(&SysMemPool, hostst);
-	} else {
-	    fprintf(stderr, "getnameinfo: %d", error);
-	}
     }
 #else
-    struct sockaddr_in *sin = (struct sockaddr_in *)res;
-
-    /*
-     * set pname
-     */
-    pname = zallocStr(&SysMemPool, inet_ntoa(sin->sin_addr));
-
     {
-	struct hostent *he;
+	struct sockaddr_in *sin = (struct sockaddr_in *)res;
 
-	he = gethostbyaddr(
-	    (char *)&sin->sin_addr,
-	    sizeof(sin->sin_addr),
-	    AF_INET
-	);
-
-	if (he != NULL) {
-	    hname = zallocStr(&SysMemPool, he->h_name);
-	    if (TestForwardLookup(hname, (const char *)ipst, res) < 0) {
-		zfreeStr(&SysMemPool, &hname);
-		hname = NULL;
-	    }
-	}
+	pname = zallocStr(&SysMemPool, inet_ntoa(sin->sin_addr));
     }
-
 #endif /* INET6 */
 
     /*
@@ -628,23 +735,45 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 
 	if (fi) {
 	    HostAccess HA;
+	    /*
+	     * byName: an entry can match by name alone.  A record with
+	     * TESTTYPE_FQDN and no TESTTYPE_IP is written without a lookup,
+	     * for an entry with '*', '?' or '/' (convHost()): convHost()
+	     * writes no record for a name that does not resolve, and
+	     * keepOldHost() copies only old records that have an address.
+	     */
+	    int byName = 0;
 
 	    while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+		haTerminate(&HA);
 		if (HA.addrst[0] && (HA.testtype & TESTTYPE_IP) && strcmp(ipst, HA.addrst) == 0) {
 		    isValid = 1;
 		    break;
 		} else if ((strchr(HA.entry, '/') != NULL) && (HA.testtype & TESTTYPE_IP) && CidrMatch(HA.entry, pname)) {
 		    isValid = 2;
 		    break;
-		} else if (pname && (HA.testtype & TESTTYPE_IP) && WildCaseCmp(HA.entry, pname) == 0) {
+		} else if ((HA.testtype & TESTTYPE_IP) && !(HA.testtype & TESTTYPE_FQDN) && WildCaseCmp(HA.entry, pname) == 0) {
 		    isValid = 3;
 		    break;
-		} else if (hname && (HA.testtype & TESTTYPE_FQDN) && strcasecmp(HA.entry, hname) == 0) {
-		    isValid = 4;
-		    break;
-		} else if (hname && (HA.testtype & TESTTYPE_FQDN) && WildCaseCmp(HA.entry, hname) == 0) {
-		    isValid = 5;
-		    break;
+		} else if ((HA.testtype & TESTTYPE_FQDN) &&
+			   (!(HA.testtype & TESTTYPE_IP) ||
+			    strchr(HA.entry, '*') != NULL ||
+			    strchr(HA.entry, '?') != NULL)) {
+		    byName = 1;
+		}
+	    }
+	    if (!isValid && byName &&
+			(hname = peerName(res, ipst, pname, HOSTAUTH_DNS_SECS)) != NULL) {
+		rewind(fi);
+		while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+		    haTerminate(&HA);
+		    if ((HA.testtype & TESTTYPE_FQDN) && strcasecmp(HA.entry, hname) == 0) {
+			isValid = 4;
+			break;
+		    } else if ((HA.testtype & TESTTYPE_FQDN) && WildCaseCmp(HA.entry, hname) == 0) {
+			isValid = 5;
+			break;
+		    }
 		}
 	    }
 	    if (isValid) {
@@ -659,12 +788,15 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 		    method = "Exact Hostname match";
 		if (isValid == 5)
 		    method = "Wildcmp hostname match";
+		/* a name entry matched by its cached address: its name */
+		if (isValid == 1 && (HA.testtype & TESTTYPE_FQDN))
+		    hname = zallocStr(&SysMemPool, HA.entry);
 		logit(LOG_DEBUG, "Matched %s (%s) to %s (label:%s) using %s",
 					hname ? hname : "NOTFOUND", pname,
 					HA.entry, HA.label,
 					method);
 		if (HA.label[0])
-		    strcpy(label, HA.label);
+		    snprintf(label, sizeof(HA.label), "%s", HA.label);
 		else
 		    label[0] = 0;
 	    }
@@ -675,9 +807,8 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
     }
 
     /*
-     * If we have a valid connection, but we were
-     * unable to resolve the FQDN, we make the FQDN
-     * the IP address.
+     * A valid connection without a name (an IP, CIDR or wildcard-IP
+     * entry) has the IP address as its name.
      */
     if (isValid) {
 	if (hname == NULL) {
@@ -702,6 +833,7 @@ DumpHostCache(const char *fname)
         char tt[20];
 
 	while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+	    haTerminate(&HA);
 	    strcpy(tt, "");
 	    if (HA.testtype & TESTTYPE_NONE)
 		strcat(tt, "NONE:");
