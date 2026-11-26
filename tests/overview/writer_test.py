@@ -112,6 +112,8 @@ def check(writer, reader):
         malformed = (
             b"fixture.alpha\t41\ttoo few fields\r\n",
             b"fixture.alpha\t41\tSubject\tFrom\tDate\t<invalid>\t\r\n",
+            b"fixture.alpha\t41\tSubject\tFrom\tDate\t<invalid>\t\t1024\r\n",
+            b"fixture.alpha\t41\tSubject\tFrom\tDate\t<invalid>\t\t\r\n",
             membership(alpha, 0, four_over),
             membership(alpha, -1, four_over),
         )
