@@ -87,6 +87,7 @@ Prototype void OverCacheFdPressure(void);
 Prototype OverInfo *GetOverInfo(const char *group);
 Prototype void PutOverInfo(OverInfo *ov);
 Prototype const char *GetOverRecord(OverInfo *ov, artno_t artno, int *plen, int *aleno, int *plines, TimeRestrict *tr, int *TimeRcvd);
+Prototype int ReadOverviewRange(Connection *conn);
 Prototype OverInfo *FindCanceledMsg(const char *group, const char *msgid, artno_t *partNo, int *pvalidGroups);
 Prototype OverInfo *FindMsgInGroup(const char *group, const char *msgid, artno_t *partNo, artno_t maxScan);
 Prototype int CancelOverArt(OverInfo *ov, artno_t artNo);
@@ -1722,6 +1723,66 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 	    OutputOverview(conn, r, oa->oa_Bytes, oa->oa_ArtSize, OA_LINES(oa));
 	}
     }
+}
+
+/* Most overview records looked at in one pass before other work gets a turn. */
+#define OVERVIEW_PASS_RECORDS	10000
+
+/*
+ * Hold the overview only for this pass. Return 0 if the group has no
+ * readable overview, -1 for a pending write error, or 1 after a pass.
+ * The caller finishes the response or continues from co_ListBegNo.
+ */
+int
+ReadOverviewRange(Connection *conn)
+{
+    OverInfo *ov;
+    int xpat_count = 0;
+    int nrec = 0;
+
+    if ((ov = GetOverInfo(conn->co_GroupName)) == NULL)
+	return(0);
+    if (conn->co_TMBuf.mh_WError) {
+	PutOverInfo(ov);
+	return(-1);
+    }
+
+    while (conn->co_TMBuf.mh_Bytes < MBUF_HIWAT &&
+	    conn->co_ListBegNo <= conn->co_ListEndNo
+    ) {
+#ifndef USE_OVER_MADVISE
+	int resLen;
+	int artSize;
+	int lines;
+	const char *res;
+	TimeRestrict *tr = NULL;
+#endif
+
+	/*
+	 * Bound the work done in one pass. A range of missing articles
+	 * produces no output, so the buffer test above never stops it and
+	 * a very wide range (xref-slave mode) would hold the process.
+	 */
+	if (++nrec > OVERVIEW_PASS_RECORDS) {
+	    FD_SET(conn->co_Desc->d_Fd, &WFds);
+	    break;
+	}
+	if (conn->co_ArtMode == COM_XPAT && ++xpat_count > 50) {
+	    FD_SET(conn->co_Desc->d_Fd, &WFds);
+	    break;
+	}
+#ifdef USE_OVER_MADVISE
+	OutputOverRange(ov, conn);
+#else
+	if (conn->co_ArtMode == COM_NEWNEWS)
+	    tr = &conn->co_TimeRestrict;
+	if ((res = GetOverRecord(ov, conn->co_ListBegNo, &resLen, &artSize, &lines, tr, NULL)) != NULL)
+	    OutputOverview(conn, res, resLen, artSize, lines);
+	++conn->co_ListBegNo;
+#endif	/* USE_OVER_MADVISE */
+    }
+    PutOverInfo(ov);
+    return(1);
 }
 
 /*
