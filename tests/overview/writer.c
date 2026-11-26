@@ -112,7 +112,21 @@ writer_configs(struct Writer *writer)
 static int
 writer_open(struct Writer *writer, const char *path)
 {
-    if (sqlite3_open_v2(path, &writer->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+    char *relative = NULL;
+    int code;
+
+    /* A SQLite build can parse file: URIs by default. Keep paths literal. */
+    if (path[0] != '/') {
+        relative = sqlite3_mprintf("./%s", path);
+        if (relative == NULL) {
+            fputs("cannot allocate writer database path\n", stderr);
+            return -1;
+        }
+        path = relative;
+    }
+    code = sqlite3_open_v2(path, &writer->db, SQLITE_OPEN_READWRITE, NULL);
+    sqlite3_free(relative);
+    if (code != SQLITE_OK) {
         fprintf(stderr, "open writer database: %s\n",
                 writer->db == NULL ? "out of memory" : sqlite3_errmsg(writer->db));
         return -1;

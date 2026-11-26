@@ -55,6 +55,31 @@ def state(database):
     return groups, memberships, articles
 
 
+def check_literal_paths(writer, directory):
+    group, article = b"fixture.literal", b"<literal@fixture.invalid>"
+    source = directory / "literal.tsv"
+    source.write_bytes(membership(group, 1, overview(b"literal path", article)))
+    names = (
+        ("file:x.sqlite", "x.sqlite"),
+        ("punctuation%3F?#.sqlite", "punctuation.sqlite"),
+        ("file:escaped%3F?#.sqlite", "escaped?"),
+    )
+    for literal_name, other_name in names:
+        literal = directory / literal_name
+        other = directory / other_name
+        initialize(literal)
+        initialize(other)
+        before = other.read_bytes()
+        paths = set(directory.iterdir())
+        subprocess.run(
+            [writer, literal_name, "1", source], cwd=directory,
+            check=True, capture_output=True,
+        )
+        assert state(literal) == ([(group, 1)], [(group, 1, article)], [(article,)]), literal_name
+        assert other.read_bytes() == before, other_name
+        assert set(directory.iterdir()) == paths
+
+
 def check(writer, reader):
     alpha, beta, gamma = b"fixture.alpha", b"fixture.beta", b"fixture.gamma"
     one, two, three, four, conflict = (
@@ -135,6 +160,7 @@ def check(writer, reader):
         assert groups == [(alpha, 40), (beta, 31)]
         assert (alpha, 7, one) in memberships and (alpha, 40, one) in memberships
         assert articles == committed[2]
+        check_literal_paths(writer, directory)
     print("overview writer checks passed")
 
 
