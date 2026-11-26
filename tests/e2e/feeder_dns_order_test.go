@@ -1,9 +1,9 @@
 package e2e
 
 // D-242: the feeder matches IP, CIDR and wildcard-IP entries, and name entries by the
-// addresses the host cache has for them, before any DNS lookup. Only when none matches and an
-// entry can match by name alone (a wildcard name, or a name with no cached address) does a
-// session look up the PTR name (and confirm it forward), in a child, at most 10 s.
+// addresses the host cache has for them, before any DNS lookup. Only when none matches and a
+// wildcard name entry exists does a session look up the PTR name (and confirm it forward), in
+// a child, at most 20 s.
 
 import (
 	"net"
@@ -152,7 +152,7 @@ func (d *dnsOrderSite) greet(t *testing.T, ip string, within time.Duration) (str
 
 // TestFeederDNSAfterIPMatch: with a reverse lookup that does not answer (30 s), a peer listed
 // by IP is greeted (200) at once and no reverse lookup is done for it; a stranger is refused
-// (502) at once without one when no entry can match by name. Fails on main: every session
+// (502) at once without one when no wildcard name entry exists. Fails on main: every session
 // does the reverse lookup before the access check, so both wait for it (30 s).
 func TestFeederDNSAfterIPMatch(t *testing.T) {
 	d := newDNSOrderSite(t, DefaultNewsfeeds)
@@ -164,15 +164,15 @@ func TestFeederDNSAfterIPMatch(t *testing.T) {
 	}
 	g, took = d.greet(t, "127.0.0.4", 5*time.Second)
 	if !strings.HasPrefix(g, "502 ") {
-		t.Errorf("a stranger (127.0.0.4) with only IP entries: %q after %v, want 502", g, took)
+		t.Errorf("a stranger (127.0.0.4) with only IP entries (no wildcard name): %q after %v, want 502", g, took)
 	}
 	if m := shimMarked(d.mark, "PTR "); len(m) != 0 {
-		t.Errorf("reverse lookups done: %v, want none (no entry matches by name alone)", m)
+		t.Errorf("reverse lookups done: %v, want none (no wildcard name entry)", m)
 	}
 }
 
 // TestFeederDNSByNameTimed: with a wildcard name entry, a stranger whose reverse lookup does
-// not answer is refused (502) after the 10 s limit, with a log line, instead of after the
+// not answer is refused (502) after the 20 s limit, with a log line, instead of after the
 // lookup (30 s); a peer listed by IP still gets no lookup. A name the lookup confirms still
 // matches the wildcard entry (200). Fails on main: the refusal takes 30 s, and the IP peer
 // waits for its lookup too.
@@ -189,14 +189,14 @@ func TestFeederDNSByNameTimed(t *testing.T) {
 		t.Errorf("a reverse lookup for the peer listed by IP: %v, want none", m)
 	}
 
-	g, took = d.greet(t, "127.0.0.4", 20*time.Second)
-	if !strings.HasPrefix(g, "502 ") || took < 9*time.Second || took > 15*time.Second {
-		t.Errorf("a stranger (127.0.0.4) whose reverse lookup does not answer: %q after %v, want 502 after about 10 s", g, took)
+	g, took = d.greet(t, "127.0.0.4", 30*time.Second)
+	if !strings.HasPrefix(g, "502 ") || took < 19*time.Second || took > 25*time.Second {
+		t.Errorf("a stranger (127.0.0.4) whose reverse lookup does not answer: %q after %v, want 502 after about 20 s", g, took)
 	}
 	if m := shimMarked(d.mark, "PTR 127.0.0.4"); len(m) == 0 {
 		t.Errorf("no reverse lookup for the stranger, want one (a wildcard name entry exists)")
 	}
-	if !strings.Contains(generalLog(d.Site), "DNS lookup of 127.0.0.4 took longer than 10 s") {
+	if !strings.Contains(generalLog(d.Site), "DNS lookup of 127.0.0.4 took longer than 20 s") {
 		t.Errorf("no log line about the lookup that took too long")
 	}
 

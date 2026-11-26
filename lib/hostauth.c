@@ -547,9 +547,12 @@ loadDnewsFeeds(FILE *fo, int t, int *count)
 
 /*
  * The longest a feeder session waits for the name of a connecting address
- * that no IP entry matches (D-242).
+ * that no address entry matches (D-242).  The reverse and the forward
+ * query run one after the other, and glibc's default resolver timeout is
+ * 5 s per query: with the first nameserver in resolv.conf dead the two
+ * take about 10 s, so 20 s leaves room for that.
  */
-#define HOSTAUTH_DNS_SECS	10
+#define HOSTAUTH_DNS_SECS	20
 
 /*
  * peerName() - the name of the address res (ipst, pname as text) whose
@@ -681,12 +684,12 @@ haTerminate(HostAccess *HA)
  *	- first the entries that match an address: IP entries, CIDR and
  *	  wildcard-IP entries, and name entries by the addresses the host
  *	  cache has for them; no lookup is done for these
- *	- only when none matches and an entry can match by name alone (a
- *	  wildcard name, or a name the cache has no address for) are the
+ *	- only when none matches and a wildcard name entry exists are the
  *	  reverse and forward lookups done, in a child, at most
  *	  HOSTAUTH_DNS_SECS seconds; a name only counts when the forward
  *	  lookup confirms it
- *	- an address no entry matches gets no lookup at all
+ *	- an address that matches no address entry gets no lookup unless a
+ *	  wildcard name entry exists (then every such connection gets it)
  *
  *	Returns the host name: the entry's name for a name entry matched by
  *	its cached address, the confirmed name for a match by name, the IP
@@ -732,7 +735,14 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 
 	if (fi) {
 	    HostAccess HA;
-	    int byName = 0;	/* an entry can match by name alone */
+	    /*
+	     * byName: an entry can match by name alone.  A record with
+	     * TESTTYPE_FQDN and no TESTTYPE_IP is written without a lookup,
+	     * for an entry with '*', '?' or '/' (convHost()): convHost()
+	     * writes no record for a name that does not resolve, and
+	     * keepOldHost() copies only old records that have an address.
+	     */
+	    int byName = 0;
 
 	    while (fread(&HA, sizeof(HA), 1, fi) == 1) {
 		haTerminate(&HA);
