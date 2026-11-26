@@ -52,14 +52,13 @@ struct FileQueue {
 } FileQueue;
 
 struct InodeQueue {
-	struct InodeQueue *next;
 	char *name;
 	time_t ctime;
 } InodeQueue;
 
 struct FileQueue *fileBeg=NULL, *fileFree=NULL;
-struct InodeQueue *inodeBeg=NULL, *inodeEnd=NULL;
-long inodeLen=0;
+struct InodeQueue *inodeHeap=NULL;	/* the -i entries kept, see addSLink() */
+long inodeLen=0, inodeCap=0;
 time_t fileEnd;
 
 int
@@ -93,16 +92,20 @@ removeFiles(struct FileQueue *node, int val) {
 	}
 }
 
+static int inodeCmp(const void *a, const void *b);
+
 void
 removeLinks(void) {
-	struct InodeQueue *i=inodeBeg;
-	
-	while(i) {
-		if (verbose) printf("Removing %s\n", i->name);
+	long i;
+
+	/* oldest first, as inodeCmp() orders them */
+	if (inodeLen > 1)
+		qsort(inodeHeap, inodeLen, sizeof(struct InodeQueue), inodeCmp);
+	for (i = 0; i < inodeLen; i++) {
+		if (verbose) printf("Removing %s\n", inodeHeap[i].name);
 		/* one already gone (two days old, addSLink()) is not counted again */
-		if (unlink(i->name) == 0)
+		if (unlink(inodeHeap[i].name) == 0)
 			linksremoved++;
-		i = i->next;
 	}
 }
 
@@ -276,7 +279,7 @@ addFile(char *name, long size, time_t atime, time_t mtime) {
 }
 
 /*
- * The order of the -i list: by ctime, oldest first, and by name where the
+ * The order of the -i entries: by ctime, oldest first, and by name where the
  * ctimes are the same, so that ties do not depend on the directory order.
  */
 static int
@@ -285,15 +288,59 @@ inodeOlder(time_t ctime, const char *name, const struct InodeQueue *e)
 	return ctime < e->ctime || (ctime == e->ctime && strcmp(name, e->name) < 0);
 }
 
+/* for qsort(): oldest first (no two entries have the same name) */
+static int
+inodeCmp(const void *a, const void *b)
+{
+	const struct InodeQueue *x = a, *y = b;
+
+	if (x->ctime != y->ctime)
+		return x->ctime < y->ctime ? -1 : 1;
+	return strcmp(x->name, y->name);
+}
+
+/* move e up from the free place k until its parent is newer */
+static void
+inodeSiftUp(struct InodeQueue e, long k)
+{
+	while (k > 0) {
+		long p = (k-1)/2;
+		if (inodeCmp(&inodeHeap[p], &e) >= 0)
+			break;
+		inodeHeap[k] = inodeHeap[p];
+		k = p;
+	}
+	inodeHeap[k] = e;
+}
+
+/* move e down from the free place k until both children are older */
+static void
+inodeSiftDown(struct InodeQueue e, long k)
+{
+	long c;
+
+	while ((c = 2*k+1) < inodeLen) {
+		if (c+1 < inodeLen && inodeCmp(&inodeHeap[c+1], &inodeHeap[c]) > 0)
+			c++;
+		if (inodeCmp(&inodeHeap[c], &e) <= 0)
+			break;
+		inodeHeap[k] = inodeHeap[c];
+		k = c;
+	}
+	inodeHeap[k] = e;
+}
+
 /*
- * Keep the freeinodes oldest empty files and symbolic links in the list
- * (inodeBeg, oldest first; inodeEnd the newest kept, inodeLen how many).
+ * Keep the freeinodes oldest empty files and symbolic links.  They are a
+ * binary heap in inodeHeap[0..inodeLen-1] with the newest kept entry at the
+ * root: a new entry is added while there is room, or replaces the root when
+ * it is older, so each entry costs O(log freeinodes).  removeLinks() sorts
+ * the heap, oldest first.
  */
 void
 addSLink(char *name, time_t ctime) {
-	struct InodeQueue *itmp, *i, **pp;
+	struct InodeQueue e;
 	int s;
-	long n;
 
 	if (ctime < time(NULL)-2*24*3600) {
 		if (unlink(name) == 0)
@@ -302,37 +349,40 @@ addSLink(char *name, time_t ctime) {
 
 	if (!freeinodes)
 		return;
-	/* the list is full and this one is not older than the newest in it */
-	if (inodeLen >= freeinodes && !inodeOlder(ctime, name, inodeEnd))
+	/* the heap is full and this one is not older than the newest in it */
+	if (inodeLen >= freeinodes && !inodeOlder(ctime, name, &inodeHeap[0]))
 		return;
 
 	s = strlen(name)+1;
-
-	itmp = (struct InodeQueue*) malloc(sizeof(struct InodeQueue));
-	itmp->name = (char*) malloc(s);
-	memcpy(itmp->name, name, s);
-	itmp->ctime = ctime;
-
-	/* insert before the first entry it is older than: entry n */
-	n = 1;
-	for (pp = &inodeBeg; *pp && !inodeOlder(ctime, name, *pp); pp = &(*pp)->next)
-		n++;
-	itmp->next = *pp;
-	*pp = itmp;
-
-	/* the entries after the freeinodes-th are not needed */
-	for (i = itmp; i->next && n < freeinodes; n++)
-		i = i->next;
-	inodeEnd = i;
-	inodeLen = n;
-	i = i->next;
-	inodeEnd->next = NULL;
-	while (i) {
-		struct InodeQueue *j;
-		j = i; i = i->next;
-		free(j->name);
-		free(j);
+	e.name = (char*) malloc(s);
+	if (!e.name) {
+		fprintf(stderr, "dexpirecache: out of memory\n");
+		exit(1);
 	}
+	memcpy(e.name, name, s);
+	e.ctime = ctime;
+
+	if (inodeLen >= freeinodes) {
+		/* replace the newest kept entry */
+		free(inodeHeap[0].name);
+		inodeSiftDown(e, 0);
+		return;
+	}
+	if (inodeLen == inodeCap) {
+		struct InodeQueue *h;
+		long cap = inodeCap ? 2*inodeCap : 1024;
+
+		if (cap > freeinodes)
+			cap = freeinodes;
+		h = (struct InodeQueue*) realloc(inodeHeap, cap*sizeof(struct InodeQueue));
+		if (!h) {
+			fprintf(stderr, "dexpirecache: out of memory\n");
+			exit(1);
+		}
+		inodeHeap = h;
+		inodeCap = cap;
+	}
+	inodeSiftUp(e, inodeLen++);
 }
 
 void
