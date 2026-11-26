@@ -3990,6 +3990,8 @@ readretry(char *buf, int size, int *again)
 		    snprintf(buf, size, "%s\t%s\n", s->st_RelPath, s->st_MsgId);
 		}
 		*again = s->st_Defers;	/* the mark of a deferred entry sent again */
+		zfreeStr(&SysMemPool, &s->st_RelPath);
+		zfreeStr(&SysMemPool, &s->st_MsgId);
 		zfreeStr(&SysMemPool, &s->st_QueueLine);
 		memset(s, 0, sizeof(Stream));
 		inval = 0;
