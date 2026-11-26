@@ -7,9 +7,10 @@ index and joins to the narrow article table. A lookup by Message-ID uses the
 exact bytes and returns the newest matching number in the group.
 
 This is a stand-alone test tool. It needs a C99 compiler, POSIX monotonic
-clock support, SQLite 3.22 or newer development headers and library, and Python 3.7 or
-newer with SQLite and zlib support. The build and reader configuration for
-Diablo are independent of this tool.
+clock support, SQLite development headers and library, and Python 3 with
+SQLite and zlib support. SQLite 3.22 and Python 3.7 are minimum versions
+inferred from the APIs used. The test runs used newer versions. The build
+and reader configuration for Diablo are independent of this tool.
 
 ## Build and check
 
@@ -23,8 +24,7 @@ compiler's normal search path. For example, on FreeBSD with the `sqlite3` and
 `py312-sqlite3` packages for Python 3.12:
 
 ```sh
-make -C tests/overview CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib \
-    PYTHON=python3.12 check
+make -C tests/overview CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib check
 ```
 
 The check covers holes, crossposts, repeated Message-IDs in one group,
@@ -37,11 +37,12 @@ SQLite file using the rollback journal. After the transaction finishes and
 the database closes, it publishes the file without replacing an existing
 snapshot. `ovshadow` opens that offline snapshot read-only.
 
-Only pass completed snapshots to the reader. For a copy made in WAL mode,
-checkpoint all writes and close the database before taking the copy. The
-reader opens the file with SQLite's `immutable=1` option, which skips locking
-and change detection. A read leaves the sealed file unchanged and creates no
-WAL or shared-memory sidecars. [SQLite URI filenames](https://sqlite.org/uri.html)
+Close the database before taking a snapshot. For a WAL database, checkpoint
+all writes before closing. The reader uses SQLite's `immutable=1` option,
+which skips locking and change detection. A read leaves the sealed file
+unchanged and creates no WAL or shared-memory sidecars. A copy taken during
+a write can contain incomplete or stale data. The reader cannot detect
+such copies or recover from a hot journal. [SQLite URI filenames](https://sqlite.org/uri.html)
 
 ```sh
 cd tests/overview
@@ -58,8 +59,8 @@ and the terminating dot. Capture from one consistent reader view. If two
 memberships have the same Message-ID and different overview bytes, the
 loader reports the inconsistency before publishing the snapshot. That
 fixture cannot be represented by one shared record per Message-ID.
-The built-in generator produces synthetic rows. A round-trip through the
-daemon requires a separate NNTP capture.
+The built-in generator produces synthetic rows. The stock-daemon round-trip
+results came from a separate capture harness outside this tool.
 
 The optional `--tails` input takes one Message-ID, one tab, and a Base64
 encoding of the corresponding header bytes per line. Import compresses
