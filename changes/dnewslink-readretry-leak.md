@@ -1,0 +1,1 @@
+- `dnewslink` no longer leaks memory for each article it offers again after a lost streaming connection: the article's path and Message-ID are now freed when the entry is read back from the retry list.
