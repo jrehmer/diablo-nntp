@@ -455,6 +455,12 @@
 #	The hostname/IP can use simple wildcards ('*' and '?') and CIDR IP
 #	addresses are also valid. The use of wildcards is not recommended.
 #
+#	A connection is first matched by its address: IP, CIDR and
+#	wildcard-IP entries, and the addresses a host name resolves to.
+#	Only when none matches and a wildcard name or a name without an
+#	address exists is the connecting address looked up in DNS (at
+#	most 10 seconds; the name must resolve back to the address).
+#
 #  host		Y	Y
 #	This option is an alias to set 'hostname', 'alias' and 'inhost'
 #	to the same value. Other values for 'alias' and 'inhost' can
