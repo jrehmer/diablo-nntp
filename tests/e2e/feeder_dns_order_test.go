@@ -34,17 +34,25 @@ const dnsOrderSource = `#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <sys/types.h>
 /*MARK*/
+/* the type of the host and serv lengths of getnameinfo(): size_t on FreeBSD, OpenBSD and
+   DragonFly, socklen_t on glibc, musl, illumos and NetBSD */
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+typedef size_t gni_len;
+#else
+typedef socklen_t gni_len;
+#endif
+
 int
-getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen,
-	    char *serv, socklen_t servlen, int flags)
+getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, gni_len hostlen,
+	    char *serv, gni_len servlen, int flags)
 {
-    static int (*real)(const struct sockaddr *, socklen_t, char *, socklen_t, char *, socklen_t, int);
+    static int (*real)(const struct sockaddr *, socklen_t, char *, gni_len, char *, gni_len, int);
     const char *mode = getenv("DNSORDER_MODE");
     char buf[256];
     int fd, n;
 
     if (real == NULL)
-	real = (int (*)(const struct sockaddr *, socklen_t, char *, socklen_t, char *, socklen_t, int))
+	real = (int (*)(const struct sockaddr *, socklen_t, char *, gni_len, char *, gni_len, int))
 	    dlsym(RTLD_NEXT, "getnameinfo");
     if (!(flags & NI_NAMEREQD))
 	return real(sa, salen, host, hostlen, serv, servlen, flags);
