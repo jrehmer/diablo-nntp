@@ -108,11 +108,31 @@ def check(writer, reader):
         assert refused.returncode != 0 and b"conflicting overview" in refused.stderr
         assert state(database) == committed
 
+        staged = membership(alpha, 40, overview(b"full batch before invalid input", conflict))
+        malformed = (
+            b"fixture.alpha\t41\ttoo few fields\r\n",
+            b"fixture.alpha\t41\tSubject\tFrom\tDate\t<invalid>\t\r\n",
+            membership(alpha, 0, four_over),
+            membership(alpha, -1, four_over),
+        )
+        for bad_row in malformed:
+            source.write_bytes(staged + bad_row)
+            refused = run_writer(writer, database, 1, source, check=False)
+            assert refused.returncode != 0 and b"invalid overview membership" in refused.stderr
+            assert state(database) == committed
+
         output = subprocess.check_output([reader, database, "range", alpha, "1", "30"])
         assert output == (b"3\t" + three_over + b"7\t" + one_over +
                           b"20\t" + two_over + b"30\t" + four_over)
         assert not (directory / "writer.sqlite-wal").exists()
         assert not (directory / "writer.sqlite-shm").exists()
+
+        source.write_bytes(membership(alpha, 40, one_over))
+        run_writer(writer, database, 1, source)
+        groups, memberships, articles = state(database)
+        assert groups == [(alpha, 40), (beta, 31)]
+        assert (alpha, 7, one) in memberships and (alpha, 40, one) in memberships
+        assert articles == committed[2]
     print("overview writer checks passed")
 
 

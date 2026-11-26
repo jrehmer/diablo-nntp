@@ -58,18 +58,32 @@ execute(struct Writer *writer, const char *statement)
 }
 
 static int
+read_pragma_integer(struct Writer *writer, const char *pragma, int *value)
+{
+    sqlite3_stmt *statement = NULL;
+    int status = -1;
+
+    if (sqlite3_prepare_v2(writer->db, pragma, -1, &statement, NULL) == SQLITE_OK &&
+        sqlite3_step(statement) == SQLITE_ROW) {
+        *value = sqlite3_column_int(statement, 0);
+        status = 0;
+    } else {
+        fprintf(stderr, "%s: %s\n", pragma, sqlite3_errmsg(writer->db));
+    }
+    sqlite3_finalize(statement);
+    return status;
+}
+
+static int
 writer_configs(struct Writer *writer)
 {
     sqlite3_stmt *statement = NULL;
+    int setting;
     int valid;
 
-    valid = sqlite3_prepare_v2(writer->db, "PRAGMA application_id", -1, &statement, NULL) ==
-                SQLITE_OK &&
-            sqlite3_step(statement) == SQLITE_ROW &&
-            sqlite3_column_int(statement, 0) == WRITER_APPLICATION_ID;
-    sqlite3_finalize(statement);
-    statement = NULL;
-    if (!valid) {
+    if (read_pragma_integer(writer, "PRAGMA application_id", &setting) != 0)
+        return -1;
+    if (setting != WRITER_APPLICATION_ID) {
         fputs("expected a disposable overview writer database\n", stderr);
         return -1;
     }
@@ -84,7 +98,13 @@ writer_configs(struct Writer *writer)
         return -1;
     }
     if (execute(writer, "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON") != 0 ||
-        sqlite3_wal_autocheckpoint(writer->db, WAL_CHECKPOINT_PAGES) != SQLITE_OK)
+        read_pragma_integer(writer, "PRAGMA synchronous", &setting) != 0)
+        return -1;
+    if (setting != 2) {
+        fputs("expected FULL synchronous mode\n", stderr);
+        return -1;
+    }
+    if (sqlite3_wal_autocheckpoint(writer->db, WAL_CHECKPOINT_PAGES) != SQLITE_OK)
         return -1;
     return 0;
 }
@@ -212,10 +232,16 @@ writer_store_membership(struct Writer *writer, const struct Membership *row)
                     sqlite3_step(add) == SQLITE_DONE, "add membership") != 0)
         return -1;
     if (sqlite3_changes(writer->db) == 0) {
-        int identical = sqlite3_bind_int64(find, 1, group_id) == SQLITE_OK &&
-                        sqlite3_bind_int64(find, 2, row->number) == SQLITE_OK &&
-                        sqlite3_step(find) == SQLITE_ROW &&
-                        sqlite3_column_int64(find, 0) == article_id;
+        int code = sqlite3_bind_int64(find, 1, group_id);
+        int identical;
+
+        if (code == SQLITE_OK)
+            code = sqlite3_bind_int64(find, 2, row->number);
+        if (code == SQLITE_OK)
+            code = sqlite3_step(find);
+        if (code != SQLITE_ROW && code != SQLITE_DONE)
+            return finish(find, 0, "find membership");
+        identical = code == SQLITE_ROW && sqlite3_column_int64(find, 0) == article_id;
         finish(find, 1, "find membership");
         if (!identical) {
             fputs("conflicting article number in group\n", stderr);
@@ -231,7 +257,7 @@ writer_store_membership(struct Writer *writer, const struct Membership *row)
 static int
 parse_membership(const char *line, size_t length, struct Membership *row)
 {
-    const char *group_end, *number, *id, *id_end;
+    const char *group_end, *number, *id, *id_end, *field_end;
     char *number_end;
     intmax_t value;
 
@@ -257,6 +283,13 @@ parse_membership(const char *line, size_t length, struct Membership *row)
     id_end = strchr(id, '\t');
     if (id_end == NULL || id_end == id)
         return -1;
+    /* The last required fields are References, :bytes, and :lines. */
+    field_end = id_end;
+    for (int i = 0; i < 2; i++) {
+        field_end = strchr(field_end + 1, '\t');
+        if (field_end == NULL)
+            return -1;
+    }
     row->group = (struct Bytes){line, (size_t)(group_end - line)};
     row->id = (struct Bytes){id, (size_t)(id_end - id)};
     row->overview = (struct Bytes){number_end + 1, (size_t)(line + length - number_end - 1)};
