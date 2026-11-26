@@ -460,6 +460,7 @@ typedef struct TimeRestrict {
 #define HDRCPY		-3
 #define HDRDEL		-4
 #define WRDDEL		-5
+#define PATHCHK		-6
 
 #define BLOCK_OK	0
 #define BLOCK_ERROR	1
@@ -479,6 +480,9 @@ typedef struct TimeRestrict {
  */
 #define DFA_BUFSIZE	65536
 
+/* the start of a Path header's value, held back until it is known whether this site's name is there (dfa.c) */
+#define DFA_PATHBUF	80
+
 typedef struct DirectFileAccess {
 #if USE_AIO
     struct aiocb *dfa_AIOcb;
@@ -489,6 +493,8 @@ typedef struct DirectFileAccess {
     int		dfa_Size;
     char	dfa_Buffer[DFA_BUFSIZE];
     char	dfa_Field[MAX_HDR_CC];
+    char	dfa_PBuf[DFA_PATHBUF];
+    signed char	dfa_PLen;
     /*
      * Parser states: both hold the negative codes above (INBODY ...
      * WRDDEL) and are compared with < 0, so they must be signed.  Plain
