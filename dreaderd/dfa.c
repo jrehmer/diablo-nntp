@@ -510,7 +510,9 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       }
                       dfa->dfa_PBuf[dfa->dfa_PLen++] = dfa->dfa_Buffer[i] ;
                       ptr = i + 1 ;
-                      if (!dfa->dfa_PInLead && dfa->dfa_PLen - dfa->dfa_PLead > (int)strlen(vs)) {
+                      /* decide at the latest when dfa_PBuf is full (a name of 63 characters or less never gets there) */
+                      if (!dfa->dfa_PInLead && (dfa->dfa_PLen - dfa->dfa_PLead > (int)strlen(vs)
+                                                 || dfa->dfa_PLen >= DFA_PATHBUF)) {
                           DFAPathDecide(sreq, dfa, vs) ;
                           dfa->dfa_InHdr = HDRCPY ;
                       }
