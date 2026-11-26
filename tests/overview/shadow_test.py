@@ -69,7 +69,7 @@ def load_tails(database, source):
         for line_number, line in enumerate(tails, 1):
             try:
                 message_id, encoded = line.rstrip(b"\r\n").split(b"\t", 1)
-                compressed = zlib.compress(base64.b64decode(encoded, validate=True), level=1)
+                compressed = zlib.compress(base64.b64decode(encoded, validate=True), 1)
                 insert = database.execute(
                     """INSERT INTO header_tail
                        SELECT id, ? FROM article WHERE message_id = ?""",
@@ -131,6 +131,27 @@ def generate(directory, article_count):
             tails.write(message_id + b"\t" + base64.b64encode(tail) + b"\n")
 
 
+def check_immutable_path(binary, directory, original, expected):
+    unusual = directory / "directory %23?#"
+    unusual.mkdir()
+    snapshot = unusual / "file:copy%3F?#.sqlite"
+    snapshot.write_bytes(original)
+    with closing(sqlite3.connect(snapshot)) as writable:
+        assert writable.execute("PRAGMA journal_mode = WAL").fetchone() == ("wal",)
+        assert writable.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+    before = snapshot.read_bytes()
+    assert set(unusual.iterdir()) == {snapshot}
+
+    for path in (snapshot, snapshot.relative_to(directory)):
+        result = subprocess.run(
+            [binary, path, "range", "fixture.a", "1", "20001"],
+            cwd=directory, check=True, capture_output=True,
+        )
+        assert result.stdout == expected
+        assert snapshot.read_bytes() == before
+        assert set(unusual.iterdir()) == {snapshot}
+
+
 def check(binary):
     first_id = b"<One@fixture.invalid>"
     second_id = b"<two@fixture.invalid>"
@@ -182,6 +203,7 @@ def check(binary):
             assert zlib.decompress(data[0]) == first_tail
         assert snapshot.read_bytes() == original
         assert set(directory.iterdir()) == original_names
+        check_immutable_path(binary, directory, original, expected)
 
         try:
             load_snapshot(source, snapshot, tails)

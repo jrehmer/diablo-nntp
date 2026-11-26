@@ -32,10 +32,50 @@ static const char lookup_sql[] =
     "JOIN newsgroup AS g ON g.id = m.group_id "
     "WHERE g.name = ?1 AND a.message_id = ?2 ORDER BY m.number DESC LIMIT 1";
 
+static char *
+snapshot_uri(const char *path)
+{
+    static const char suffix[] = "?immutable=1";
+    static const char hex[] = "0123456789ABCDEF";
+    const char *scheme = path[0] == '/' ? "file://" : "file:";
+    size_t prefix = strlen(scheme);
+    size_t length = strlen(path);
+    char *uri, *out;
+
+    if (length > (SIZE_MAX - prefix - sizeof(suffix)) / 3)
+        return NULL;
+    uri = malloc(prefix + length * 3 + sizeof(suffix));
+    if (uri == NULL)
+        return NULL;
+    memcpy(uri, scheme, prefix);
+    out = uri + prefix;
+    for (const unsigned char *p = (const unsigned char *)path; *p != '\0'; p++) {
+        if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') || strchr("/-._~", *p) != NULL) {
+            *out++ = *p;
+        } else {
+            *out++ = '%';
+            *out++ = hex[*p >> 4];
+            *out++ = hex[*p & 15];
+        }
+    }
+    memcpy(out, suffix, sizeof(suffix));
+    return uri;
+}
+
 static int
 shadow_open(struct Shadow *shadow, const char *path)
 {
-    if (sqlite3_open_v2(path, &shadow->db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK ||
+    char *uri = snapshot_uri(path);
+    int code;
+
+    if (uri == NULL) {
+        fputs("cannot allocate overview snapshot URI\n", stderr);
+        return -1;
+    }
+    code = sqlite3_open_v2(uri, &shadow->db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, NULL);
+    free(uri);
+    if (code != SQLITE_OK ||
         sqlite3_prepare_v2(shadow->db, range_sql, -1, &shadow->range, NULL) != SQLITE_OK ||
         sqlite3_prepare_v2(shadow->db, lookup_sql, -1, &shadow->lookup, NULL) != SQLITE_OK) {
         fprintf(stderr, "open overview snapshot: %s\n",
@@ -212,7 +252,7 @@ main(int argc, char **argv)
     int status = -1;
     int lookup, bench;
 
-    if (argc < 4 || argv[3][0] == '\0')
+    if (argc < 4 || argv[1][0] == '\0' || argv[3][0] == '\0')
         return usage(argv[0]);
     lookup = strcmp(argv[2], "lookup") == 0;
     bench = strcmp(argv[2], "bench") == 0;
