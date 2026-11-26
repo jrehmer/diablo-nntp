@@ -53,6 +53,7 @@ static HAKept *HAKeptList = NULL;
 int convHost(char *host, HostAccess *HA, FILE *fo);
 static int keepOldHost(const char *host, HostAccess *HA, FILE *fo, const char *why);
 static int haWritten(const HostAccess *HA);
+static void haTerminate(HostAccess *HA);
 void loadDiabloHosts(FILE *fo, int t, int *count);
 void loadDnewsFeeds(FILE *fo, int t, int *count);
 
@@ -660,6 +661,18 @@ peerName(struct sockaddr *res, char *ipst, const char *pname, int secs)
 }
 
 /*
+ * A record read from the cache file is not trusted to hold terminated
+ * strings.
+ */
+static void
+haTerminate(HostAccess *HA)
+{
+    HA->entry[sizeof(HA->entry) - 1] = 0;
+    HA->addrst[sizeof(HA->addrst) - 1] = 0;
+    HA->label[sizeof(HA->label) - 1] = 0;
+}
+
+/*
  * AUTHENTICATION()	- authenticate a new connection
  *
  *   We follow the following procedure (D-242: no DNS before the cheap
@@ -678,6 +691,9 @@ peerName(struct sockaddr *res, char *ipst, const char *pname, int secs)
  *	Returns the host name: the entry's name for a name entry matched by
  *	its cached address, the confirmed name for a match by name, the IP
  *	address for an IP, CIDR or wildcard-IP entry.  NULL: no match.
+ *
+ *	label: at least sizeof(HostAccess.label) (256) bytes; set to the
+ *	label of the matching entry, or "".
  */
 
 char *
@@ -719,6 +735,7 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 	    int byName = 0;	/* an entry can match by name alone */
 
 	    while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+		haTerminate(&HA);
 		if (HA.addrst[0] && (HA.testtype & TESTTYPE_IP) && strcmp(ipst, HA.addrst) == 0) {
 		    isValid = 1;
 		    break;
@@ -739,6 +756,7 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 			(hname = peerName(res, ipst, pname, HOSTAUTH_DNS_SECS)) != NULL) {
 		rewind(fi);
 		while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+		    haTerminate(&HA);
 		    if ((HA.testtype & TESTTYPE_FQDN) && strcasecmp(HA.entry, hname) == 0) {
 			isValid = 4;
 			break;
@@ -768,7 +786,7 @@ Authenticate(int fd, struct sockaddr *res, char *ipst, char *label)
 					HA.entry, HA.label,
 					method);
 		if (HA.label[0])
-		    strcpy(label, HA.label);
+		    snprintf(label, sizeof(HA.label), "%s", HA.label);
 		else
 		    label[0] = 0;
 	    }
@@ -805,6 +823,7 @@ DumpHostCache(const char *fname)
         char tt[20];
 
 	while (fread(&HA, sizeof(HA), 1, fi) == 1) {
+	    haTerminate(&HA);
 	    strcpy(tt, "");
 	    if (HA.testtype & TESTTYPE_NONE)
 		strcat(tt, "NONE:");
