@@ -26,8 +26,6 @@ Prototype int OutputOverview(Connection *conn, const char *res, int resLen, int 
 
 void NNListNewNews(Connection *conn);
 void NNStartListOverview(Connection *conn, const char *hdr, const char *ran, const char *pat, int mode);
-/* most overview records looked at in one pass before other work gets a turn */
-#define OVERVIEW_PASS_RECORDS	10000
 
 void NNStartListOverviewRange(Connection *conn);
 void NNStartListOverviewMsgId(Connection *conn, const char *msgid);
@@ -540,63 +538,20 @@ NNListOverviewRange(Connection *conn)
 static int
 ListOverviewRangeRun(Connection *conn)
 {
-    OverInfo *ov;
-    int xpat_count = 0;
-    int nrec = 0;
+    int result;
 
     conn->co_Func = NNListOverviewRange;
     conn->co_State = "listover";
 
-    if ((ov = GetOverInfo(conn->co_GroupName)) == NULL) {
-	if (conn->co_ArtMode == COM_NEWNEWS)
+    result = ReadOverviewRange(conn);
+    if (result <= 0) {
+	if (result == 0 && conn->co_ArtMode == COM_NEWNEWS)
 	    return(1);			/* no overview for this group: the next one */
+	/* This also cleans up compression state after a write error. */
 	FinishOverviewDotNewline(conn);
 	NNCommand(conn);
 	return(0);
     }
-    if (conn->co_TMBuf.mh_WError) {
-	PutOverInfo(ov);
-	// This takes care of cleaning up any compression state
-	FinishOverviewDotNewline(conn);
-	NNCommand(conn);
-	return(0);
-    }
-    while (conn->co_TMBuf.mh_Bytes < MBUF_HIWAT &&
-	    conn->co_ListBegNo <= conn->co_ListEndNo
-    ) {
-#ifndef USE_OVER_MADVISE
-	int resLen;
-	int artSize;
-	int lines;
-	const char *res;
-	TimeRestrict *tr = NULL;
-#endif
-
-	/*
-	 * Bound the work done in one pass.  A range of missing articles
-	 * produces no output, so the buffer test above never stops it and
-	 * a very wide range (xref-slave mode) would hold the process.
-	 */
-	if (++nrec > OVERVIEW_PASS_RECORDS) {
-	    FD_SET(conn->co_Desc->d_Fd, &WFds);
-	    break;
-	}
-	if (conn->co_ArtMode == COM_XPAT && ++xpat_count > 50) {
-	    FD_SET(conn->co_Desc->d_Fd, &WFds);
-	    break;
-	}
-#ifdef USE_OVER_MADVISE
-	OutputOverRange(ov, conn);
-#else
-	if (conn->co_ArtMode == COM_NEWNEWS)
-	    tr = &conn->co_TimeRestrict;
-	if ((res = GetOverRecord(ov, conn->co_ListBegNo, &resLen, &artSize, &lines, tr, NULL)) != NULL) {
-	    OutputOverview(conn, res, resLen, artSize, lines);
-	}
-	++conn->co_ListBegNo;
-#endif	/* USE_OVER_MADVISE */
-    }
-    PutOverInfo(ov);
     if (conn->co_ListBegNo > conn->co_ListEndNo) {
 	/*
 	 * NEWNEWS: only this group is done.  NNListNewNews() takes the next
