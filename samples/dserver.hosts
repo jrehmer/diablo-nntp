@@ -76,6 +76,9 @@
 #		This is useful for an NFS mounted spool, where the
 #		article path is retrieved from a remote diablo server
 #		via the WHEREIS NNTP extension command.
+#		An article the spool server cannot give as plain text in
+#		the file (stored compressed, or in wire format) is fetched
+#		from it with ARTICLE instead.
 #
 #	hash= Specify which server of a group to send this request to
 #	      based on a hash of the MessageID. The value is specified as
