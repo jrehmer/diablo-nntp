@@ -93,3 +93,46 @@ input loader, NNTP formatting beyond the stored rows, and socket output.
 Expect later passes to benefit from cached pages. Compare byte counts or
 hash captured `range` output to check that two trials served equal data.
 The reported percentiles use the lower rank of each sorted sample position.
+
+## Benchmark a single writer
+
+`ovwriter` loads the arrival-ordered rows from `generate` into a disposable
+database. All rows for one article must be adjacent. A batch limit counts
+articles, so multiple memberships of one article stay together. Article
+numbers come from the input. Each committed batch publishes the membership
+rows and advances each group's high-water mark. Exact replays keep the same
+rows. A conflicting overview payload or an already occupied group number
+rolls back the current batch.
+
+The writer also needs SQLite's UPSERT support, introduced in SQLite 3.24.
+Run the standalone writer check and then benchmark fresh databases:
+
+```sh
+make -C tests/overview check-writer
+cd tests/overview
+scratch=$(mktemp -d)
+python3 shadow_test.py generate "$scratch/fixture" 250000
+python3 writer_test.py bench ./ovwriter "$scratch/fixture/rows.tsv" "$scratch"
+```
+
+The benchmark defaults to three trials of 16, 128 and 1024 articles per
+transaction. It rotates their order and creates and removes a fresh
+database for each trial. Each trial reports input and stored row counts,
+ingest duration, p95 commit latency, the largest observed WAL size after a
+commit, final checkpoint time, and database size. The writer uses WAL with
+`synchronous=FULL` and automatic checkpoints at 4096 pages. Commit latency
+includes a checkpoint when SQLite runs one during that commit.
+
+To keep a database for inspection, initialize a fresh one and pass the
+same arrival-ordered fixture. Query it after the writer exits and its
+final checkpoint has completed:
+
+```sh
+python3 writer_test.py init "$scratch/writer.sqlite"
+./ovwriter "$scratch/writer.sqlite" 128 "$scratch/fixture/rows.tsv"
+./ovshadow "$scratch/writer.sqlite" range fixture.g000 1 20
+```
+
+The writer benchmark measures overview and membership data. Header
+tails, local number allocation, simultaneous readers, expiry and daemon
+integration are separate workloads.
