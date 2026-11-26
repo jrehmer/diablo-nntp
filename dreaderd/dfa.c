@@ -128,6 +128,9 @@ NewDFA(Connection *conn, int lf, int offset, int size)
     el->dfa_LF     = 0 ;
     el->dfa_Flag   = 0 ;
     el->dfa_PLen   = 0 ;
+    el->dfa_PLead  = 0 ;
+    el->dfa_PInLead = 0 ;
+    el->dfa_POut   = 0 ;
     memset(el->dfa_Field, 0, sizeof(el->dfa_Field)) ;
     el->dfa_Next   = NULL ;
 
@@ -249,23 +252,26 @@ DFADataWrite(ServReq *sreq, const void *data, int len)
 }
 
 /*
- * The value of a Path header is in dfa_PBuf (up to the first characters of
- * the line, or all of it when it is short): put this site's name in front of
- * it unless it is there already, as NNSpoolResponse2 does for an article
- * fetched over NNTP.  An empty value is left alone.
+ * What follows "Path:" in the line is in dfa_PBuf: the white space right after
+ * the colon (up to DFA_PATHWS characters, dfa_PLead of them) and then the
+ * first characters of the value, or all of the line when it ends sooner.  Put
+ * this site's name in front of the value unless it is there already, as
+ * NNSpoolResponse2 does for an article fetched over NNTP: "Path: <name>!<value>",
+ * the white space dropped; an empty value, or one that starts with the name
+ * and a "!", leaves the line as it was.  White space beyond DFA_PATHWS is
+ * written out as it comes (dfa_POut), and the name then goes after it.
  */
 void
 DFAPathDecide(ServReq *sreq, DirectFileAccess *dfa, const char *vs)
 {
-    const char *p = dfa->dfa_PBuf ;
-    int n = dfa->dfa_PLen ;
+    int lead = dfa->dfa_PInLead ? dfa->dfa_PLen : dfa->dfa_PLead ;
+    const char *p = dfa->dfa_PBuf + lead ;
+    int n = dfa->dfa_PLen - lead ;
     int vsl = strlen(vs) ;
 
-    while (n > 0 && isspace((unsigned char)*p)) {
-      p++ ;
-      n-- ;
-    }
     if (n > 0 && !(n > vsl && strncmp(p, vs, vsl) == 0 && p[vsl] == '!')) {
+      if (!dfa->dfa_POut)
+          DFADataWrite(sreq, " ", 1) ;
       DFADataWrite(sreq, vs, vsl) ;
       DFADataWrite(sreq, "!", 1) ;
       DFADataWrite(sreq, p, n) ;
@@ -475,7 +481,7 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       break ;
               }
               break ;
-          case PATHCHK : /* Path: header, the first characters of its value */
+          case PATHCHK : /* Path: header, the start of what follows the colon */
               switch (dfa->dfa_Buffer[i]) {
                   case '\n' :
                   case '\r' :
@@ -484,16 +490,27 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       dfa->dfa_InHdr = HDRCPY ;
                       continue ;
                   default : {
-                      /* held back until it is known whether the name is there already */
+                      /*
+                       * Held back until it is known whether the name is there already.
+                       * The white space in front of the value does not count towards
+                       * the characters that decide that; of that, DFA_PATHWS are held
+                       * and the rest goes out at once.
+                       */
                       const char *vs = sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName ;
-                      int k, ws = 0 ;
+                      int white = isspace((unsigned char)dfa->dfa_Buffer[i]) ;
 
-                      dfa->dfa_PBuf[(int)dfa->dfa_PLen++] = dfa->dfa_Buffer[i] ;
+                      if (dfa->dfa_PInLead && white && dfa->dfa_PLen >= DFA_PATHWS) {
+                          DFADataWrite(sreq, dfa->dfa_PBuf, dfa->dfa_PLen) ;
+                          dfa->dfa_PLen = 0 ;
+                          dfa->dfa_POut = 1 ;
+                      }
+                      if (dfa->dfa_PInLead && !white) {
+                          dfa->dfa_PInLead = 0 ;
+                          dfa->dfa_PLead = dfa->dfa_PLen ;
+                      }
+                      dfa->dfa_PBuf[dfa->dfa_PLen++] = dfa->dfa_Buffer[i] ;
                       ptr = i + 1 ;
-                      while (ws < dfa->dfa_PLen && isspace((unsigned char)dfa->dfa_PBuf[ws]))
-                          ws++ ;
-                      k = dfa->dfa_PLen - ws ;
-                      if (k > (int)strlen(vs) || dfa->dfa_PLen >= DFA_PATHBUF) {
+                      if (!dfa->dfa_PInLead && dfa->dfa_PLen - dfa->dfa_PLead > (int)strlen(vs)) {
                           DFAPathDecide(sreq, dfa, vs) ;
                           dfa->dfa_InHdr = HDRCPY ;
                       }
@@ -553,6 +570,13 @@ NNCopyLocalArticle(Connection *conn, int rs)
                       dfa->dfa_LF = CRLF ;
                       dfa->dfa_InHdr = INBODY ;
                       break ;
+                  case '.' :
+                      /* a header line that starts with a dot goes out with it doubled,
+                       * as SendArticle() sends it: the dot is written now and the line
+                       * (from the dot) after it */
+                      DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr+1) ;
+                      ptr = i ;
+                      /* fall through */
                   default :
                       dfa->dfa_LF = 0 ;
                       dfa->dfa_Field[(int)dfa->dfa_InHdr] = dfa->dfa_Buffer[i] ;
@@ -575,19 +599,30 @@ NNCopyLocalArticle(Connection *conn, int rs)
                           DFADataWrite(sreq, vs, strlen(vs)) ;
                           dfa->dfa_InHdr = WRDDEL ;
                           dfa->dfa_Flag = dfa->dfa_Flag | FLAG_XREF ;
-                      } else if ( !sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoReadPath 
-                                  && *(vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
-                                  && (strncasecmp(dfa->dfa_Field, "Path:",5) == 0)  
-                                ) {  /* this site's name goes in front of the path, unless
-                                      * it is the first element already (DFAPathDecide) */
-                          DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr+1) ;
-                          ptr = i + 1 ;
+                          break ;
+                      }
+                      /* fall through */
+                  default : /* no more check... */
+                      if (!sreq->sr_CConn->co_Auth.dr_VServerDef->vs_NoReadPath
+                           && *(vs=sreq->sr_CConn->co_Auth.dr_VServerDef->vs_ClusterName)
+                           && (strncasecmp(dfa->dfa_Field, "Path:",5) == 0)
+                         ) {
+                          /*
+                           * This site's name goes in front of the path, unless it is the
+                           * first element already (DFAPathDecide).  What follows the colon,
+                           * this character too, is held back (PATHCHK); only "Path:" goes out.
+                           */
+                          if (i-ptr) DFADataWrite(sreq, dfa->dfa_Buffer+ptr, i-ptr) ;
+                          ptr = i ;
                           dfa->dfa_PLen = 0 ;
+                          dfa->dfa_PLead = 0 ;
+                          dfa->dfa_PInLead = 1 ;
+                          dfa->dfa_POut = 0 ;
                           dfa->dfa_InHdr = PATHCHK ;
                           dfa->dfa_Flag = dfa->dfa_Flag | FLAG_PATH ;
-                      } else {
-                          dfa->dfa_InHdr = HDRCPY ;
+                          continue ;
                       }
+                      dfa->dfa_InHdr = HDRCPY ;
                       break ;
                   case '\n' :
                   case '\r' :
@@ -598,9 +633,6 @@ NNCopyLocalArticle(Connection *conn, int rs)
                        * lose the end of the headers when that is the blank line */
                       dfa->dfa_InHdr = 6 ;
                       continue ;
-                  default : /* no more check... */
-                      dfa->dfa_InHdr = HDRCPY ;
-                      break ;
               }
               break ;
           default : /* Else, we are reading firsts chars on headers lines */

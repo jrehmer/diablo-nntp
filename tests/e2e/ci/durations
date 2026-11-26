@@ -547,6 +547,17 @@ TestKPDBTornLineEdges 0.02
 TestKPDBTornTail 0.03
 TestKPDBTornUpdateDoesNotShadow 0.01
 TestKPDBWriteNullToken 0.70
+TestLocalspoolDfaBodyFirstDot 0.22
+TestLocalspoolDfaBufferEnd 0.34
+TestLocalspoolDfaDotHeader 0.91
+TestLocalspoolDfaFiveCharHeader 0.22
+TestLocalspoolDfaPathBlankOverflow 0.05
+TestLocalspoolDfaPathWhitespace 1.96
+TestLocalspoolDfaPathWhitespaceEdge 1.06
+TestLocalspoolDiabloFallback 0.37
+TestLocalspoolDiabloPlain 0.35
+TestLocalspoolDiabloWhereis 0.04
+TestLocalspoolHeaderedRecordFallsBack 0.05
 TestLogNoBlankLines 0.33
 TestLongPgpKeyAndSignature 0.09
 TestLongPgpMessageNotRejectedAsBinary 0.11

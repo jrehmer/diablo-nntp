@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/go-while/nntp-testkit/client"
+	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
 // lsFeederNewsfeeds lets PeerIP feed and 127.0.0.1 (the reader) ask for articles and WHEREIS.
@@ -212,8 +213,8 @@ func lsArticles(t *testing.T) [][]string {
 // lines are added.
 func TestLocalspoolDiabloPlain(t *testing.T) {
 	for _, tc := range []struct{ name, access, path string }{
-		{"cluster-name-is-the-feeders", "", "Path: " + PathHost + "!127.0.0.2.MISMATCH!e2e.peer!not-for-mail\r\n"},
-		{"other-cluster-name", lsAccessOther, "Path: reader.example.test!" + PathHost + "!127.0.0.2.MISMATCH!e2e.peer!not-for-mail\r\n"},
+		{"same-name", "", "Path: " + PathHost + "!127.0.0.2.MISMATCH!e2e.peer!not-for-mail\r\n"},
+		{"other-name", lsAccessOther, "Path: reader.example.test!" + PathHost + "!127.0.0.2.MISMATCH!e2e.peer!not-for-mail\r\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, dir := lsFeeder(t, SiteOptions{})
@@ -444,12 +445,12 @@ func TestLocalspoolDfaBufferEnd(t *testing.T) {
 		name, line string
 		cut        int // the buffer ends this many bytes into the line
 	}{
-		{"xref-host-word-ends-the-buffer", "Xref: spool.example.test e2e.test:1 e2e.other:2", len("Xref: spool.example.test")},
-		{"xref-host-word-cut", "Xref: spool.example.test e2e.test:1 e2e.other:2", len("Xref: spool.ex")},
-		{"path-with-the-name", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: ") + 3},
-		{"path-without-the-name", "Path: other.peer!e2e.peer!not-for-mail", len("Path: ") + 3},
-		{"path-value-starts-the-buffer", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: ")},
-		{"path-name-ends-the-buffer", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: " + PathHost)},
+		{"xref-end", "Xref: spool.example.test e2e.test:1 e2e.other:2", len("Xref: spool.example.test")},
+		{"xref-cut", "Xref: spool.example.test e2e.test:1 e2e.other:2", len("Xref: spool.ex")},
+		{"path-own", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: ") + 3},
+		{"path-other", "Path: other.peer!e2e.peer!not-for-mail", len("Path: ") + 3},
+		{"path-start", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: ")},
+		{"path-nameend", "Path: " + PathHost + "!e2e.peer!not-for-mail", len("Path: " + PathHost)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := msgID(t)
@@ -511,4 +512,205 @@ func TestLocalspoolHeaderedRecordFallsBack(t *testing.T) {
 		t.Fatalf("ARTICLE of a record that starts with a SpoolArtHdr: %q, want 430 (fetched over NNTP, which has none)", line)
 	}
 	c.ExpectCmd(205, "QUIT")
+}
+
+// lsRaw sends ARTICLE id on c and returns the raw reply block.
+func lsRaw(t *testing.T, c *client.Conn, id string) []byte {
+	t.Helper()
+	c.ExpectCmd(220, "ARTICLE %s", id)
+	raw := c.RawUntilDot()
+	c.ExpectCmd(205, "QUIT")
+	return raw
+}
+
+// lsBothWays returns what ARTICLE gives for the article (header lines, body lines) from a reader
+// that fetches it from a fake spool server over NNTP (the reference, NNSpoolResponse2) and from
+// one that reads it from a file with localspool= (dfa.c); both sites are named PathHost.
+func lsBothWays(t *testing.T, head, body []string) (nntp, local []byte) {
+	t.Helper()
+	id := headerValue(head, "Message-ID")
+	st, spool := spoolStore(t)
+	st.AddArticle("e2e.test", fakeserver.Article{MessageID: id, Headers: head, Body: body})
+	nntp = lsRaw(t, NewReaderSite(t, ReaderOptions{Spool: spool}).Reader(t), id)
+	text := strings.Join(head, "\n") + "\n\n" + strings.Join(body, "\n") + "\n"
+	return nntp, lsRaw(t, lsSpoolFile(t, id, text), id)
+}
+
+// lsHead returns header lines for the article id, with extra in front.
+func lsHead(id string, extra ...string) []string {
+	return append(slices.Clone(extra),
+		"From: E2E Test <e2e@example.invalid>",
+		"Newsgroups: e2e.test",
+		"Subject: dfa path",
+		"Message-ID: "+id,
+		"Date: Thu, 26 Nov 2026 20:00:00 +0000")
+}
+
+// TestLocalspoolDfaPathWhitespace: white space after "Path:" does not count towards the
+// characters that decide whether the reader's name is first in the value, and the line comes out
+// as NNSpoolResponse2 sends it: "Path: <name>!<value>" with the white space dropped when the name
+// goes in front, the line as it was when the value is empty or starts with the name and a "!".
+// The cases are compared with an NNTP fetch of the same article, byte for byte.  The state held
+// 80 characters in all, white space included, and decided early: 80 blanks and another host got no
+// name, 73 blanks and its own name got a second one.  A TAB after the colon and no white space at
+// all were not looked at.  The short blanks and the empty value are the controls.  Fails on
+// 0ea46aaf for the long blanks, the tabs and "Path:other.peer!...".
+func TestLocalspoolDfaPathWhitespace(t *testing.T) {
+	sp := func(n int) string { return strings.Repeat(" ", n) }
+	for _, tc := range []struct{ name, line, want string }{
+		{"blank80-other", "Path: " + sp(80) + "other.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"blank73-own", "Path: " + sp(73) + "e2e.test!not-for-mail", "Path: " + sp(73) + "e2e.test!not-for-mail"},
+		{"blank79-own", "Path: " + sp(79) + "e2e.test!not-for-mail", "Path: " + sp(79) + "e2e.test!not-for-mail"},
+		{"blank81-own", "Path: " + sp(81) + "e2e.test!not-for-mail", "Path: " + sp(81) + "e2e.test!not-for-mail"},
+		{"blank255-other", "Path: " + sp(255) + "other.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"blank2-other", "Path:  " + "other.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"blank2-own", "Path:  e2e.test!not-for-mail", "Path:  e2e.test!not-for-mail"},
+		{"blank1-other", "Path: other.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"blank1-own", "Path: e2e.test!not-for-mail", "Path: e2e.test!not-for-mail"},
+		{"tab-other", "Path:\tother.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"tab-own", "Path:\te2e.test!not-for-mail", "Path:\te2e.test!not-for-mail"},
+		{"blank-tab-other", "Path: \t \tother.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"none-other", "Path:other.peer!not-for-mail", "Path: e2e.test!other.peer!not-for-mail"},
+		{"none-own", "Path:e2e.test!not-for-mail", "Path:e2e.test!not-for-mail"},
+		{"name-only", "Path: e2e.test", "Path: e2e.test!e2e.test"},
+		{"name-no-bang", "Path: e2e.testx!not-for-mail", "Path: e2e.test!e2e.testx!not-for-mail"},
+		{"blank-only", "Path: ", "Path: "},
+		{"empty", "Path:", "Path:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := msgID(t)
+			head := lsHead(id, tc.line)
+			nntp, local := lsBothWays(t, head, []string{"body", ".", "end"})
+			if !bytes.Equal(nntp, local) {
+				t.Errorf("localspool differs from the fetch over NNTP\nNNTP:       %q\nlocalspool: %q", nntp, local)
+			}
+			if !bytes.HasPrefix(nntp, []byte(tc.want+"\r\n")) {
+				t.Errorf("the NNTP fetch starts %q, want the line %q (the test's expectation is wrong)", nntp[:min(len(nntp), 100)], tc.want)
+			}
+		})
+	}
+}
+
+// TestLocalspoolDfaPathWhitespaceEdge: the same at the end of the 64 KiB read buffer: the white
+// space and the start of the value are cut by it in different places.  Compared with an NNTP
+// fetch of the same article.
+func TestLocalspoolDfaPathWhitespaceEdge(t *testing.T) {
+	const bufsize = 65536
+	for _, tc := range []struct {
+		name, line string
+		cut        int // the buffer ends this many bytes into the line
+	}{
+		{"other-in-blank", "Path: " + strings.Repeat(" ", 80) + "other.peer!not-for-mail", len("Path: ") + 40},
+		{"own-in-blank", "Path: " + strings.Repeat(" ", 73) + "e2e.test!not-for-mail", len("Path: ") + 70},
+		{"own-after-blank", "Path: " + strings.Repeat(" ", 73) + "e2e.test!not-for-mail", len("Path: ") + 73 + 4},
+		{"own-cut-name", "Path: " + strings.Repeat(" ", 73) + "e2e.test!not-for-mail", len("Path: ") + 73 + 8},
+		{"tab-other", "Path:\tother.peer!not-for-mail", len("Path:")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := msgID(t)
+			head := lsHead(id)
+			n := 0
+			for _, l := range head {
+				n += len(l) + 1
+			}
+			head = append(head, lsPad(bufsize-tc.cut-n)...)
+			head = append(head, tc.line)
+			body := []string{"body", ".", "end"}
+			text := strings.Join(head, "\n") + "\n\n" + strings.Join(body, "\n") + "\n"
+			if at := strings.Index(text, tc.line); at+tc.cut != bufsize {
+				t.Fatalf("the line starts at %d and the buffer ends %d into it: want it to end at %d", at, tc.cut, bufsize)
+			}
+			nntp, local := lsBothWays(t, head, body)
+			if !bytes.Equal(nntp, local) {
+				i := 0
+				for i < min(len(nntp), len(local)) && nntp[i] == local[i] {
+					i++
+				}
+				t.Errorf("localspool differs from the fetch over NNTP at byte %d (%d and %d bytes)\nNNTP:       %q\nlocalspool: %q",
+					i, len(nntp), len(local), nntp[max(i-40, 0):min(i+60, len(nntp))], local[max(i-40, 0):min(i+60, len(local))])
+			}
+		})
+	}
+}
+
+// TestLocalspoolDfaPathBlankOverflow: more white space after "Path:" than the reader holds back
+// (5000 blanks).  It is not the line NNTP gives (the blanks go out as they come and the name
+// after them), but the article is whole and the name is in front of the value.
+func TestLocalspoolDfaPathBlankOverflow(t *testing.T) {
+	id := msgID(t)
+	head := lsHead(id, "Path: "+strings.Repeat(" ", 5000)+"other.peer!not-for-mail")
+	body := []string{"body", ".", "end"}
+	text := strings.Join(head, "\n") + "\n\n" + strings.Join(body, "\n") + "\n"
+	c := lsSpoolFile(t, id, text)
+	raw := string(lsRaw(t, c, id))
+	if !strings.HasPrefix(raw, "Path: ") || !strings.Contains(raw, " e2e.test!other.peer!not-for-mail\r\n") ||
+		!strings.HasSuffix(raw, "\r\n\r\nbody\r\n..\r\nend\r\n.\r\n") {
+		t.Errorf("a Path with 5000 blanks: %q ... %q", raw[:min(len(raw), 40)], raw[max(len(raw)-120, 0):])
+	}
+}
+
+// TestLocalspoolDfaDotHeader: a header line that starts with a dot goes out with the dot doubled,
+// as the NNTP path sends it (SendArticle()): ".X-Dot: a" first in the article, in the middle and
+// last, a line of "." alone and one of "..", and a body line ".." (the control).  Compared with
+// an NNTP fetch of the same article, byte for byte.  The DFA copied such a line as it was, so the
+// client saw "X-Dot: a" and a "." header line ended the reply.  The dot at the end of the 64 KiB
+// read buffer and at the start of the next one are cut in two ways.  Fails on 0ea46aaf except for
+// the control.
+func TestLocalspoolDfaDotHeader(t *testing.T) {
+	const bufsize = 65536
+	for _, tc := range []struct {
+		name  string
+		first []string // header lines in front of the others
+		last  []string // after them
+		mid   bool     // two in the middle
+		edge  string   // "end": the dot of the first of last is the last byte of the first read, "start": the first of the second
+	}{
+		{name: "first", first: []string{".X-Dot: a"}},
+		{name: "mid", mid: true},
+		{name: "last", last: []string{".X-Dot: a"}},
+		{name: "alone", last: []string{"."}},
+		{name: "two", last: []string{"..", ".."}},
+		{name: "edge-end", last: []string{".X-Dot: a"}, edge: "end"},
+		{name: "edge-start", last: []string{".X-Dot: a"}, edge: "start"},
+		{name: "body-only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := msgID(t)
+			head := lsHead(id, tc.first...)
+			body := []string{"body", "..", ".", "end"}
+			if tc.mid {
+				head = slices.Insert(head, 2, ".X-Dot: mid", ".X-Dot2: b", " continued")
+			}
+			if tc.edge != "" {
+				n := 0
+				for _, l := range head {
+					n += len(l) + 1
+				}
+				want := bufsize - 1 // offset of the dot
+				if tc.edge == "start" {
+					want = bufsize
+				}
+				head = append(head, lsPad(want-n)...)
+			}
+			head = append(head, tc.last...)
+			if tc.edge != "" {
+				at := strings.Index(strings.Join(head, "\n"), "\n.X-Dot")
+				if want := bufsize - 1 + map[string]int{"end": 0, "start": 1}[tc.edge]; at+1 != want {
+					t.Fatalf("the dot is at byte %d, want %d", at+1, want)
+				}
+			}
+			nntp, local := lsBothWays(t, head, body)
+			if !bytes.Equal(nntp, local) {
+				i := 0
+				for i < min(len(nntp), len(local)) && nntp[i] == local[i] {
+					i++
+				}
+				t.Errorf("localspool differs from the fetch over NNTP at byte %d (%d and %d bytes)\nNNTP:       %q\nlocalspool: %q",
+					i, len(nntp), len(local), nntp[max(i-40, 0):min(i+60, len(nntp))], local[max(i-40, 0):min(i+60, len(local))])
+			}
+			if tc.name != "body-only" && !bytes.Contains(nntp, []byte("\r\n..")) && !bytes.HasPrefix(nntp, []byte("..")) {
+				t.Errorf("the NNTP fetch has no doubled dot in a header (the test's expectation is wrong): %q", nntp[:min(len(nntp), 200)])
+			}
+		})
+	}
 }
