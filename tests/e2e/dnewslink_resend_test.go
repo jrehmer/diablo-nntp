@@ -1,14 +1,18 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
+	testkit "github.com/go-while/nntp-testkit"
 	"github.com/go-while/nntp-testkit/fakeserver"
 )
 
@@ -118,50 +122,100 @@ func hasDnewslinkStatsField(out, want string) bool {
 	return false
 }
 
+// TestDnewslinkTakethis431RejectedBytes: a 431 to TAKETHIS that is a reject adds the size of the
+// article it answers to the rejected bytes (the article was sent). A batch feed keeps such an
+// article in its queue instead (D-214: TestDnewslinkTakethis431KeptDuringReplay), so the
+// reject is left to a realtime feed (-r), which has no queue to write it to.
+//
+// Input: a realtime dnewslink and 85 articles of 100 bytes; the first 82 get 431 to their first
+// CHECK (the replay of the deferred ones starts after 80 defers, MAXDEFER less 20), every
+// TAKETHIS of those 82 gets 431. Expected: the replayed ones are rejects (rej > 0) and each adds
+// its 100 bytes: rejbytes = 100 * rej, as the statistics read after dnewslink has ended
+// (SIGTERM) say.
 func TestDnewslinkTakethis431RejectedBytes(t *testing.T) {
-	const id = "<resend-bytes@e2e.test>"
+	const (
+		total    = 85
+		deferred = 82
+	)
 	s := NewSite(t, SiteOptions{NoStart: true, Config: map[string]string{"feederrtstats": "label"}})
 	dnlSpool(t, s)
-	var takes atomic.Int32
+	var (
+		mu    sync.Mutex
+		seen  = map[string]bool{}
+		takes int // TAKETHIS answered 431
+	)
 	srv := fakeserver.New(t, fakeserver.Options{Greeting: "200 fake", Handler: fakeserver.LineHandler(func(c *fakeserver.Conn, line string) ([]string, bool) {
-		switch {
-		case strings.HasPrefix(strings.ToLower(line), "mode stream"):
+		f := strings.Fields(strings.ToLower(line))
+		if len(f) == 0 {
+			return nil, false
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var n int
+		if len(f) > 1 {
+			fmt.Sscanf(f[1], "<rb-%d@e2e.test>", &n)
+		}
+		switch f[0] {
+		case "mode":
 			return []string{"203 stream ok"}, false
-		case strings.HasPrefix(strings.ToLower(line), "check "):
-			return []string{"238 " + id}, false
-		case strings.HasPrefix(strings.ToLower(line), "takethis "):
-			for {
-				part, err := c.ReadLine()
-				if err != nil {
-					t.Errorf("reading article block: %v", err)
-					return nil, true
-				}
-				if part == "." {
-					break
-				}
+		case "check":
+			if n <= deferred && !seen[f[1]] {
+				seen[f[1]] = true
+				return []string{"431 " + f[1] + " later"}, false
 			}
-			takes.Add(1)
-			return []string{"431 " + id + " later"}, false
-		case strings.HasPrefix(strings.ToLower(line), "quit"):
+			return []string{"238 " + f[1]}, false
+		case "takethis":
+			if n <= deferred {
+				takes++
+				return []string{"431 " + f[1] + " later"}, false
+			}
+			return []string{"239 " + f[1]}, false
+		case "quit":
 			return []string{"205 bye"}, true
 		}
 		return nil, false
 	})})
-	line := "D.00000001/B.0001 " + id + " 0,100\n"
-	if err := os.WriteFile(filepath.Join(s.Dir, "dqueue", "out.S00000"), []byte(line), 0o644); err != nil {
+	var q strings.Builder
+	for i := 1; i <= total; i++ {
+		fmt.Fprintf(&q, "D.00000001/B.0001 <rb-%d@e2e.test> %d,100\n", i, i*100)
+	}
+	if err := os.WriteFile(filepath.Join(s.Dir, "dqueue", "out.S00000"), []byte(q.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runOut, err := s.TryRun("dnewslink", "-Aall", "-N", "1", "-S", "0", "-b", "out.S%05d", "-h", "127.0.0.1",
-		"-P", fmt.Sprint(srv.Port()), "-t", "5", "-w", "1")
-	if err != nil {
-		t.Fatalf("dnewslink failed: %v\n%s", err, runOut)
+	cmd := exec.Command(filepath.Join(s.Bin, "dnewslink"), "-Aall", "-r1", "-S", "0", "-b", "out.S%05d",
+		"-h", "127.0.0.1", "-P", fmt.Sprint(srv.Port()), "-t", "5", "-w", "1", "-M", "20")
+	cmd.Dir = s.Dir
+	cmd.Env = append(os.Environ(), s.Env...)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
 	}
-	if got := takes.Load(); got != 2 {
-		t.Fatalf("TAKETHIS sent %d times, want 2", got)
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-done
+	})
+	testkit.WaitFor(t, 20*time.Second, "TAKETHIS answered 431 for the replayed articles", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return takes >= 40
+	})
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("dnewslink still running 10s after SIGTERM\n%s", out.String())
 	}
-	out := s.Run(t, "dfeedinfo", "-o", "-r", "out")
-	if !hasDnewslinkStatsField(out, "rej=1") || !hasDnewslinkStatsField(out, "rejbytes=100") {
-		t.Errorf("431 reject statistics: want rej=1 and rejbytes=100; got %s", out)
+	stats := s.Run(t, "dfeedinfo", "-o", "-r", "out")
+	t.Logf("statistics: %s", strings.TrimSpace(stats))
+	var rej, rejbytes int
+	for _, field := range strings.Fields(stats) {
+		fmt.Sscanf(field, "rej=%d", &rej)
+		fmt.Sscanf(field, "rejbytes=%d", &rejbytes)
 	}
-	rcuSent(t, s, srv, id)
+	if rej == 0 || rejbytes != 100*rej {
+		t.Errorf("431 reject statistics: want rej > 0 and rejbytes = 100 * rej, got rej=%d rejbytes=%d: %s", rej, rejbytes, stats)
+	}
 }

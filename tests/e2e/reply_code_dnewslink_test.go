@@ -94,19 +94,22 @@ func TestDnewslinkIhave437Rejects(t *testing.T) {
 
 // TestDnewslinkTakethis431Defers: 431 is not a TAKETHIS reply in RFC 4644, but Diablo's own
 // feeder sends it (its history busy or failed). dnewslink defers the article once and offers it
-// again at the end of the queue, on the same connection: taken then (239), or rejected when a
-// second 431 comes while the deferred articles are sent. Nothing is lost on the way and the
-// connection is not failed. Fails on main for "then 239": the first 431 was a reject at once,
-// the article was not offered again.
+// again at the end of the queue, on the same connection: taken then (239), or, when a second
+// 431 comes while the deferred articles are sent, kept in the queue file for a later run (no
+// second defer is taken, and the article must not be lost: D-214). The connection is not
+// failed. Fails on main for "then 239": the first 431 was a reject at once, the article was not
+// offered again; and for "431 again" (D-214): the second 431 was a reject, the article left
+// the queue.
 func TestDnewslinkTakethis431Defers(t *testing.T) {
 	const id = "<rcu-431@e2e.test>"
 	for _, tc := range []struct {
 		name   string
 		second string // the answer to the second TAKETHIS
 		log    string // what the feedlog says of the article in the end
+		kept   bool   // the article is in the queue file in the end
 	}{
-		{"then 239", "239 " + id, " accepted"},
-		{"431 again", "431 " + id + " later", " rejected"},
+		{"then 239", "239 " + id, " accepted", false},
+		{"431 again", "431 " + id + " later", " kept", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := NewSite(t, SiteOptions{NoStart: true})
@@ -139,7 +142,14 @@ func TestDnewslinkTakethis431Defers(t *testing.T) {
 					t.Errorf("feedlog has no %q:\n%s", want, log)
 				}
 			}
-			rcuSent(t, s, srv, id)
+			if tc.kept {
+				rcuQueued(t, s, id)
+				if a, q := srv.Accepted(), srv.Count("QUIT"); a != 1 || q != 1 {
+					t.Errorf("%d connections and %d QUIT, want 1 and 1 (lines %q)", a, q, srv.Lines())
+				}
+			} else {
+				rcuSent(t, s, srv, id)
+			}
 		})
 	}
 }

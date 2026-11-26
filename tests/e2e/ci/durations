@@ -368,6 +368,7 @@ TestDnewslinkCheck431DuringReplay 0.02
 TestDnewslinkCheck431Twice 5.01
 TestDnewslinkConnlife 33.00
 TestDnewslinkConnlifeNearest 28.46
+TestDnewslinkDeferMarkSurvivesReconnect 5.01
 TestDnewslinkDeferredKeptOnExit 0.01
 TestDnewslinkDqueuePattern 0.04
 TestDnewslinkFresh431DuringReplay 0.06
@@ -395,9 +396,11 @@ TestDnewslinkRejectsExcessiveBatchTemplateWidth 0.00
 TestDnewslinkRejectsInvalidBatchTemplate 0.00
 TestDnewslinkSmallMaxstream 5.02
 TestDnewslinkSpoolErrorKept 0.08
+TestDnewslinkStreamReplyOutOfStep 0.06
 TestDnewslinkStreaming 0.04
 TestDnewslinkTakethis431Defers 10.02
-TestDnewslinkTakethis431RejectedBytes 5.01
+TestDnewslinkTakethis431KeptDuringReplay 5.02
+TestDnewslinkTakethis431RejectedBytes 0.30
 TestDnewslinkTermStalledPeer 6.12
 TestDnewslinkUnreadableAfterCheck 0.04
 TestDnewslinkUnreadableIHAVE 0.04
