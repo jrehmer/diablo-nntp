@@ -45,8 +45,11 @@ mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
     return real(addr, len, prot, flags, fd, off);
 }
 
-#if defined(__linux__) || defined(__sun)
-/* a program built with _FILE_OFFSET_BITS=64 calls mmap64() */
+#if defined(__linux__)
+/*
+ * A program built with _FILE_OFFSET_BITS=64 calls mmap64().  On illumos the 64-bit mmap64
+ * is mmap itself (<sys/mman.h> renames it), and the pools there are malloc()s anyway.
+ */
 void *
 mmap64(void *addr, size_t len, int prot, int flags, int fd, off_t off)
 {
