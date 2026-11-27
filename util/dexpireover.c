@@ -196,6 +196,8 @@ static int deleteStaleGroup(Group *group, int t);
 static int enterActiveRecord(int recOff, int recLen, int late);
 static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
+static int overFileType(const char *name);
+static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
 static void expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd);
 int nearestPower(int n);
 void ReadDExpOverList(void);
@@ -952,9 +954,7 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	    if (stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
 		if (*level <= 2)
 		    scanDirectory(path, den2->d_name, level);
-	    } else if (strncmp(den2->d_name, "over.", 5) == 0 ||
-		strncmp(den2->d_name, "o.", 2) == 0 ||
-		strstr(den2->d_name, ".o.") != NULL)
+	    } else if (overFileType(den2->d_name) == 1)
 		ProcessOverviewFile(path, den2->d_name, 1);
 	    if (MustExit)
 		exit(1);
@@ -975,8 +975,8 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	    /*
 	     * process data. files
 	     */
-	    if (strncmp(den2->d_name, "data.", 5) == 0 ||
-		strstr(den2->d_name, ".d.") != NULL)
+	    if (overFileType(den2->d_name) == 2 &&
+		!(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		ProcessOverviewFile(path, den2->d_name, 2);
 	    if (MustExit)
 		exit(1);
@@ -987,6 +987,30 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	printf("FATAL: Unable to return with chdir(%s)\n", dirname);
 	exit(1);
     }
+}
+
+/*
+ * overFileType() - what a file name is, by parsing it as ProcessOverviewFile()
+ * does: 1 = over file, 2 = data file, 0 = neither.  A substring test cannot
+ * tell: the hierarchy names "o.<n>.<group>" and "d.<n>.<group>" hold the
+ * group name, which may contain ".d." (the over file of e2e.d.q would be
+ * taken for a data file as well) or ".o." (the data file of e2e.o.x would be
+ * taken for an over file and opened read-write).  The crc and md5 names have
+ * a fixed form, for which the parse and the old tests agree.
+ */
+static int
+overFileType(const char *name)
+{
+    char Hash[PATH_MAX];
+    artno_t artBase = -1;
+    int iter = 0;
+    int ghtype;
+
+    if ((ghtype = ExtractGroupHashInfo(name, Hash, &artBase, &iter)) == HASHGRP_NONE)
+	return(0);
+    if (ghtype & HASHGRPTYPE_OVER)
+	return(1);
+    return((ghtype & HASHGRPTYPE_DATA) ? 2 : 0);
 }
 
 void
@@ -1027,8 +1051,10 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 {
     artno_t artBase = -1;
     Group *group;
+    Group *groupZ = NULL;
     char path[PATH_MAX];
     char Hash[PATH_MAX];
+    char HashZ[PATH_MAX];
     int iter = 0;
     int hier;
     int ghtype;
@@ -1040,8 +1066,9 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 	printf("ProcessOverviewFile(%s)\n", path);
 
     bzero(Hash, sizeof(Hash));
+    bzero(HashZ, sizeof(HashZ));
 
-    if ((ghtype = ExtractGroupHashInfo(name, Hash, &artBase, &iter)) == HASHGRP_NONE)
+    if ((ghtype = ExtractGroupHashInfoGz(name, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
 	return;
     hier = ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
 
@@ -1053,12 +1080,26 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
      * Not in the group table: before the file is taken as stale, look for
      * groups created since the table was read.  dreaderd may be writing
      * the files of such a group right now.
+     *
+     * A hierarchy data file "d.<n>.X.gz" is the plain data file of group
+     * "X.gz" or the compressed one of group "X" (D-318): HashZ is "X".  It
+     * is kept for as long as it is not stale for every one of the two groups
+     * that exist, as in doverctl.  Either may have been created since the
+     * scan, so a reading that is missing causes the rescan, also when the
+     * other one was found.
      */
-    if ((group = FindGroupByHash(Hash, iter, hier, dirPath)) == NULL &&
-	Wild == NULL && rescanActive() > 0)
-	group = FindGroupByHash(Hash, iter, hier, dirPath);
+    group = FindGroupByHash(Hash, iter, hier, dirPath);
+    if (HashZ[0])
+	groupZ = FindGroupByHash(HashZ, iter, hier, dirPath);
+    if ((group == NULL || (HashZ[0] && groupZ == NULL)) &&
+	Wild == NULL && rescanActive() > 0) {
+	if (group == NULL)
+	    group = FindGroupByHash(Hash, iter, hier, dirPath);
+	if (HashZ[0] && groupZ == NULL)
+	    groupZ = FindGroupByHash(HashZ, iter, hier, dirPath);
+    }
 
-    if (group == NULL) {
+    if (group == NULL && groupZ == NULL) {
 	/*
 	 * If we gave a wildcard, we can't remove stale groups because
 	 * we do not have a full group list.
@@ -1075,13 +1116,28 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 	}
 	return;
     }
+    /*
+     * With -w only the selected groups are loaded: of the two readings
+     * the one that is not loaded may exist, and then this file may be
+     * its, so it is not judged by the other one alone.
+     */
+    if (Wild != NULL && HashZ[0] && (group == NULL || groupZ == NULL)) {
+	if (VerboseOpt)
+	    printf("file of a group that -w did not select, left alone: %s\n", path);
+	return;
+    }
+    if (group == NULL) {
+	group = groupZ;
+	groupZ = NULL;
+    }
     ++GoodGroups;
 
     if (DebugOpt > 2)
 	printf("Maps to group: %s\n", group->gr_GroupName);
 
     /* found missing while working on another of its files */
-    if (group->gr_State & (GRF_GONE | GRF_NEEDZLIB))
+    if ((group->gr_State & (GRF_GONE | GRF_NEEDZLIB)) ||
+	(groupZ != NULL && (groupZ->gr_State & (GRF_GONE | GRF_NEEDZLIB))))
 	return;
 
     if (type == 1) {
@@ -1327,44 +1383,18 @@ again:
 	}
     } else {
 	/*
-	 * data. file, modulo OD_HARTS.  OD_HARTS constant in second
-	 * part of conditional is a fudge to make 100% sure we do not
-	 * delete a brand new data file.
+	 * data. file, modulo OD_HARTS.  Stale when it is for every group that
+	 * has the file's name (two for a hierarchy ".gz" name, see above).
 	 */
-	int recLen;
-	const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
-                                                        KP_LOCK, &recLen);
+	int dataEntries;
+	int stale;
 
-	/* the group left the active file after the scan began: skip it */
-	if (rec == NULL) {
-	    groupGone(group, "skipped");
+	if ((stale = dataFileStale(group, artBase, path, &dataEntries)) < 0)
 	    return;
-	}
-	/*
-	 * Refresh the EndNo
-	 */
-	group->gr_EndNo = strtoll(KPDBGetField(rec, recLen, "NE",
-							NULL, "-1"), NULL, 10);
-	KPDBUnlock(KDBActive, rec);
-
-	oh.oh_DataEntries = getDataEntries(GFName(group->gr_GroupName,
-					GRPFTYPE_OVER, 0, 2,
-					group->gr_Iter,
-					&DOpts.ReaderGroupHashMethod));
-	if (oh.oh_DataEntries <= 0 ||
-		((oh.oh_DataEntries ^ (oh.oh_DataEntries - 1)) != (oh.oh_DataEntries << 1) - 1))
-	    oh.oh_DataEntries = OD_HARTS;
-
-	/* data files have been rewritten if DataEntries has been changed */
-	if (artBase + oh.oh_DataEntries <= group->gr_StartNo ||
-	    artBase >= group->gr_EndNo + oh.oh_DataEntries ||
-	    group->gr_StartNo > group->gr_EndNo ||
-	    (artBase & (oh.oh_DataEntries-1))
-	) {
-	    if (DebugOpt)
-		printf("%s artBase=%lld oh_DataEntries=%d\n",
-				group->gr_GroupName,
-				artBase, oh.oh_DataEntries);
+	if (stale && groupZ != NULL &&
+		(stale = dataFileStale(groupZ, artBase, path, NULL)) < 0)
+	    return;
+	if (stale) {
 	    if (VerboseOpt)
 		printf("Deleting stale overview data for %s: %s (artBase=%lld  StartNo=%lld  EndNo=%lld\n",
 				group->gr_GroupName, path,
@@ -1383,7 +1413,7 @@ again:
 	    (void)GetOverExpire(group->gr_GroupName, &save);
 	    if (DebugOpt)
 		printf("No .gz on %s artBase %lld\n", path, artBase);
-	    if (artBase >= group->gr_EndNo - save.oe_StoreGZMinFiles * oh.oh_DataEntries) {
+	    if (artBase >= group->gr_EndNo - save.oe_StoreGZMinFiles * dataEntries) {
 		if (VerboseOpt > 0) {
 		    printf("Overview %s not eligible for compression: proximity to end of data (%lld/%lld), %d files protected\n", path, artBase, group->gr_EndNo, save.oe_StoreGZMinFiles);
 		}
@@ -1417,6 +1447,57 @@ again:
 	    }
 	}
     }
+}
+
+/*
+ * dataFileStale() - the data file path (artBase) is outside the range of
+ * group, or is not aligned to its over file's slots; 1 = stale, 0 = not,
+ * -1 = the group left the active file after the scan began (skip the file).
+ * OD_HARTS, the data entries of an over file that cannot be read, is a fudge
+ * to make 100% sure we do not delete a brand new data file.  The data
+ * entries of the group's over file are returned in *dataEntries.
+ */
+static int
+dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries)
+{
+    int recLen;
+    int de;
+    const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
+                                                        KP_LOCK, &recLen);
+
+    /* the group left the active file after the scan began: skip it */
+    if (rec == NULL) {
+	groupGone(group, "skipped");
+	return(-1);
+    }
+    /*
+     * Refresh the EndNo
+     */
+    group->gr_EndNo = strtoll(KPDBGetField(rec, recLen, "NE",
+							NULL, "-1"), NULL, 10);
+    KPDBUnlock(KDBActive, rec);
+
+    de = getDataEntries(GFName(group->gr_GroupName,
+				    GRPFTYPE_OVER, 0, 2,
+				    group->gr_Iter,
+				    &DOpts.ReaderGroupHashMethod));
+    if (de <= 0 || ((de ^ (de - 1)) != (de << 1) - 1))
+	de = OD_HARTS;
+    if (dataEntries)
+	*dataEntries = de;
+
+    /* data files have been rewritten if DataEntries has been changed */
+    if (artBase + de <= group->gr_StartNo ||
+	artBase >= group->gr_EndNo + de ||
+	group->gr_StartNo > group->gr_EndNo ||
+	(artBase & (de-1))
+    ) {
+	if (DebugOpt)
+	    printf("%s artBase=%lld oh_DataEntries=%d\n",
+			    group->gr_GroupName, artBase, de);
+	return(1);
+    }
+    return(0);
 }
 
 int
