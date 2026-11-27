@@ -343,7 +343,8 @@ pwrite(int fd, const void *buf, size_t n, off_t off)
     return r;
 }
 
-#ifdef __linux__
+/* glibc only: musl's pwrite takes a 64-bit off_t and has no off64_t */
+#ifdef __GLIBC__
 ssize_t
 pwrite64(int fd, const void *buf, size_t n, off64_t off)
 {
