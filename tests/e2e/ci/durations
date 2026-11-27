@@ -280,6 +280,10 @@ TestDexpireoverHierarchyCompress 0.10
 TestDexpireoverHierarchyCompressGzName 0.50
 TestDexpireoverHierarchyDataEntries 0.30
 TestDexpireoverHierarchyDataStale 0.05
+TestDexpireoverHierarchyFullCompress 0.31
+TestDexpireoverHierarchyFullExpire 0.62
+TestDexpireoverHierarchyFullRemovedGroup 0.58
+TestDexpireoverHierarchyFullRewrite 0.66
 TestDexpireoverHierarchyGroupNameO 0.05
 TestDexpireoverHierarchyGzDotD 0.15
 TestDexpireoverHierarchyGzGroupName 0.40
