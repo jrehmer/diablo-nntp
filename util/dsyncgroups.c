@@ -88,7 +88,8 @@ static void CreateNewGroup(Group *group, int nowt);
 /*
  * Make the record of a new group: all its fields in one append (D-316), so a
  * dsyncgroups that is killed leaves no record or the whole one, never one
- * with NB and without NE and NX.  A complete record needs no lock of its own,
+ * with NB and without NE and NX (but see KPDBCreateRecord(): a record longer
+ * than a page can be cut by a kill inside the write).  A complete record needs no lock of its own,
  * and the -v text is only collected here and printed once the record is made
  * (D-315): a stdout that does not drain held the record locked, and every
  * writer of the group with it.

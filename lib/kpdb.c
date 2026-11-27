@@ -853,7 +853,12 @@ KPDBCreate(KPDB *kpdb, const char *key, const char *tok, const char *data, int l
  *		blank, no newline).  A process killed during the creation
  *		leaves no record, or the whole one, and never one with some
  *		of its fields: that is the difference to a first field made
- *		by KPDBCreate() and the others by KPDBWrite().  A creator
+ *		by KPDBCreate() and the others by KPDBWrite().  The one
+ *		exception: a record longer than a page, where a kill inside
+ *		the pwrite() can stop it between two pages and leave a last
+ *		line without its newline: KPDBLookup() ignores it, a scan
+ *		(KPDBScanNext()) may return it until the next append marks
+ *		it deleted.  A creator
  *		that writes every field here needs no record lock for the
  *		creation: lockMe is as for KPDBCreate(), and is normally 0.
  *
