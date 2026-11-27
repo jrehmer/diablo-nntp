@@ -32,7 +32,8 @@ char *allocTmpCopy(const char *buf, int bufLen);
 void ConvertHash(const char *group, GroupHashType *srcHash, GroupHashType *dstHash, int iter, artno_t begNo, artno_t endNo);
 int SetField(char **pptr, const char *str);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
-Group *FindGroupByHash(char *Hash, int iter);
+Group *FindGroupByHash(char *Hash, int iter, int hier);
+int OverFileIsGroups(const Group *group, int iter);
 Group *FindGroupByName(const char *groupName);
 int IterInProgress(char *Hash, int iter);
 int ScanActive(int convert, int newOnly);
@@ -532,17 +533,63 @@ IterInProgress(char *Hash, int iter)
     return(0);
 }
 
+/*
+ * OverFileIsGroups() - the over file of iteration iter for group exists and
+ * its header names the group.  Called in the directory of the file.  A header
+ * of version 1 has no name: no group owns it by this.
+ */
+int
+OverFileIsGroups(const Group *group, int iter)
+{
+    const char *ovpath = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 0, iter,
+						&DOpts.ReaderGroupHashMethod);
+    OverHead oh;
+    int fd;
+    int r = 0;
+
+    if ((fd = open(ovpath, O_RDONLY)) >= 0) {
+	r = (read(fd, &oh, sizeof(oh)) == sizeof(oh) &&
+	    oh.oh_Version > 1 && oh.oh_Version <= OH_VERSION &&
+	    oh.oh_ByteOrder == OH_BYTEORDER &&
+	    strncmp(oh.oh_Gname, group->gr_GroupName, sizeof(oh.oh_Gname)) == 0);
+	close(fd);
+    }
+    return(r);
+}
+
+/*
+ * FindGroupByHash() - the group a file belongs to.  The hash in a file name
+ * does not tell groups apart whose names have the same hash: the iteration
+ * does, but a group that has no over file yet has iteration 0 like the group
+ * that holds the hash.  Of several groups with this hash and iteration the
+ * one whose over file names it is the owner of the files (D-313); else the
+ * first, as before.  hier: the file name is a hierarchy name, which has no
+ * iteration, so the group's ITER (it keeps the iteration of its files for a
+ * conversion back to crc or md5) is not compared (D-314).
+ */
 Group *
-FindGroupByHash(char *Hash, int iter)
+FindGroupByHash(char *Hash, int iter, int hier)
 {
     Group *group;
+    Group *first = NULL;
     hash_t hv = hhash(Hash);
+    int n = 0;
 
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
-	if (strcmp(group->gr_Hash, Hash) == 0 && group->gr_Iter == iter)
-	    break;
+	if (strcmp(group->gr_Hash, Hash) == 0 && (hier || group->gr_Iter == iter)) {
+	    if (first == NULL)
+		first = group;
+	    ++n;
+	}
     }
-    return(group);
+    if (n < 2)
+	return(first);
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_Hash, Hash) == 0 && group->gr_Iter == iter &&
+					OverFileIsGroups(group, iter))
+	    return(group);
+    }
+    return(first);
 }
 
 void
@@ -687,6 +734,7 @@ ProcessFile(const char *dirPath, const char *name)
     char Hash[PATH_MAX];
     int iter = 0;
     int type = 0;
+    int hier;
     int dataEntries;
     const char *ovpath;
 
@@ -709,9 +757,10 @@ ProcessFile(const char *dirPath, const char *name)
 	printf("File: %s  type=%d  artBase=%lld  iter=%d  Hash=%s\n",
 					name, type, artBase, iter, Hash);
 
-    group = FindGroupByHash(Hash, iter);
+    hier = ((type & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
+    group = FindGroupByHash(Hash, iter, hier);
     if (group == NULL && RescanActive())
-	group = FindGroupByHash(Hash, iter);	/* created since the scan */
+	group = FindGroupByHash(Hash, iter, hier);	/* created since the scan */
     if (group == NULL && IterInProgress(Hash, iter)) {
 	/* a known group is taking this iteration (D-285) */
 	if (VerboseOpt)
