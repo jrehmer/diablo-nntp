@@ -1,0 +1,1 @@
+- doverctl: `clean` no longer deletes the overview files of a group that was created after its scan of the active file: a file whose group is unknown is looked up again in the live dactive.kp (only when the file has had an append since) and kept when the group exists now (D-285).
