@@ -1150,6 +1150,7 @@ void FlushOverCache(void)
  *		   over.* file behind.  An index file that exists but is empty
  *		   or damaged is still initialised here, under the exclusive
  *		   lock, as before (a feed may be creating it right now).
+ *		   An index with a newer header version is refused.
  */
 OverInfo *
 GetOverInfo(const char *group)
