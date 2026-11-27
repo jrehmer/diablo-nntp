@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testkit "github.com/go-while/nntp-testkit"
 )
 
 // cleanDirsOver returns the path of the over file of group below the group home, as
@@ -953,6 +955,166 @@ func TestOverToolsDirLoopSymlink(t *testing.T) {
 					out = out[:4000] + "\n...\n" + out[len(out)-4000:]
 				}
 				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}
+
+// rtsDataName is the name of the data file with the article base base that goes with the over
+// file name over: crc "over.0.<hash>" gives "data.<base>.<hash>", md5 as cleanDirsMD5Data().
+func rtsDataName(t *testing.T, over string, base int) string {
+	t.Helper()
+	if h, ok := strings.CutPrefix(over, "over.0."); ok {
+		return fmt.Sprintf("data.%d.%s", base, h)
+	}
+	return cleanDirsMD5Data(t, over, base)
+}
+
+// rtsMode is the mode of path itself (lstat), 0 when there is none.
+func rtsMode(path string) (os.FileMode, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Mode(), nil
+}
+
+// rtsCheckSlots reads the over file path and checks that the record of each article 1..n is in
+// its slot with its article number, a receive time and a data offset.
+func rtsCheckSlots(t *testing.T, path, when string, n int) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) < 16 {
+		t.Fatalf("%s: over file: %v (%d bytes)", when, err, len(b))
+	}
+	o := binary.NativeEndian
+	head := int(o.Uint32(b[8:]))
+	slots := (len(b) - head) / 32 // sizeof(OverArt)
+	if head <= 0 || slots <= 0 {
+		t.Fatalf("%s: over file: header %d, %d slots", when, head, slots)
+	}
+	for a := 1; a <= n; a++ {
+		p := head + (a%slots)*32
+		artNo, seek, rcvd := int32(o.Uint32(b[p:])), int32(o.Uint32(b[p+4:])), int32(o.Uint32(b[p+24:]))
+		if artNo != int32(a) || seek < 0 || rcvd == 0 {
+			t.Errorf("%s: slot of article %d: oa_ArtNo %d oa_SeekPos %d oa_TimeRcvd %d", when, a, artNo, seek, rcvd)
+		}
+	}
+}
+
+// TestDexpireoverRewriteTempSymlink (D-326, the #515 r5 review): dexpireover -R writes the new
+// over file and each new data file of a group under the temporary name ".<name>" in the group's
+// directory and renames it into place. It opened that name with O_CREAT|O_TRUNC, which follows a
+// symlink already there: the link's target, wherever it is, was truncated and overwritten, and
+// the rename then put the link itself in place of the group's file. RewriteData() and
+// rewriteDataFile() now unlink the name first and create the file with O_EXCL, in every tree.
+//
+// Input: dexpire.ctl "e2e.*:x30:e4" (four articles per data file), a group fed six articles with
+// overview data (data files of the bases 0 and 4), dreaderd stopped; in the group's directory a
+// symlink at each temporary name the rewrite creates (".<over name>", ".<data name>" of the bases
+// 0 and 4), each to its own file outside the group home with known content; `dexpireover -a -R
+// -v`. Cases: crc (e2e.test), and md5-64\1 with a group whose directory is "+" or "-" (a tree in
+// which dexpireover skips every child symlink in its scan, while the rewrite opens its names
+// directly). Expected: exit 0, no failure reported, "Rebuilt 2 data file(s) for <group>"; the
+// three outside files are byte-identical; no temporary name is left (the links were removed, not
+// followed); the group's over file and both data files are regular files; every index record is
+// in its slot with a data offset; after `dexpireover -a -v` GROUP gives 211 6 1 6 and OVER 1-6
+// the same six lines as before. **Fails** on 57c94de8 and main: the outside files hold the
+// rewritten data and the group's files are the symlinks (md5-64: on main the "+"/"-" directory is
+// not scanned, so the group is not rewritten and the links stay).
+func TestDexpireoverRewriteTempSymlink(t *testing.T) {
+	for _, tc := range []struct{ name, hash string }{
+		{"crc", ""},
+		{"md5-64-sign", `md5-64\1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := map[string]string{}
+			if tc.hash != "" {
+				cfg["readergrouphash"] = tc.hash
+			}
+			st, spool := spoolStore(t)
+			s := NewReaderSite(t, ReaderOptions{Spool: spool, Groups: []string{"e2e.test"}, Config: cfg,
+				NoStart: true, Files: map[string]string{"dexpire.ctl": "e2e.*:x30:e4\n"}})
+			group := "e2e.test"
+			if tc.hash != "" {
+				group, _ = cleanDirsPlusMinusGroup(t, s)
+				s.Run(t, "dgrpctl", "newgroup", group, "y")
+				st.AddGroup(group, "e2e test group")
+			}
+			restartReader(t, s)
+			for i := 1; i <= 6; i++ {
+				feedReader(t, s, st, group, newArticle(msgID(t), group, fmt.Sprintf("temp symlink %d", i), "body"))
+			}
+			groupReply := func() string {
+				c := s.Reader(t)
+				defer c.Close()
+				_, line := c.Cmd("GROUP %s", group)
+				return line
+			}
+			testkit.WaitFor(t, testkit.Deadline(), "GROUP "+group+" 211 6 1 6", func() bool {
+				return strings.HasPrefix(groupReply(), "211 6 1 6 ")
+			})
+			overLines := func() []string {
+				c := s.Reader(t)
+				defer c.Close()
+				c.ExpectCmd(211, "GROUP %s", group)
+				c.ExpectCmd(224, "OVER 1-6")
+				return c.ReadDotLines()
+			}
+			before := overLines()
+			if len(before) != 6 {
+				t.Fatalf("OVER 1-6 before dexpireover: %d lines, want 6: %q", len(before), before)
+			}
+			s.Proc.Stop()
+
+			home := strings.TrimSpace(s.Run(t, "dpath", "group"))
+			rel := cleanDirsOver(t, s, group)
+			if tc.hash != "" && !strings.HasPrefix(rel, "+/") && !strings.HasPrefix(rel, "-/") {
+				t.Fatalf("over file of %s: %s, want it in the directory + or -", group, rel)
+			}
+			dir, overName := filepath.Join(home, filepath.Dir(rel)), filepath.Base(rel)
+			names := []string{overName, rtsDataName(t, overName, 0), rtsDataName(t, overName, 4)}
+			for _, n := range names {
+				if m, err := rtsMode(filepath.Join(dir, n)); err != nil || !m.IsRegular() {
+					t.Fatalf("%s of %s before dexpireover: mode %v (%v), want a regular file", n, group, m, err)
+				}
+			}
+			outside := t.TempDir()
+			var keep []hierFile
+			for _, n := range names {
+				f := hierFile{filepath.Join(outside, n), []byte("outside file, must stay as it is: " + n + "\n")}
+				keep = append(keep, f)
+				if err := os.Symlink(f.path, filepath.Join(dir, "."+n)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hierWrite(t, keep)
+
+			out := expireOver(t, s, "-a", "-R", "-v")
+
+			if !strings.Contains(out, "Rebuilt 2 data file(s) for "+group+"\n") {
+				t.Errorf("dexpireover -a -R -v did not rebuild the 2 data files of %s", group)
+			}
+			hierCheckKept(t, outside, keep)
+			for _, n := range names {
+				if m, err := rtsMode(filepath.Join(dir, "."+n)); !os.IsNotExist(err) {
+					t.Errorf("temporary name .%s is still there after -R: mode %v (%v)", n, m, err)
+				}
+				if m, err := rtsMode(filepath.Join(dir, n)); err != nil || !m.IsRegular() {
+					t.Errorf("%s of %s after -R: mode %v (%v), want a regular file", n, group, m, err)
+				}
+			}
+			rtsCheckSlots(t, filepath.Join(dir, overName), "after dexpireover -a -R", 6)
+			expireOver(t, s, "-a", "-v")
+			restartReader(t, s)
+			if g := groupReply(); !strings.HasPrefix(g, "211 6 1 6 ") {
+				t.Errorf("GROUP %s after dexpireover -a -R and -a: %q, want 211 6 1 6", group, g)
+			}
+			if after := overLines(); strings.Join(after, "\n") != strings.Join(before, "\n") {
+				t.Errorf("OVER 1-6 after dexpireover -a -R differs:\nbefore %q\nafter  %q", before, after)
+			}
+			if t.Failed() {
+				t.Logf("dexpireover -a -R -v:\n%s", out)
 			}
 		})
 	}

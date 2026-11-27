@@ -292,6 +292,7 @@ TestDexpireoverMd564SignSymlink 0.11
 TestDexpireoverNewIterBeforeIterWrite 0.15
 TestDexpireoverRewriteGzipData 0.05
 TestDexpireoverRewriteMixedRecords 0.23
+TestDexpireoverRewriteTempSymlink 0.84
 TestDexpireoverRewriteTrackonly 0.24
 TestDexpireoverRewriteTrackonlyGzip 0.17
 TestDexpireoverStaleGroupDryRun 0.03

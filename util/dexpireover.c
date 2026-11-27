@@ -203,6 +203,7 @@ static int rangeHasData(const OverArt *oa, long long n, artno_t base, int entrie
 static int gzipOnlyData(Group *group, const char *dirPath, artno_t startNo, artno_t endNo, int dataEntries);
 #endif
 static void groupGone(Group *group, const char *what);
+static int createTempFile(const char *path);
 static int writeActiveField(Group *group, const char *tok, const char *data);
 static int deleteStaleGroup(Group *group, int t);
 static int enterActiveRecord(int recOff, int recLen, int late);
@@ -780,6 +781,24 @@ expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd)
 	    printf("overview write failed: %s\n", strerror(errno));
     }
     hflock(fd, 0, XLOCK_UN);
+}
+
+/*
+ * createTempFile() - create a temporary file of RewriteData() (the new
+ * over. file or a new data. file under its ".<name>"), opened read-write.
+ * Whatever is at path is unlinked first, a regular file left by an
+ * interrupted -R or a symlink, and the file is created with O_EXCL, so a
+ * symlink there is not followed and its target, wherever it points, is
+ * not truncated or written (#515 r5).  For a leftover regular file that
+ * is the same as O_TRUNC.  Returns the descriptor, or -1 with errno set
+ * (unlink() other than ENOENT, or open()).
+ */
+static int
+createTempFile(const char *path)
+{
+    if (unlink(path) < 0 && errno != ENOENT)
+	return(-1);
+    return(open(path, O_RDWR|O_CREAT|O_EXCL, 0644));
 }
 
 /*
@@ -2626,7 +2645,9 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
      * original files are all still there.  If that fails, or a new data.
      * file could not be written in full (ok is 0 already), the group stays
      * as it was: the index we would be left with is the old one, and its
-     * offsets do not fit the rewritten data. files.
+     * offsets do not fit the rewritten data. files.  The temporary name
+     * is created anew (createTempFile()): a symlink there is removed, not
+     * followed.
      */
 
     snprintf(ovPath1, sizeof(ovPath1), "%s/.%s", dirPath,
@@ -2659,7 +2680,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 	if (ok == 0) {
 	    printf("Rewrite of %s data files failed, group left as it was\n",
 							group->gr_GroupName);
-	} else if ((ovFd = open(ovPath1, O_RDWR|O_CREAT|O_TRUNC, 0644)) < 0) {
+	} else if ((ovFd = createTempFile(ovPath1)) < 0) {
 	    printf("Rewrite of %s over. file failed, group left as it was\n",
 							group->gr_GroupName);
 	    ok = 0;
@@ -2958,7 +2979,8 @@ rewriteDataFile(Group *group, const char *cacheBase, int cacheSize, const OverAr
 					&DOpts.ReaderGroupHashMethod));
 	if (DebugOpt > 1)
             printf("Creating: %s\n", path);
-	fc->fc_Fd = open(path, O_RDWR|O_CREAT|O_TRUNC, 0644);
+	/* created anew: a symlink at the name is removed, not followed */
+	fc->fc_Fd = createTempFile(path);
 	if (fc->fc_Fd == -1) {
 	    printf("Error opening %s: %s\n", path, strerror(errno));
 	    failed = 1;
