@@ -210,6 +210,7 @@ static int enterActiveRecord(int recOff, int recLen, int late);
 static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
 static int overFileType(const char *name);
+static int tempRewriteName(const char *name);
 static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
 static int gzNameTaken(Group *group, const char *path, artno_t artBase, int hier, char *why, size_t whySize);
 static void expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd);
@@ -1056,8 +1057,6 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 
     if ((dir2 = opendir(".")) != NULL) {
 	den_t *den2;
-	char tbuf[24];
-	int tint;
 	struct stat st;
 	DirFrame sub;
 
@@ -1090,11 +1089,13 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	     * delete junk files from previously interrupted
 	     * dexpireover -R
 	     */
-	    if (strncmp(den2->d_name, ".data.", 6) == 0 ||
-		strncmp(den2->d_name, ".d.", 3) == 0 ||
-		sscanf(den2->d_name, ".%23[^.]s.%d.d.", tbuf, &tint) == 2) {
-		/* a symlink was reported by the first pass */
-		if (!(noLinks && EntryIsLink(den2->d_name)))
+	    if (tempRewriteName(den2->d_name)) {
+		/*
+		 * a symlink was reported by the first pass; a directory
+		 * is not a temporary file, whatever its name
+		 */
+		if (!(noLinks && EntryIsLink(den2->d_name)) &&
+		    !(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		    DeleteJunkFile(path, den2->d_name);
 		continue;
 	    }
@@ -1144,6 +1145,32 @@ overFileType(const char *name)
     if (ghtype & HASHGRPTYPE_OVER)
 	return(1);
     return((ghtype & HASHGRPTYPE_DATA) ? 2 : 0);
+}
+
+/*
+ * tempRewriteName() - name is a temporary file of dexpireover: a '.' and the
+ * name of an over or data file, as RewriteData() and rewriteDataFile()
+ * create them (createTempFile(), "." + GFName()) and diablo_minigzip()
+ * writes the compressed copy of a data file (data name + ".gz"):
+ *
+ *	crc		.over.<n>.<hash>[.<iter>]
+ *			.data.<n>.<hash>[.<iter>][.gz]
+ *	md5-32, md5-64	.<hash>.<iter>.o.<32|64>.<n>
+ *			.<hash>.<iter>.d.<32|64>.<n>[.gz]
+ *	hierarchy	.o.<n>.<group>
+ *			.d.<n>.<group>[.gz]
+ *
+ * An interrupted -R or -z leaves them behind (D-333: the md5 data and the
+ * over temporaries of every layout were not matched before).  No group file
+ * name starts with '.' (crc and hierarchy names start with a letter, the md5
+ * alphabets have no '.'), and nothing else puts a file named '.' + a group
+ * file name in the group directories, so a name that parses as a group file
+ * after its leading '.' is one of these, and any other dotfile is left.
+ */
+static int
+tempRewriteName(const char *name)
+{
+    return(name[0] == '.' && overFileType(name + 1) != 0);
 }
 
 void

@@ -1099,7 +1099,15 @@ MoveFile(char *from, char *to)
 	printf("ERROR: Unable to open input file: %s\n", from);
 	return(-1);
     }
-    if ((to_fd = open(to, O_CREAT | O_TRUNC | O_WRONLY, 0644)) < 0) {
+    /*
+     * The output file is created anew (D-332): whatever is at its name, a
+     * file of an interrupted run or a symlink, is unlinked first, and the
+     * open uses O_EXCL, so a symlink there is not followed and its target,
+     * wherever it points, is not truncated or written.  For a regular file
+     * that is the same as O_TRUNC.  As createTempFile() in dexpireover.
+     */
+    if ((unlink(to) < 0 && errno != ENOENT) ||
+	(to_fd = open(to, O_CREAT | O_EXCL | O_WRONLY, 0644)) < 0) {
 	printf("ERROR: Unable to create output file: %s\n", to);
 	close(from_fd);
 	return(-1);

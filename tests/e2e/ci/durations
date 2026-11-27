@@ -292,6 +292,7 @@ TestDexpireoverMd564SignSymlink 0.11
 TestDexpireoverNewIterBeforeIterWrite 0.15
 TestDexpireoverRewriteGzipData 0.05
 TestDexpireoverRewriteMixedRecords 0.23
+TestDexpireoverRewriteTempLeftovers 0.27
 TestDexpireoverRewriteTempSymlink 0.84
 TestDexpireoverRewriteTrackonly 0.24
 TestDexpireoverRewriteTrackonlyGzip 0.17
@@ -441,6 +442,7 @@ TestDoverctlCleanNewNameDirChildSymlink 0.09
 TestDoverctlCleanRemovesUnknownEntries 0.02
 TestDoverctlCleanSkipsNewNameSymlink 0.30
 TestDoverctlConvertCopyFailure 0.02
+TestDoverctlConvertCopySymlinkDest 0.58
 TestDoverctlConvertHierarchyClean 0.15
 TestDoverctlConvertMovesCompressedData 0.02
 TestDreadartLongDumpLine 0.04
