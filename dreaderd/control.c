@@ -2026,13 +2026,22 @@ CgCheck(Control *ctl, const char *body, int bodyLen, const char *include, const 
 		if (CgCreate(g, ents[i].ce_Flags, ents[i].ce_Desc)) {
 		    if (ctl->ct_LogFo)
 			fprintf(ctl->ct_LogFo, ">> Checkgroups: Added group %s flags=%c\n", g, ents[i].ce_Flags);
-		} else if (ctl->ct_LogFo) {
-		    fprintf(ctl->ct_LogFo, ">> Checkgroups: Group %s was made meanwhile, left as it is\n", g);
+		    continue;
 		}
-	    } else if (ctl->ct_LogFo) {
-		fprintf(ctl->ct_LogFo, "dgrpctl newgroup %s %c \"\" \"%s\"\n", g, ents[i].ce_Flags, ents[i].ce_Desc);
+		/*
+		 * Another creator made it since the look above (D-312): check
+		 * it as a group that was there, status and description, as
+		 * newgroup does.  Its numbers stay (D-254).
+		 */
+		if (ctl->ct_LogFo)
+		    fprintf(ctl->ct_LogFo, ">> Checkgroups: Group %s was made meanwhile, checked as an existing group\n", g);
+		if ((rec = KPDBReadRecord(KDBActive, g, KP_LOCK, &recLen)) == NULL)
+		    continue;			/* removed again */
+	    } else {
+		if (ctl->ct_LogFo)
+		    fprintf(ctl->ct_LogFo, "dgrpctl newgroup %s %c \"\" \"%s\"\n", g, ents[i].ce_Flags, ents[i].ce_Desc);
+		continue;
 	    }
-	    continue;
 	}
 	{
 	    const char *p;

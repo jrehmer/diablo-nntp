@@ -78,6 +78,8 @@ Prototype const char *KPDBGetFieldDecode(const char *rec, int recLen, const char
 Prototype int KPDBWriteEncode(KPDB *kpdb, const char *key, const char *tok, const char *data, int unlockMe);
 Prototype int KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int unlockMe);
 Prototype int KPDBCreate(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe);
+Prototype int KPDBCreateRecord(KPDB *kpdb, const char *key, const char *fields, int lockMe);
+Prototype int KPDBEncode(const char *data, char *out, int outLen);
 Prototype void KPDBLock(KPDB *kpdb, const char *rec);
 Prototype void KPDBUnlock(KPDB *kpdb, const char *rec);
 Prototype int KPDBDelete(KPDB *kpdb, const char *key);
@@ -689,28 +691,50 @@ KPDBScanNext(KPDB *kpdb, int offset, int lockMe, int *preclen)
     return(0);
 }
 
+/*
+ * KPDBEncode() - encode a field value as KPDBWriteEncode() writes it: letters,
+ *		digits and '.' as they are, every other byte as %xx.  The result
+ *		(and its 0) must fit outLen bytes, strlen(data) * 3 + 1 are
+ *		always enough.  Returns the length of the result, or -1 when
+ *		it does not fit (out is then not complete).
+ */
 int
-KPDBWriteEncode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
+KPDBEncode(const char *data, char *out, int outLen)
 {
-    int tmpLen = strlen(data) * 3 + 1;
-    char *tmp = zalloc(&SysMemPool, tmpLen);
     int i;
-    int j;
+    int j = 0;
     int c;
 
-    for (i = j = 0; (c = (int)(uint8)data[i]) != 0; ++i) {
+    for (i = 0; (c = (int)(uint8)data[i]) != 0; ++i) {
 	if ((c >= 'a' && c <= 'z') ||
 	    (c >= 'A' && c <= 'Z') ||
 	    (c >= '0' && c <= '9') ||
 	    c == '.'
 	) {
-	    tmp[j++] = c;
+	    if (j + 1 >= outLen)
+		return(-1);
+	    out[j++] = c;
 	    continue;
 	}
-	sprintf(tmp + j, "%%%02x", c);
+	if (j + 3 >= outLen)
+	    return(-1);
+	sprintf(out + j, "%%%02x", c);
 	j += 3;
     }
-    tmp[j] = 0;
+    if (j >= outLen)
+	return(-1);
+    out[j] = 0;
+    return(j);
+}
+
+int
+KPDBWriteEncode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
+{
+    int tmpLen = strlen(data) * 3 + 1;
+    char *tmp = zalloc(&SysMemPool, tmpLen);
+    int c;
+
+    KPDBEncode(data, tmp, tmpLen);
     c = KPDBWrite(kpdb, key, tok, tmp, lockMe);
     zfree(&SysMemPool, tmp, tmpLen);
     return(c);
@@ -788,12 +812,12 @@ KPDBDeleteTornLine(KPDB *kpdb, off_t nl)
     }
 }
 
-static int KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly);
+static int KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly, const char *fields);
 
 int
 KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
 {
-    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 0));
+    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 0, NULL));
 }
 
 /*
@@ -818,11 +842,32 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 int
 KPDBCreate(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
 {
-    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 1));
+    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 1, NULL));
+}
+
+/*
+ * KPDBCreateRecord() - KPDBCreate() for a record of several fields, made by
+ *		one append (D-316).  fields is the text of the fields as the
+ *		record holds it: "TOK=data TOK=data ...", one blank between
+ *		two fields, every value encoded as KPDBEncode() does (no
+ *		blank, no newline).  A process killed during the creation
+ *		leaves no record, or the whole one, and never one with some
+ *		of its fields: that is the difference to a first field made
+ *		by KPDBCreate() and the others by KPDBWrite().  A creator
+ *		that writes every field here needs no record lock for the
+ *		creation: lockMe is as for KPDBCreate(), and is normally 0.
+ *
+ *		Returns 0 if the record was made and 1 if it existed (not
+ *		changed).
+ */
+int
+KPDBCreateRecord(KPDB *kpdb, const char *key, const char *fields, int lockMe)
+{
+    return(KPDBWriteMode(kpdb, key, "", "", lockMe, 1, fields));
 }
 
 static int
-KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly)
+KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly, const char *fields)
 {
     /*
      * Best case - simple replacement of existing data, no append required
@@ -1076,12 +1121,15 @@ again:
 	    if (failedOp)
 		goto append_failed;
 	} else {
-	    int l = 20 + strlen(key) + strlen(tok) + dataLen;
+	    int l = 20 + strlen(key) + strlen(tok) + dataLen + (fields ? strlen(fields) : 0);
 	    char *p;
 
 	    KPDBCheckSize(kpdb, nlockoff, l);
 	    p = zalloc(&SysMemPool, l);
-	    snprintf(p, l, "+00000000.0000:%s %s=%s\n", key, tok, data);
+	    if (fields)
+		snprintf(p, l, "+00000000.0000:%s %s\n", key, fields);
+	    else
+		snprintf(p, l, "+00000000.0000:%s %s=%s\n", key, tok, data);
 	    if (KPDBWriteAt(kpdb->kp_Fd, p, strlen(p), nlockoff) < 0) {
 		writeError = errno;
 		failedOp = "new record append";

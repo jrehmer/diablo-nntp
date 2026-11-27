@@ -484,12 +484,15 @@ TestFilterBadRecordPassesLogged 10.03
 TestFilterFirstLineDotStuffed 5.92
 TestFilterUnreadArticlesJudged 5.52
 TestGeneralLogNotWritable 0.03
+TestGroupCreateCheckgroupsMeanwhileControl 0.28
+TestGroupCreateCheckgroupsMeanwhileDgrpctl 0.21
 TestGroupCreateControlCheckgroups 0.68
 TestGroupCreateControlNewgroup 0.38
 TestGroupCreateDgrpctlCheckgroups 0.21
 TestGroupCreateDgrpctlNewgroup 0.23
 TestGroupCreateDsyncgroups 0.22
-TestGroupCreateDsyncgroupsLock 2.20
+TestGroupCreateDsyncgroupsKilled 0.18
+TestGroupCreateDsyncgroupsLock 0.22
 TestGroupCreateFeederAutoAdd 0.30
 TestGroupCreateReaderAutoAdd 0.35
 TestGroupinfoHeaderOnlyOver 0.02
