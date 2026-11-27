@@ -176,7 +176,6 @@ int getFirstArtAge(Group *group, int fd, OverHead *oh);
 char *allocTmpCopy(const char *buf, int bufLen);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
 Group *FindGroupByHash(char *Hash, int iter, int hier, const char *dirPath);
-static int OverFileIsGroups(const Group *group, int iter, const char *dirPath);
 int SetField(char **pptr, const char *str);
 void ExpireByDays(Group *group, int fd, OverHead *oh, int expireSecs);
 void ExpireBySpool(Group *group, int fd, OverHead *oh);
@@ -1067,7 +1066,7 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 
 	if (Wild == NULL && currentIter(Hash, iter)) {
 	    if (VerboseOpt)
-		printf("file of a group recreated during the run, left alone: %s\n", path);
+		printf("file of a group recreated or changing its iteration, left alone: %s\n", path);
 	} else if (Wild == NULL) {
 	    ++BadGroups;
 	    printf("Group for over file not found, removing %s\n", path);
@@ -1538,10 +1537,17 @@ EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int ct
 }
 
 /*
- * currentIter() - a group we know by Hash has iteration iter now: it was
+ * currentIter() - the file of iteration iter for Hash belongs to no group in
+ * the table, but a group we know by Hash may be taking it right now: it was
  * removed and created again during the run (its new record may also have
- * replaced the old one in place, which rescanActive() does not see).  The
- * group table still has the old iteration, so its new files look stale.
+ * replaced the old one in place, which rescanActive() does not see), or it
+ * changes its iteration: a group whose hash is already used by another gets
+ * the next iteration, and dreaderd makes the files of the new iteration first
+ * and writes ITER into dactive.kp only afterwards (D-319).  So a file of the
+ * group's current iteration or of a higher one can be that group's, and the
+ * table, read before, has the old iteration.  Files of a lower iteration than
+ * the group has now stay stale.  The same rule as IterInProgress() in
+ * doverctl.  ITER is read from the live record, not from the table.
  */
 static int
 currentIter(char *Hash, int iter)
@@ -1550,7 +1556,7 @@ currentIter(char *Hash, int iter)
     hash_t hv = hhash(Hash);
 
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
-	if (strcmp(group->gr_Hash, Hash) == 0 && group->gr_Iter != iter) {
+	if (strcmp(group->gr_Hash, Hash) == 0) {
 	    int recLen;
 	    int cur;
 	    const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
@@ -1560,7 +1566,7 @@ currentIter(char *Hash, int iter)
 		continue;
 	    cur = (int)strtoul(KPDBGetField(rec, recLen, "ITER", NULL, "0"), NULL, 10);
 	    KPDBUnlock(KDBActive, rec);
-	    if (cur == iter)
+	    if (cur <= iter)
 		return(1);
 	}
     }
@@ -1603,17 +1609,6 @@ OverFileOwner(const Group *group, int iter, const char *dirPath)
 }
 
 /*
- * OverFileIsGroups() - the over file of iteration iter for group exists in
- * dirPath and its header names the group.  A header of version 1 has no name:
- * no group owns it by this.  (The same as in doverctl.)
- */
-static int
-OverFileIsGroups(const Group *group, int iter, const char *dirPath)
-{
-    return(OverFileOwner(group, iter, dirPath) == 1);
-}
-
-/*
  * FindGroupByHash() - the group a file in dirPath belongs to.  The hash in a
  * file name does not tell groups apart whose names have the same hash: the
  * iteration does, but a group that has no over file yet has iteration 0 like
@@ -1623,11 +1618,13 @@ OverFileIsGroups(const Group *group, int iter, const char *dirPath)
  * name, which has no iteration, so the group's ITER (it keeps the iteration
  * of its files for a conversion back to crc or md5) is not compared (D-314).
  * With -w only the groups that match are loaded, so a file of a group that
- * does not match can have a single candidate, the empty group that shares its
- * hash: that one must own the over file (a header of version 1 has no name and
- * leaves it as it was), else no group is returned and the file is left alone
- * (ProcessOverviewFile() removes nothing under -w, D-313).  Hierarchy names
- * are made of the group name, so they have no such twin and no header check.
+ * does not match can have one candidate (the empty group that shares its
+ * hash) or several (empty groups that share it): one of them must own the over
+ * file, else no group is returned and the file is left alone
+ * (ProcessOverviewFile() removes nothing under -w, D-313, D-322).  A header of
+ * version 1 has no name, so it does not tell that the owner is not loaded:
+ * the first candidate is taken as before.  Hierarchy names are made of the
+ * group name, so they have no such twin and no header check.
  * The rest is the same as in doverctl, which loads every group.
  */
 Group *
@@ -1637,6 +1634,7 @@ FindGroupByHash(char *Hash, int iter, int hier, const char *dirPath)
     Group *first = NULL;
     hash_t hv = hhash(Hash);
     int n = 0;
+    int v1 = 0;
 
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
 	if (strcmp(group->gr_Hash, Hash) == 0 && (hier || group->gr_Iter == iter)) {
@@ -1645,17 +1643,29 @@ FindGroupByHash(char *Hash, int iter, int hier, const char *dirPath)
 	    ++n;
 	}
     }
-    if (n < 2) {
-	if (n == 1 && Wild != NULL && !hier &&
-	    OverFileOwner(first, iter, dirPath) == 0)
-	    return(NULL);
+    /*
+     * Without -w every group is loaded: one candidate is the owner, and with
+     * several the over file tells.  With -w the owner may not be loaded, so
+     * one or several candidates must be named by the over file, else the
+     * file is left alone.
+     */
+    if (n == 0 || (n == 1 && (Wild == NULL || hier)))
 	return(first);
-    }
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
-	if (strcmp(group->gr_Hash, Hash) == 0 &&
-	    (hier || group->gr_Iter == iter) &&
-	    OverFileIsGroups(group, iter, dirPath))
-	    return(group);
+	if (strcmp(group->gr_Hash, Hash) == 0 && (hier || group->gr_Iter == iter)) {
+	    int r = OverFileOwner(group, iter, dirPath);
+
+	    if (r == 1)
+		return(group);
+	    if (r < 0)
+		v1 = 1;
+	}
+    }
+    if (Wild != NULL && !hier && !v1) {
+	if (VerboseOpt)
+	    printf("files of hash %s iteration %d in %s left alone: with -w the over file does not name a selected group (missing, damaged or another group's)\n",
+							Hash, iter, dirPath);
+	return(NULL);
     }
     return(first);
 }
