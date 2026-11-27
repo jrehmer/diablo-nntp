@@ -313,3 +313,148 @@ func TestHierarchyFullReaderGzipPair(t *testing.T) {
 		}
 	}
 }
+
+// treeSnapshot lists every directory and file below home, files with their content.
+func treeSnapshot(t *testing.T, home string) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	err := filepath.Walk(home, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(p, home)
+		if fi.IsDir() {
+			m[rel+"/"] = ""
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		m[rel] = string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// hierConvertGroups are the groups of the convert tests: a one-character first component,
+// and a one-character last component with the same name plus .gz (D-325).
+var hierConvertGroups = []string{"a.b.c", "e2e.x", "e2e.x.gz"}
+
+// TestHierarchyFullConvertRefused: `doverctl convert` between hierarchy and hierarchy-full.
+// In hierarchy the plain data of e2e.x.gz and the compressed data of e2e.x are one file
+// (e2e/d.0.e2e.x.gz), so there is no safe conversion (D-325). Input: a site of the source layout
+// with a.b.c, e2e.x and e2e.x.gz (range 1..10), each with its over file and a plain data file
+// d.0.<group> where the layout puts them; `doverctl -v convert <src> <dst>`, both directions.
+// Expected: exit non-zero, "Cannot convert between hierarchy and hierarchy-full (not supported
+// yet, D-325)", every file at its old path with the same bytes and no directory made or
+// removed. Control: `doverctl -v convert crc hierarchy-full` on a crc site with the same groups
+// is not refused and moves the files to a/b/, e2e/ and e2e/x/ unchanged.
+func TestHierarchyFullConvertRefused(t *testing.T) {
+	for _, c := range [][2]string{{"hierarchy", "hierarchy-full"}, {"hierarchy-full", "hierarchy"}} {
+		t.Run(c[0]+"-to-"+c[1], func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": c[0]})
+			for _, g := range hierConvertGroups {
+				hierGroupRange(t, s, g, "1", "10")
+				dir := hierGroupDir(t, s, home, g)
+				writeOver(t, filepath.Join(home, dir, "o.0."+g), overHead(g))
+				writeOver(t, filepath.Join(home, dir, "d.0."+g), []byte("data of "+g+"\x00"))
+			}
+			before := treeSnapshot(t, home)
+			out, err := s.TryRun("doverctl", "-v", "convert", c[0], c[1])
+			if err == nil {
+				t.Errorf("doverctl convert %s %s exits 0", c[0], c[1])
+			}
+			if !strings.Contains(out, "Cannot convert between hierarchy and hierarchy-full (not supported yet, D-325)\n") {
+				t.Errorf("doverctl convert %s %s: no refusal message", c[0], c[1])
+			}
+			after := treeSnapshot(t, home)
+			for _, p := range slices.Sorted(maps.Keys(before)) {
+				if a, ok := after[p]; !ok {
+					t.Errorf("%s is gone", p)
+				} else if a != before[p] {
+					t.Errorf("%s was changed", p)
+				}
+			}
+			for _, p := range slices.Sorted(maps.Keys(after)) {
+				if _, ok := before[p]; !ok {
+					t.Errorf("%s is new", p)
+				}
+			}
+			if t.Failed() {
+				t.Logf("doverctl -v convert %s %s:\n%s", c[0], c[1], out)
+			}
+		})
+	}
+	t.Run("crc-to-hierarchy-full", func(t *testing.T) {
+		s, home := overSite(t, nil)
+		for _, g := range hierConvertGroups {
+			hierGroupRange(t, s, g, "1", "10")
+			dir, hash := groupFiles(t, s, g)
+			if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeOver(t, filepath.Join(home, dir, "over.0."+hash), overHead(g))
+			writeOver(t, filepath.Join(home, dir, "data.0."+hash), []byte("data of "+g+"\x00"))
+		}
+		out, err := s.TryRun("doverctl", "-v", "convert", "crc", "hierarchy-full")
+		if err != nil || strings.Contains(out, "Cannot convert") {
+			t.Fatalf("doverctl -v convert crc hierarchy-full: %v\n%s", err, out)
+		}
+		for g, dir := range map[string]string{"a.b.c": "a/b", "e2e.x": "e2e", "e2e.x.gz": "e2e/x"} {
+			for name, want := range map[string]string{"o.0." + g: string(overHead(g)), "d.0." + g: "data of " + g + "\x00"} {
+				if b, err := os.ReadFile(filepath.Join(home, dir, name)); err != nil || string(b) != want {
+					t.Errorf("%s/%s after the conversion: %v, content as before: %v", dir, name, err, string(b) == want)
+				}
+			}
+		}
+		if t.Failed() {
+			t.Logf("doverctl -v convert crc hierarchy-full:\n%s", out)
+		}
+	})
+}
+
+// TestHierarchyFullCleanOneCharDirs: `doverctl -v clean` with hierarchy-full enters the
+// directories of one-character components (D-326, #515). Input: x.y (in x/), a.b.c (in a/b/)
+// and e2e.x.gz (in e2e/x/), range 1..10, each with its over file and a plain data file d.0.<group>,
+// and in each of those directories a data file of no group (d.0.x.nogroup, d.0.a.b.nogroup,
+// d.0.e2e.x.nogroup). Expected: the groups' files are there, unchanged; the three others are
+// removed with "Group for over file not found, removing <path>".
+func TestHierarchyFullCleanOneCharDirs(t *testing.T) {
+	s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy-full"})
+	var keep []hierFile
+	var gone []string
+	for g, want := range map[string]string{"x.y": "x", "a.b.c": "a/b", "e2e.x.gz": "e2e/x"} {
+		hierGroupRange(t, s, g, "1", "10")
+		dir := hierGroupDir(t, s, home, g)
+		if dir != want {
+			t.Fatalf("directory of %s: %q, want %q", g, dir, want)
+		}
+		d := filepath.Join(home, dir)
+		keep = append(keep, hierFile{filepath.Join(d, "o.0."+g), overHead(g)},
+			hierFile{filepath.Join(d, "d.0."+g), []byte("data of " + g + "\x00")})
+		gone = append(gone, filepath.Join(d, "d.0."+strings.ReplaceAll(dir, "/", ".")+".nogroup"))
+	}
+	hierWrite(t, keep)
+	for _, f := range gone {
+		writeOver(t, f, []byte("data of no group\x00"))
+	}
+
+	out := s.Run(t, "doverctl", "-v", "clean")
+
+	hierCheckKept(t, home, keep)
+	for _, f := range gone {
+		if _, err := os.Stat(f); err == nil {
+			t.Errorf("%s, a file of no group, is still there", strings.TrimPrefix(f, home))
+		}
+		if !strings.Contains(out, "Group for over file not found, removing "+f+"\n") {
+			t.Errorf("clean did not report %s", strings.TrimPrefix(f, home))
+		}
+	}
+	if t.Failed() {
+		t.Logf("doverctl -v clean:\n%s", out)
+	}
+}
