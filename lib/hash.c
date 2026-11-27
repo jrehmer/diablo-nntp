@@ -36,8 +36,11 @@ Prototype int GFIndex(char c);
 Prototype const char *GFHash(const char *group, GroupHashType *method);
 Prototype const char *GFName(const char *group, int ftype, artno_t artBase, int wantdir, int iter, GroupHashType *method);
 static void FindGroupDir(const char *group, char *path, size_t pathsize, int full);
-Prototype int ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter);
-Prototype int ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter);
+Prototype int ExtractGroupHashInfo(const char *name, int layout, char *Hash, artno_t *artBase, int *iter);
+Prototype int ExtractGroupHashInfoGz(const char *name, int layout, char *Hash, char *HashZ, artno_t *artBase, int *iter);
+static int extractMD5(const char *name, char *Hash, artno_t *artBase, int *iter);
+static int extractCRC(const char *name, char *Hash, artno_t *artBase, int *iter);
+static int extractHier(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter);
 Prototype char *GetHash(GroupHashType *Hash, char *hashStr);
 Prototype void SetCacheHash(struct CacheHash_t* ch, const char *group, int iter, GroupHashType *method);
 Prototype int CacheHashEqual(const struct CacheHash_t *a, const struct CacheHash_t *b);
@@ -760,11 +763,13 @@ FindGroupDir(const char *group, char *path, size_t pathsize, int full)
  * for a hierarchy data file "d.<n>.<group>.gz" it is "<group>.gz", which is
  * the name of the group of a plain data file when the group itself ends in
  * ".gz".  ExtractGroupHashInfoGz() tells the two readings apart (D-318).
+ * layout is the HASHGRP_ type of the spool the name is in (see
+ * ExtractGroupHashInfoGz()).
  */
 int
-ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter)
+ExtractGroupHashInfo(const char *name, int layout, char *Hash, artno_t *artBase, int *iter)
 {
-    return(ExtractGroupHashInfoGz(name, Hash, NULL, artBase, iter));
+    return(ExtractGroupHashInfoGz(name, layout, Hash, NULL, artBase, iter));
 }
 
 /*
@@ -781,27 +786,62 @@ ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter)
  * two groups exists and never remove it while either does.  For every other
  * name HashZ is the empty string.  HashZ must hold as much as Hash, or be NULL
  * for a caller that does not want the second reading.
+ *
+ * layout is the HASHGRP_ type of the spool the name is in (the configured
+ * readergrouphash), and its patterns are tried first.  The names of the
+ * layouts overlap: the hierarchy files "o.<n>.<group>" and "d.<n>.<group>"
+ * of a group "o.<n>.<n>..." or "d.<n>.<n>..." have the form of md5 names
+ * ("o.0.o.1.2" is the md5 over file of the hash "o", D-335), and read as
+ * md5 they belong to no group, so in a hierarchy spool dexpireover and
+ * doverctl removed them.  The patterns of the other layouts are tried after
+ * them, in the old order (md5, crc, hierarchy), so a file of another layout
+ * left in the spool mostly reads as before, as the file of no group.  Not
+ * every one: in a hierarchy spool an md5 name with the one-character hash
+ * "o" or "d" (md5 ":2") now reads as a hierarchy name, of the group the rest
+ * of it names, and in a crc spool an md5 data name with the hash "data" or
+ * "over" (":5", "data.0.d.32.0") as a crc name, of no group as before.  The
+ * names of the configured layout read as before: an md5 spool still tries
+ * md5 first; a crc spool now tries crc first, but a crc name
+ * ("over.<n>.<8 hex>.<8 hex>[.<iter>]", "data." likewise; gh_sigbytes is
+ * always 20) never has the form of an md5 name, whose third component is a
+ * lone "o" or "d", or of a hierarchy one, so the result is the same.
  */
 int
-ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter)
+ExtractGroupHashInfoGz(const char *name, int layout, char *Hash, char *HashZ, artno_t *artBase, int *iter)
 {
-    int b;
-    int type;
+    int type = HASHGRP_NONE;
 
     if (HashZ)
 	HashZ[0] = 0;
 
     /*
      * This is pure evil because we have too many overview file
-     * formats to support. We start with what is likely to be
-     * the most common. It gets even messier because random values
-     * can be assigned to variables, even when the whole string doesn't
-     * match.
+     * formats to support. We start with the layout of the spool, then
+     * what is likely to be the most common. It gets even messier because
+     * random values can be assigned to variables, even when the whole
+     * string doesn't match.
      */
+    if (layout == HASHGRP_CRC)
+	type = extractCRC(name, Hash, artBase, iter);
+    else if (layout == HASHGRP_HIER)
+	type = extractHier(name, Hash, HashZ, artBase, iter);
+    if (type == HASHGRP_NONE)
+	type = extractMD5(name, Hash, artBase, iter);
+    if (type == HASHGRP_NONE && layout != HASHGRP_CRC)
+	type = extractCRC(name, Hash, artBase, iter);
+    if (type == HASHGRP_NONE && layout != HASHGRP_HIER)
+	type = extractHier(name, Hash, HashZ, artBase, iter);
+    return(type);
+}
 
-    /*
-     * HASHGRP_32MD5 or HASHGRP_64MD5
-     */
+/*
+ * HASHGRP_32MD5 or HASHGRP_64MD5
+ */
+static int
+extractMD5(const char *name, char *Hash, artno_t *artBase, int *iter)
+{
+    int b;
+
     if (sscanf(name, "%[^.].%d.d.%d.%lld.gz", Hash, iter, &b, artBase) == 4)
 	return(((b == 64) ? HASHGRP_64MD5 : HASHGRP_32MD5) | HASHGRPTYPE_DATA);
     *iter = 0;
@@ -811,10 +851,15 @@ ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBa
     if (sscanf(name, "%[^.].%d.o.%d.%lld", Hash, iter, &b, artBase) == 4)
 	return(((b == 64) ? HASHGRP_64MD5 : HASHGRP_32MD5) | HASHGRPTYPE_OVER);
     *iter = 0;
+    return(HASHGRP_NONE);
+}
 
-    /*
-     * HASHGRP_CRC with iteration
-     */
+/*
+ * HASHGRP_CRC, with and without iteration
+ */
+static int
+extractCRC(const char *name, char *Hash, artno_t *artBase, int *iter)
+{
     if (sscanf(name, "over.%lld.%17[0-9a-f.].%d", artBase, Hash, iter) == 3)
 	return(HASHGRP_CRC | HASHGRPTYPE_OVER);
     *iter = 0;
@@ -825,9 +870,6 @@ ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBa
 	return(HASHGRP_CRC | HASHGRPTYPE_DATA);
     *iter = 0;
 
-    /*
-     * HASHGRP_CRC
-     */
     if (sscanf(name, "over.%lld.%17[0-9a-f.]", artBase, Hash) == 2)
 	return(HASHGRP_CRC | HASHGRPTYPE_OVER);
     *iter = 0;
@@ -837,10 +879,15 @@ ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBa
     if (sscanf(name, "data.%lld.%17[0-9a-f.]", artBase, Hash) == 2)
 	return(HASHGRP_CRC | HASHGRPTYPE_DATA);
     *iter = 0;
+    return(HASHGRP_NONE);
+}
 
-    /*
-     * HASHGRP_HIER
-     */
+/*
+ * HASHGRP_HIER (hierarchy and hierarchy-full: the same names)
+ */
+static int
+extractHier(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter)
+{
     if (sscanf(name, "o.%lld.%[^/]", artBase, Hash) == 2)
 	return(HASHGRP_HIER | HASHGRPTYPE_OVER);
     *iter = 0;
@@ -853,12 +900,11 @@ ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBa
     if (sscanf(name, "d.%lld.%[^/]", artBase, Hash) == 2) {
 	size_t len = strlen(Hash);
 
-	type = HASHGRP_HIER | HASHGRPTYPE_DATA;
 	if (HashZ && len > 3 && strcmp(Hash + len - 3, ".gz") == 0) {
 	    memcpy(HashZ, Hash, len - 3);
 	    HashZ[len - 3] = 0;
 	}
-	return(type);
+	return(HASHGRP_HIER | HASHGRPTYPE_DATA);
     }
     *iter = 0;
     return(HASHGRP_NONE);
