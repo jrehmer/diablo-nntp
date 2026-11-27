@@ -551,11 +551,21 @@ GrpCtlNewGroup(int ac, char **av, int pos)
      * record (and lock that).
      */
 
-    if ((rec = KPDBReadRecord(KDBActive, group, KP_LOCK, &recLen)) == NULL) {
-	KPDBWrite(KDBActive, group, "NB", "0000000001", KP_LOCK);
-	KPDBWrite(KDBActive, group, "NE", "0000000000", KP_LOCK_CONTINUE);
-	isNew = 1;
-    } else {
+    rec = KPDBReadRecord(KDBActive, group, KP_LOCK, &recLen);
+    if (rec == NULL) {
+	/*
+	 * Create if absent (D-254): the group may have been made, and
+	 * numbered, since the read above.  Then it is the existing group
+	 * below (locked): NB and NE stay.
+	 */
+	if (KPDBCreate(KDBActive, group, "NB", "0000000001", KP_LOCK) == 0) {
+	    KPDBWrite(KDBActive, group, "NE", "0000000000", KP_LOCK_CONTINUE);
+	    isNew = 1;
+	} else {
+	    rec = KPDBReadRecord(KDBActive, group, 0, &recLen);
+	}
+    }
+    if (rec != NULL) {
 	if (KPDBGetField(rec, recLen, "CTS", NULL, NULL) != NULL)
 	    hasCts = 1;
     }
@@ -832,7 +842,13 @@ GrpCtlCheckGroups(int ac, char **av, int pos)
 
 		/* as GrpCtlNewGroup(): S last, which releases the lock */
 		sprintf(tsBuf, "%08x", (int)time(NULL));
-		KPDBWrite(KDBActive, newsgroup, "NB", "0000000001", KP_LOCK);
+		/* create if absent (D-254): not over a group made since the read */
+		if (KPDBCreate(KDBActive, newsgroup, "NB", "0000000001",
+							KP_LOCK) != 0) {
+		    KPDBWrite(KDBActive, newsgroup, NULL, NULL, KP_UNLOCK);
+		    printf(">> Checkgroups: Group %s was made meanwhile, left as it is\n", newsgroup);
+		    continue;
+		}
 		KPDBWrite(KDBActive, newsgroup, "NE", "0000000000",
 							KP_LOCK_CONTINUE);
 		if (description[0])

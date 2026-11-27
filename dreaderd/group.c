@@ -721,12 +721,19 @@ AssignArticleNo(Connection *conn, ArtNumAss **pan, const char *group, const char
 	    } else {
 		char tsBuf[64];
 
-		KPDBWrite(KDBActive, group, "NB", "0000000001", KP_LOCK);
-		KPDBWrite(KDBActive, group, "NE", "0000000000", KP_LOCK_CONTINUE);
-		sprintf(tsBuf, "%08x", (int)time(NULL));
-		KPDBWrite(KDBActive, group, "CTS", tsBuf, KP_LOCK_CONTINUE);
-		KPDBWrite(KDBActive, group, "LMTS", tsBuf, KP_LOCK_CONTINUE);   
-		KPDBWrite(KDBActive, group, "S", "y", KP_UNLOCK);
+		/*
+		 * Create if absent (D-254): the group may have been made, and
+		 * numbered, since the read above.  Then it is left as it is.
+		 */
+		if (KPDBCreate(KDBActive, group, "NB", "0000000001", KP_LOCK) == 0) {
+		    KPDBWrite(KDBActive, group, "NE", "0000000000", KP_LOCK_CONTINUE);
+		    sprintf(tsBuf, "%08x", (int)time(NULL));
+		    KPDBWrite(KDBActive, group, "CTS", tsBuf, KP_LOCK_CONTINUE);
+		    KPDBWrite(KDBActive, group, "LMTS", tsBuf, KP_LOCK_CONTINUE);
+		    KPDBWrite(KDBActive, group, "S", "y", KP_UNLOCK);
+		} else {
+		    KPDBWrite(KDBActive, group, NULL, NULL, KP_UNLOCK);
+		}
 	}
             if ((rec = KPDBReadRecord(KDBActive, group, KP_LOCK, &recLen)) == NULL) {
 		snprintf(logbuf, sizeof(logbuf), "%s %s not in dactive", msgid, group);

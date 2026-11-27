@@ -77,6 +77,7 @@ Prototype const char *KPDBGetField(const char *rec, int recLen, const char *tok,
 Prototype const char *KPDBGetFieldDecode(const char *rec, int recLen, const char *tok, int *plen, const char *def);
 Prototype int KPDBWriteEncode(KPDB *kpdb, const char *key, const char *tok, const char *data, int unlockMe);
 Prototype int KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int unlockMe);
+Prototype int KPDBCreate(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe);
 Prototype void KPDBLock(KPDB *kpdb, const char *rec);
 Prototype void KPDBUnlock(KPDB *kpdb, const char *rec);
 Prototype int KPDBDelete(KPDB *kpdb, const char *key);
@@ -787,8 +788,41 @@ KPDBDeleteTornLine(KPDB *kpdb, off_t nl)
     }
 }
 
+static int KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly);
+
 int
 KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
+{
+    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 0));
+}
+
+/*
+ * KPDBCreate() - create a record if it does not exist (D-254).  The record
+ *		is made with the one field tok=data, as KPDBWrite() makes it,
+ *		and the lookup that decides whether it exists is repeated
+ *		under the append lock, which every record creation takes: of
+ *		two creators of the same key one makes the record and the
+ *		other finds it, and neither can write over what the other
+ *		(or a later writer) has put there.  A record that exists is
+ *		not changed at all: a field of it stays as it is, tok too.
+ *
+ *		Returns 0 if the record was made and 1 if it existed.  In
+ *		both cases lockMe means what it does for KPDBWrite(): with
+ *		KP_LOCK the record is locked on return (the one that was made,
+ *		or the existing one), so a creator can go on with
+ *		KPDBWrite(..., KP_LOCK_CONTINUE) and release it with the last
+ *		write, or with KPDBWrite(kpdb, key, NULL, NULL, KP_UNLOCK) when
+ *		it found the record there.  A creator that sets NB and NE of a
+ *		new record writes them only when this returns 0.
+ */
+int
+KPDBCreate(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe)
+{
+    return(KPDBWriteMode(kpdb, key, tok, data, lockMe, 1));
+}
+
+static int
+KPDBWriteMode(KPDB *kpdb, const char *key, const char *tok, const char *data, int lockMe, int createOnly)
 {
     /*
      * Best case - simple replacement of existing data, no append required
@@ -820,6 +854,7 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
      * Obtain record.  Record is locked on valid return
      */
 
+again:
     if (KPDBLookup(kpdb, key, tlock, 0) == 0) {
 	/*
 	 * found existing record.  Lock is held at this
@@ -830,6 +865,13 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 	int odataLen = 0;
 
 	lockoff = kpdb->kp_Cache - kpdb->kp_MapBase;
+
+	if (createOnly) {
+	    /* it exists: nothing is written, the lock stays as lockMe says */
+	    if (lockMe != KP_LOCK_CONTINUE && lockMe != KP_LOCK)
+		hflock(kpdb->kp_Fd, lockoff, XLOCK_UN);
+	    return(1);
+	}
 
 	odata = KPDBGetField(
 	    kpdb->kp_Cache,
@@ -925,6 +967,17 @@ KPDBWrite(KPDB *kpdb, const char *key, const char *tok, const char *data, int lo
 
 	if (KPDBLookup(kpdb, key, 0, (cval > kpdb->kp_ResortLimit)) == 0) {
 	    copyOld = 1;
+	    if (createOnly) {
+		/*
+		 * Another process made the record after our first look.
+		 * Let go of the append lock before we wait for the lock of
+		 * the record (its holder may want the append lock), and
+		 * look again: the record is there now.
+		 */
+		kpdb->kp_Lock4 = 0;
+		hflock(kpdb->kp_Fd, 4, XLOCK_UN);
+		goto again;
+	    }
 	}
 
 	if ((uint32)cval > kpdb->kp_ResortLimit) {
