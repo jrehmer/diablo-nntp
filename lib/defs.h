@@ -207,6 +207,8 @@ typedef struct GroupHashType {
     int gh_dirtype;		/* Algorithm for choosing dirs per level */
     int gh_dirlvl;		/* Directory levels */
     int gh_dirinfo[10];		/* Number of directories per level */
+    int gh_hierfull;		/* HASHGRP_HIER: every component but the
+				 * last is a directory (hierarchy-full) */
 } GroupHashType;
 
 #define ACTIVE_OFF	0
