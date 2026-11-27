@@ -1024,7 +1024,12 @@ ProcessFile(const char *dirPath, const char *name)
     bzero(Hash, sizeof(Hash));
     bzero(HashZ, sizeof(HashZ));
 
-    if ((type = ExtractGroupHashInfoGz(name, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE) {
+    /*
+     * The names of the configured layout first (D-335); with convert that
+     * is the destination method (main() copies it to DOpts), the layout of
+     * the files after the conversion.
+     */
+    if ((type = ExtractGroupHashInfoGz(name, DOpts.ReaderGroupHashMethod.gh_type, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE) {
 	printf("Deleting unknown/stale file: %s/%s\n", dirPath, name);
 	DeleteFile(dirPath, name);
 	return;

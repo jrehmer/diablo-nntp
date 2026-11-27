@@ -1132,7 +1132,10 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
  * group name, which may contain ".d." (the over file of e2e.d.q would be
  * taken for a data file as well) or ".o." (the data file of e2e.o.x would be
  * taken for an over file and opened read-write).  The crc and md5 names have
- * a fixed form, for which the parse and the old tests agree.
+ * a fixed form, for which the parse and the old tests agree.  The parse
+ * tries the names of the configured layout first (D-335: in a hierarchy
+ * spool the data file "d.0.o.1.2" of the group o.1.2 also has the form of
+ * an md5 over file).
  */
 static int
 overFileType(const char *name)
@@ -1142,7 +1145,7 @@ overFileType(const char *name)
     int iter = 0;
     int ghtype;
 
-    if ((ghtype = ExtractGroupHashInfo(name, Hash, &artBase, &iter)) == HASHGRP_NONE)
+    if ((ghtype = ExtractGroupHashInfo(name, DOpts.ReaderGroupHashMethod.gh_type, Hash, &artBase, &iter)) == HASHGRP_NONE)
 	return(0);
     if (ghtype & HASHGRPTYPE_OVER)
 	return(1);
@@ -1217,7 +1220,7 @@ tempRewriteName(const char *dirPath, const char *name)
     if (name[0] != '.')
 	return(0);
     Hash[0] = 0;
-    if ((ghtype = ExtractGroupHashInfoGz(name + 1, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
+    if ((ghtype = ExtractGroupHashInfoGz(name + 1, DOpts.ReaderGroupHashMethod.gh_type, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
 	return(0);
     gftype = (ghtype & HASHGRPTYPE_OVER) ? GRPFTYPE_OVER : GRPFTYPE_DATA;
 
@@ -1317,7 +1320,7 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
     bzero(Hash, sizeof(Hash));
     bzero(HashZ, sizeof(HashZ));
 
-    if ((ghtype = ExtractGroupHashInfoGz(name, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
+    if ((ghtype = ExtractGroupHashInfoGz(name, DOpts.ReaderGroupHashMethod.gh_type, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
 	return;
     hier = ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
 

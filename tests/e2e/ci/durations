@@ -667,6 +667,7 @@ TestNulTakethisFraming 0.12
 TestOverGzipTruncatedHeader 0.02
 TestOverToolsDirLoopSymlink 0.13
 TestOverToolsGroupRemovedWhileWaiting 0.07
+TestOverToolsHierMD5LikeNames 1.13
 TestOverToolsMd564PlusMinusDir 0.60
 TestOverToolsMd564SignDirChildSymlink 0.09
 TestOverToolsMd564SignDirFileSymlink 0.58
