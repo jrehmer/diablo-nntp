@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -23,8 +24,15 @@ type hierFile struct {
 // received now, in its slot, so that `dexpireover -a` neither moves the group's first article
 // number (a group whose range starts at first) nor resizes the file.
 func hierOverFile(group string, first, slots int) []byte {
+	return hierOverFileDE(group, first, slots, 256)
+}
+
+// hierOverFileDE is hierOverFile with dataEntries articles per data file in the header (oh_DataEntries,
+// the "e" value of dexpire.ctl when the file was made), which sets the base of the data files.
+func hierOverFileDE(group string, first, slots, dataEntries int) []byte {
 	const slot = 32 // OverArt, dreaderd/defs.h
 	b := append(overHeadMax(group, uint32(slots)), make([]byte, slots*slot)...)
+	binary.NativeEndian.PutUint32(b[16+256:], uint32(dataEntries))
 	o := b[len(b)-slots*slot+(first%slots)*slot:]
 	binary.NativeEndian.PutUint32(o[0:], uint32(first))              // oa_ArtNo
 	binary.NativeEndian.PutUint32(o[24:], uint32(time.Now().Unix())) // oa_TimeRcvd
@@ -187,8 +195,9 @@ func TestDexpireoverHierarchyDataStale(t *testing.T) {
 		{filepath.Join(dir, "d.256.e2e.test"), plain},
 	}
 	hierWrite(t, keep)
-	// a directory whose name reads as a data file name (hierarchy directories can hold
-	// dots, as e2e/d.foo does) is not a data file: it stays
+	// a directory whose name reads as a data file name (one an administrator made: a real
+	// hierarchy directory is a group name component and never parses as d.<n>.<group>) is
+	// not a data file: it stays
 	dirName := filepath.Join(dir, "d.5.e2e.test")
 	if err := os.Mkdir(dirName, 0o755); err != nil {
 		t.Fatal(err)
@@ -602,5 +611,133 @@ func TestDexpireoverHierarchyCompressGzName(t *testing.T) {
 				t.Logf("dexpireover %s:\n%s", strings.Join(args, " "), out)
 			}
 		})
+	}
+}
+
+// TestDexpireoverHierarchyDataEntries (D-318, review of #513): the data files of a group hold
+// "e" articles each (dexpire.ctl, kept in the header of its over file), and dexpireover judges a
+// data file stale by that number: outside the range, or a base that is not a multiple of it. It
+// read the number from the over file by a path that is relative to the group home for the
+// hierarchy layout, but the scan has changed into the directory of the file by then, so the open
+// failed and the number was taken as 256. Before #513 only group names with ".d." were scanned,
+// now every hierarchy data file is, so with another "e" the live data files of every group were
+// judged by 256: with e4 or e64 the files on no multiple of 256 were removed, with e1024 the one
+// with the oldest live articles, and `-z` could take the file still written to.
+//
+// Input: "readergrouphash hierarchy", `dexpire.ctl` "e2e.*:x30:e<N>", e2e.test with an over file
+// whose header has N entries per data file and the data files below, `dexpireover -a -v`.
+//   - e4: range 1..300; d.0, d.4 and d.8 stay; d.6 (no multiple of 4) and d.1024 (outside the
+//     range) go (the control);
+//   - e64: range 1..300; d.0, d.64 and d.128 stay; d.100 and d.1024 go;
+//   - e1024: range 1500..1800; d.1024 (the oldest live articles) and d.2048 stay; d.0 and d.3072
+//     go;
+//   - gz_other_dir: e2e.foo (256 entries) and e2e.foo.gz (4 entries, its files in e2e/foo/):
+//     d.4.e2e.foo.gz in e2e/ is the compressed data of e2e.foo (stale there, 4 is no multiple of
+//     256) and the plain data of e2e.foo.gz (in range), so it stays, which needs the over file
+//     of e2e.foo.gz, in another directory than the file; d.1024.e2e.foo.gz goes.
+//
+// Fails on 8a146aa8 for every case but the control files.
+func TestDexpireoverHierarchyDataEntries(t *testing.T) {
+	plain := bytes.Repeat([]byte("x"), 10)
+	for _, tc := range []struct {
+		name         string
+		e, nb, ne    int
+		keep, remove []int
+	}{
+		{"e4", 4, 1, 300, []int{0, 4, 8}, []int{6, 1024}},
+		{"e64", 64, 1, 300, []int{0, 64, 128}, []int{100, 1024}},
+		{"e1024", 1024, 1500, 1800, []int{1024, 2048}, []int{0, 3072}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+			s.WriteFile(t, "dexpire.ctl", fmt.Sprintf("e2e.*:x30:e%d\n", tc.e))
+			s.Run(t, "dgrpctl", "adjust", "e2e.test", "NB", fmt.Sprintf("=%d", tc.nb))
+			s.Run(t, "dgrpctl", "adjust", "e2e.test", "NE", fmt.Sprintf("=%d", tc.ne))
+			dir := filepath.Join(home, "e2e")
+			keep := []hierFile{{filepath.Join(dir, "o.0.e2e.test"), hierOverFileDE("e2e.test", tc.nb, 500, tc.e)}}
+			for _, b := range tc.keep {
+				keep = append(keep, hierFile{filepath.Join(dir, fmt.Sprintf("d.%d.e2e.test", b)), plain})
+			}
+			hierWrite(t, keep)
+			var gone []string
+			for _, b := range tc.remove {
+				f := filepath.Join(dir, fmt.Sprintf("d.%d.e2e.test", b))
+				writeOver(t, f, plain)
+				gone = append(gone, f)
+			}
+
+			out := s.Run(t, "dexpireover", "-a", "-v")
+
+			hierCheckKept(t, home, keep)
+			hierCheckGone(t, home, out, gone, false)
+			hierNoBadReport(t, out, gone)
+			if t.Failed() {
+				t.Logf("dexpireover -a -v:\n%s", out)
+			}
+		})
+	}
+	t.Run("gz_other_dir", func(t *testing.T) {
+		const x, z = "e2e.foo", "e2e.foo.gz"
+		s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+		s.WriteFile(t, "dexpire.ctl", "e2e.*:x30\n")
+		dirX := hierGroupDir(t, s, home, x)
+		dirZ := hierGroupDir(t, s, home, z)
+		hierGroupRange(t, s, x, "1", "300")
+		hierGroupRange(t, s, z, "1", "300")
+		keep := []hierFile{
+			{filepath.Join(home, dirX, "o.0."+x), hierOverFileDE(x, 1, 500, 256)},
+			{filepath.Join(home, dirZ, "o.0."+z), hierOverFileDE(z, 1, 500, 4)},
+			{filepath.Join(home, dirX, "d.4."+x+".gz"), plain},
+		}
+		hierWrite(t, keep)
+		stale := filepath.Join(home, dirX, "d.1024."+x+".gz")
+		writeOver(t, stale, plain)
+
+		out := s.Run(t, "dexpireover", "-a", "-v")
+
+		hierCheckKept(t, home, keep)
+		hierCheckGone(t, home, out, []string{stale}, false)
+		hierNoBadReport(t, out, []string{stale})
+		if t.Failed() {
+			t.Logf("dexpireover -a -v:\n%s", out)
+		}
+	})
+}
+
+// TestDexpireoverCrcDataEntries: the crc layout reads the data entries of the over file by
+// GFName() with the group home in front, which opens from any directory; it must go on doing
+// so (the hierarchy fix of TestDexpireoverHierarchyDataEntries changes the same call).
+//
+// Input: the crc layout, `dexpire.ctl` "e2e.*:x30:e4", e2e.test (range 1..300) with an over file
+// of 4 entries per data file and data.0, data.4 and data.8; data.6 (no multiple of 4) and
+// data.1024 (outside the range); `dexpireover -a -v`. Expected: the first three stay, the last
+// two are removed and reported. Passes on 8a146aa8 as well.
+func TestDexpireoverCrcDataEntries(t *testing.T) {
+	s, home := overSite(t, nil)
+	s.WriteFile(t, "dexpire.ctl", "e2e.*:x30:e4\n")
+	dir, hash := groupFiles(t, s, "e2e.test")
+	if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := bytes.Repeat([]byte("x"), 10)
+	keep := []hierFile{{filepath.Join(home, dir, "over.0."+hash), hierOverFileDE("e2e.test", 1, 500, 4)}}
+	for _, b := range []int{0, 4, 8} {
+		keep = append(keep, hierFile{filepath.Join(home, dir, fmt.Sprintf("data.%d.%s", b, hash)), plain})
+	}
+	hierWrite(t, keep)
+	var gone []string
+	for _, b := range []int{6, 1024} {
+		f := filepath.Join(home, dir, fmt.Sprintf("data.%d.%s", b, hash))
+		writeOver(t, f, plain)
+		gone = append(gone, f)
+	}
+
+	out := s.Run(t, "dexpireover", "-a", "-v")
+
+	hierCheckKept(t, home, keep)
+	hierCheckGone(t, home, out, gone, false)
+	hierNoBadReport(t, out, gone)
+	if t.Failed() {
+		t.Logf("dexpireover -a -v:\n%s", out)
 	}
 }

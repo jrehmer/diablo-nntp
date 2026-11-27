@@ -976,6 +976,11 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	    /*
 	     * process data. files
 	     */
+	    /*
+	     * A directory is not a data file, though a name an administrator
+	     * gave it can read as one (a real hierarchy directory is a
+	     * group name component and never parses as "d.<n>.<group>").
+	     */
 	    if (overFileType(den2->d_name) == 2 &&
 		!(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		ProcessOverviewFile(path, den2->d_name, 2);
@@ -1513,15 +1518,25 @@ gzNameTaken(Group *group, const char *path, artno_t artBase, int hier,
  * dataFileStale() - the data file path (artBase) is outside the range of
  * group, or is not aligned to its over file's slots; 1 = stale, 0 = not,
  * -1 = the group left the active file after the scan began (skip the file).
- * OD_HARTS, the data entries of an over file that cannot be read, is a fudge
- * to make 100% sure we do not delete a brand new data file.  The data
- * entries of the group's over file are returned in *dataEntries.
+ * The data entries per file come from the header of the group's over file,
+ * which is opened by its path from the group home: the working directory is
+ * the directory of the file being checked (scanDirectory() changes into it),
+ * and the over file of the group may be in another one (the compressed
+ * reading of a hierarchy ".gz" data file, whose group "X" has its files in
+ * the directory of X, not in that of the file).  OD_HARTS is used when that
+ * file cannot be read or gives no valid value: it is only a guess, and the
+ * wrong one for a group with another number of data entries (dexpire.ctl
+ * "e"), which then can judge a live data file stale, so the over file must
+ * be found.  The data entries are returned in *dataEntries.
  */
 static int
 dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries)
 {
     int recLen;
     int de;
+    int n;
+    char ovname[PATH_MAX];
+    char ovpath[PATH_MAX];
     const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
                                                         KP_LOCK, &recLen);
 
@@ -1537,10 +1552,23 @@ dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries)
 							NULL, "-1"), NULL, 10);
     KPDBUnlock(KDBActive, rec);
 
-    de = getDataEntries(GFName(group->gr_GroupName,
-				    GRPFTYPE_OVER, 0, 2,
-				    group->gr_Iter,
-				    &DOpts.ReaderGroupHashMethod));
+    /*
+     * GFName() with wantdir 1 is the path below the group home for every
+     * layout (crc "ab/over.0.<hash>", md5 and hierarchy as well); wantdir 2
+     * puts the group home in front for crc and md5, but not for the
+     * hierarchy layout, whose path stays relative to the group home and so
+     * does not open from the directory scanDirectory() is in.
+     */
+    snprintf(ovname, sizeof(ovname), "%s",
+			GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 1,
+				group->gr_Iter,
+				&DOpts.ReaderGroupHashMethod));
+    n = snprintf(ovpath, sizeof(ovpath), "%s/%s", PatExpand(GroupHomePat),
+								ovname);
+    if (n < 0 || (size_t)n >= sizeof(ovpath))
+	de = OD_HARTS;
+    else
+	de = getDataEntries(ovpath);
     if (de <= 0 || ((de ^ (de - 1)) != (de << 1) - 1))
 	de = OD_HARTS;
     if (dataEntries)
