@@ -133,6 +133,51 @@ main(int ac, char **av)
 }
 
 /*
+ * OutAppend() - add formatted text to *pbuf (D-321).  A line meant for stdout
+ * while a record lock is held is collected here and printed after the unlock:
+ * a stdout that does not drain (a pipe to a pager left unscrolled) would keep
+ * the record locked, and every writer of the group (the feeder's
+ * GenerateXRef(), dreaderd's AssignArticleNo()) waits for it.
+ */
+
+static void
+OutAppend(char **pbuf, size_t *plen, size_t *pcap, const char *fmt, ...)
+{
+    va_list ap;
+    va_list cp;
+    int n;
+
+    va_start(ap, fmt);
+    va_copy(cp, ap);
+    n = vsnprintf(NULL, 0, fmt, cp);
+    va_end(cp);
+    if (n < 0) {
+	va_end(ap);
+	/* not stdout: the lock is held; the exit releases it */
+	fprintf(stderr, ">> masscancel: malloc fail\n");
+	exit(1);
+    }
+    if (*pbuf == NULL || *plen + n + 1 > *pcap) {
+	/* double the capacity, so many lines are not a realloc each */
+	size_t ncap = *pcap ? *pcap : 256;
+	char *nb;
+
+	while (ncap < *plen + n + 1)
+	    ncap *= 2;
+	if ((nb = realloc(*pbuf, ncap)) == NULL) {
+	    va_end(ap);
+	    fprintf(stderr, ">> masscancel: malloc fail\n");
+	    exit(1);
+	}
+	*pbuf = nb;
+	*pcap = ncap;
+    }
+    vsnprintf(*pbuf + *plen, n + 1, fmt, ap);
+    va_end(ap);
+    *plen += n;
+}
+
+/*
  * CANCEL -
  */
 
@@ -146,6 +191,9 @@ GrpCtlMassCancel(char *group)
     unsigned int loc;
     const char *rec;
     int recLen;
+    char *out = NULL;		/* the text printed after the unlock (D-321) */
+    size_t outLen = 0;
+    size_t outCap = 0;
 
     bzero(msgids, sizeof(msgids));
 
@@ -214,19 +262,19 @@ GrpCtlMassCancel(char *group)
 				copy.oa_ArtNo = -1;	/* Flag as cancelled */
 
 				if (hflock(ov->ov_OFd, 0, XLOCK_EX) < 0) {
-				    printf(">> masscancel: overview lock failed: %s\n",
+				    OutAppend(&out, &outLen, &outCap, ">> masscancel: overview lock failed: %s\n",
 							strerror(errno));
 				    break;
 				}
 				lseek(ov->ov_OFd, ovpos, 0);
 				if (WriteAll(ov->ov_OFd, &copy, sizeof(copy)) < 0)
-				    printf(">> masscancel: overview write failed: %s\n",
+				    OutAppend(&out, &outLen, &outCap, ">> masscancel: overview write failed: %s\n",
 							strerror(errno));
 				hflock(ov->ov_OFd, 0, XLOCK_UN);
 
 				elem->found++;
 				found++;
-				printf(">> cancelled %s:%lld\n", group, artEnd);
+				OutAppend(&out, &outLen, &outCap, ">> cancelled %s:%lld\n", group, artEnd);
 			    }
 			    elem = elem->next;
 			}
@@ -235,6 +283,10 @@ GrpCtlMassCancel(char *group)
 		    artEnd--;
 		}
 		KPDBUnlock(KDBActive, rec);
+		if (out != NULL) {
+		    printf("%s", out);
+		    free(out);
+		}
 	    }
 	}
     } else {
@@ -879,6 +931,7 @@ GrpCtlCheckGroups(int ac, char **av, int pos)
 	    uint32 plen;
 	    int needflags = 0;
 	    int needdesc = 0;
+	    int modline = 0;
 
 	    p = KPDBGetField(rec, recLen, "S", (int *)&plen, "n");
 	    if (plen >= sizeof(buf))
@@ -907,13 +960,15 @@ GrpCtlCheckGroups(int ac, char **av, int pos)
 		    printf(">> Checkgroups: Modified group %s\n", newsgroup);
 		    continue;		/* the S write released the lock */
 		} else {
-		    printf("dgrpctl modgroup %s %s \"\" \"%s\"\n",
-						newsgroup,
-						flags,
-						description);
+		    modline = 1;	/* printed after the unlock (D-321) */
 		}
 	    }
 	    KPDBUnlock(KDBActive, rec);
+	    if (modline)
+		printf("dgrpctl modgroup %s %s \"\" \"%s\"\n",
+						newsgroup,
+						flags,
+						description);
 	}
     }
     if (hierarchy == NULL) {

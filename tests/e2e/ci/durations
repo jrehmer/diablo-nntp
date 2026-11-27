@@ -296,10 +296,12 @@ TestDexpireSecondPassHistory 0.23
 TestDexpireSpoolPathSlash 0.56
 TestDexpireUnreadableSpoolDir 0.37
 TestDgrpctlCheckgroupsLongDescriptionStable 0.01
+TestDgrpctlCheckgroupsPrintsAfterUnlock 0.56
 TestDgrpctlGroupinfoLongDescription 0.01
 TestDgrpctlGroupinfoTimes 0.01
 TestDgrpctlMasscancelHierLongGroupName 0.01
 TestDgrpctlMasscancelLockFailure 0.29
+TestDgrpctlMasscancelPrintsAfterUnlock 0.34
 TestDgrpctlNewgroupLongDescription 0.01
 TestDhisbenchNeedsScratchHistory 0.01
 TestDhisexpireBadRecordSize 0.05
@@ -440,6 +442,7 @@ TestDsyncgroupsAuthinfoUser281 0.01
 TestDsyncgroupsAuthinfoUser381NoPassword 0.01
 TestDsyncgroupsBlankNewsgroupLine 0.01
 TestDsyncgroupsLongCredentialsRefused 0.01
+TestDsyncgroupsLongListLine 0.22
 TestDsyncgroupsModeReaderReply 0.02
 TestDsyncgroupsPeerClosesAtQuit 0.01
 TestDsyncgroupsShortActiveLine 0.01
