@@ -795,11 +795,16 @@ ExtractGroupHashInfo(const char *name, int layout, char *Hash, artno_t *artBase,
  * md5 they belong to no group, so in a hierarchy spool dexpireover and
  * doverctl removed them.  The patterns of the other layouts are tried after
  * them, in the old order (md5, crc, hierarchy), so a file of another layout
- * left in the spool is still taken for what it was before (and removed as
- * the file of no group).  With crc and md5 nothing changes: md5 comes first
- * as before, and a crc name ("over.<n>.<8 hex>.<8 hex>[.<iter>]", "data."
- * likewise) never has the form of an md5 one, whose third component is a
- * lone "o" or "d".
+ * left in the spool mostly reads as before, as the file of no group.  Not
+ * every one: in a hierarchy spool an md5 name with the one-character hash
+ * "o" or "d" (md5 ":2") now reads as a hierarchy name, of the group the rest
+ * of it names, and in a crc spool an md5 data name with the hash "data" or
+ * "over" (":5", "data.0.d.32.0") as a crc name, of no group as before.  The
+ * names of the configured layout read as before: an md5 spool still tries
+ * md5 first; a crc spool now tries crc first, but a crc name
+ * ("over.<n>.<8 hex>.<8 hex>[.<iter>]", "data." likewise; gh_sigbytes is
+ * always 20) never has the form of an md5 name, whose third component is a
+ * lone "o" or "d", or of a hierarchy one, so the result is the same.
  */
 int
 ExtractGroupHashInfoGz(const char *name, int layout, char *Hash, char *HashZ, artno_t *artBase, int *iter)
