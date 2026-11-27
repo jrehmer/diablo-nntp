@@ -52,6 +52,7 @@ int SyncOverwriteOpt = 0; /* allow remote info to replace existing info	*/
 int SyncDeleteOpt = 0;	/* delete local info not present on remote	*/
 int ListLinesDropped = 0; /* list lines too long for ReadListLine()	*/
 int GFileNoDot = 0;	/* the -G file ended without a "." line (D-328)	*/
+int GFileDotMid = 0;	/* the -G file has more after its "." line (D-328)	*/
 int SyncGroupsOpt = 0;	/* synchronize newsgroup names 			*/
 int SyncDescrOpt = 0;	/* synchronize newsgroup descriptions		*/
 int SyncModStatusOpt = 0; /* synchronize newsgroup moderation status	*/
@@ -86,7 +87,7 @@ int CommandResponse(const char *cmd, char **pres);
 int hash(const char *str);
 int SetField(char **pptr, const char *str);
 static void CreateNewGroup(Group *group, int nowt);
-static int ReadListLine(char *buf, int size);
+static int ReadListLine(char *buf, int size, int *plen);
 
 /*
  * Read one line of a list reply or of the -G file into buf (size bytes) (D-320).
@@ -99,9 +100,12 @@ static int ReadListLine(char *buf, int size);
  * see only what is before it.
  * The dropped lines are counted: a list with a missing line is incomplete, so
  * what it does not name proves nothing and -D deletes nothing (see Writeback).
+ * If plen is not NULL it gets the number of bytes stored in buf, counting any
+ * NUL: a "." line is known by this length, not by strcmp(), which stops at a
+ * NUL (a "." and a NUL and more would pass for the "." at the end of the input).
  */
 static int
-ReadListLine(char *buf, int size)
+ReadListLine(char *buf, int size, int *plen)
 {
     int c = 0;
     int n = 0;
@@ -112,6 +116,8 @@ ReadListLine(char *buf, int size)
 	    break;
     }
     buf[n] = 0;
+    if (plen)
+	*plen = n;
     if (n == 0)
 	return(0);
     if (c == '\n' || c == EOF)
@@ -680,7 +686,7 @@ main(int ac, char **av)
 	snprintf(cmd, sizeof(cmd), "list active%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd), NULL)) != 0) {
 		if (r < 0)
 		    continue;
 		processLine(cmd, wild, &count, &ok);
@@ -701,21 +707,36 @@ main(int ac, char **av)
 	char cmd[4096];
 	int count = 0;
 	int r;
+	int len = 0;
 	int dot = 0;
 
 	/*
 	 * A -G file ends at its "." line (LF or CR LF; a "." at the end of the
 	 * input too), as a list from a remote does: the lines after it are not
-	 * read.  A file without one may be cut short (a full disk, a bad copy),
-	 * so -D must not take what it does not name for gone (D-328, see
-	 * Writeback).  Without -D a missing "." is nothing to note.
+	 * read as groups.  A file without one may be cut short (a full disk, a
+	 * bad copy), so -D must not take what it does not name for gone (D-328,
+	 * see Writeback).  The same when something follows the first "." (a
+	 * second list, a file pasted together): it is not known to be whole, and
+	 * the groups after the "." are not read, so -D could not tell what they
+	 * name.  Nothing at all may follow: not even an empty line.  Without -D
+	 * neither is anything to note.
+	 * The "." is known by the length of the line (ReadListLine()), not by
+	 * strcmp(): a line of "." and a NUL byte and more is not the end.
 	 */
-	while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	while ((r = ReadListLine(cmd, sizeof(cmd), &len)) != 0) {
 	    if (r < 0)
 		continue;
-	    if (strcmp(cmd, ".\n") == 0 || strcmp(cmd, ".\r\n") == 0 ||
-		strcmp(cmd, ".") == 0) {
+	    if (cmd[0] == '.' &&
+		((len == 1) ||
+		 (len == 2 && cmd[1] == '\n') ||
+		 (len == 3 && cmd[1] == '\r' && cmd[2] == '\n'))) {
 		dot = 1;
+		/*
+		 * the end of the input must follow; the peek does not read
+		 * past it (a pipe or /dev/stdin gives EOF when it is closed)
+		 */
+		if (getc(Fi) != EOF)
+		    GFileDotMid = 1;
 		break;
 	    }
 	    processLine(cmd, wild, &count, NULL);
@@ -740,7 +761,7 @@ main(int ac, char **av)
 	sprintf(cmd, "list newsgroups%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd), NULL)) != 0) {
 		char *group;
 		char *desc;
 		Group *grp;
@@ -858,6 +879,11 @@ main(int ac, char **av)
 	 */
 	if (SyncDeleteOpt && GFileNoDot) {
 	    printf("-G file %s has no \".\" line at its end: not deleting groups (-D)\n",
+		grpfile);
+	    SyncDeleteOpt = 0;
+	}
+	if (SyncDeleteOpt && GFileDotMid) {
+	    printf("-G file %s has lines after its \".\" line: not deleting groups (-D)\n",
 		grpfile);
 	    SyncDeleteOpt = 0;
 	}

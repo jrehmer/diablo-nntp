@@ -85,8 +85,8 @@ a 'list active' on a remote server. i.e:
 groupname artend artbegin modstatus
 .PP
 Reading stops at a line with only a ".", as it does for a list from a
-remote host.  A file that does not end with such a line is used as it is, but
--D deletes nothing with it (see -D).
+remote host.  A file that has no such line, or has more after the first one,
+is used as it is up to that line, but -D deletes nothing with it (see -D).
 .PP
 .B \-f/F file.kp
 Specify the local KP database to work on.  The uppercase -F will create the
@@ -133,9 +133,9 @@ effected.
 Nothing is deleted when a line of the list was skipped because it was over
 4095 bytes: the list is incomplete, and the line may have named a local group.
 With -G, groups are deleted only when the file ends with a line with only a
-".", so that a file that was cut short does not delete the groups it no longer
-names; without it a note is printed, and the other options (creating groups,
-updating them) work as before.
+".", with nothing after it, so that a file that was cut short does not delete
+the groups it no longer names; otherwise a note is printed, and the other
+options (creating groups, updating them) work as before.
 .PP
 .B \-N[B][E,X]
 Specifies that the article begin and end range in the local KP database be
