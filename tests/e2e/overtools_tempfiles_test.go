@@ -129,23 +129,29 @@ func TestDoverctlConvertCopySymlinkDest(t *testing.T) {
 // (crc data), ".d." (hierarchy data) and `sscanf(name, ".%23[^.]s.%d.d.", ...) == 2` for md5
 // data, which never returns 2 (the "s" after the scanset never matches the "." the scanset stops
 // at), and had no pattern for the temporary over files of any layout. It now removes a name that
-// is '.' followed by an over or data file name of any layout (tempRewriteName()), and nothing
-// else.
+// is '.' followed by exactly the name GFName() gives an over or data file (plus ".gz" for data)
+// in that directory (tempRewriteName()), and nothing else: the name parse alone ignores what
+// follows its fields, so a first version (240ad29c, chatgpt-1's #519 r1 review) also removed an
+// admin's ".over.0.<hash>.backup".
 //
 // Input: the group e2e.test (range 1..300) with its over file (500 slots, article 1 received now)
 // and the data file of the base 0; in the group's directory the temporary names for this group:
-// ".<over name>", ".<data name of base 0>" and ".<data name of base 256>.gz", a control dotfile
-// ".keep", and an empty directory named ".<data name of base 512>"; `dexpireover -a -v`. Cases:
-// crc, md5-32\1 and hierarchy. Expected: the three temporary files are removed, each reported
-// with "Removing old temp file: <path>"; ".keep", the directory and the group's over and data
-// files are there, unchanged, and nothing else is reported about them. **Fails** on 45e090fc: the
-// temporary over file stays in every layout, and so do the md5 temporary data files; with crc and
-// hierarchy the directory was removed (remove() of an empty directory).
+// ".<over name>", ".<data name of base 0>" and ".<data name of base 256>.gz"; as controls
+// ".keep", the lookalikes ".<over name>.backup" (hierarchy: ".o.0.e2e.test.backup", the over file
+// name of e2e.test.backup, whose directory is e2e/test/), ".<data name of base 0>.gz.old" and
+// ".over.0.12345678.12345678.backup", and an empty directory named ".<data name of base 512>";
+// `dexpireover -a -v`. Cases: crc, md5-32\1, hierarchy and hierarchy-full. Expected: the three
+// temporary files are removed, each reported with "Removing old temp file: <path>"; the controls,
+// the directory and the group's over and data files are there, unchanged, and nothing is reported
+// about them. **Fails** on 45e090fc and 652d67b9 (main): the temporary over file stays in every
+// layout, and so do the md5 temporary data files; with crc and hierarchy the directory and
+// ".<data name>.gz.old" were removed. **Fails** on 240ad29c: the lookalikes are removed.
 func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 	for _, tc := range []struct{ name, hash string }{
 		{"crc", ""},
 		{"md5", `md5-32\1`},
 		{"hierarchy", "hierarchy"},
+		{"hierarchy_full", "hierarchy-full"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var cfg map[string]string
@@ -164,6 +170,11 @@ func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 				{filepath.Join(dir, overName), hierOverFile(group, 1, 500)},
 				{filepath.Join(dir, dataName), bytes.Repeat([]byte("x"), 10)},
 				{filepath.Join(dir, ".keep"), []byte("not a temporary file\n")},
+			}
+			// names the parse reads as group files that no tool creates: they stay
+			for _, n := range []string{"." + overName + ".backup", "." + dataName + ".gz.old",
+				".over.0.12345678.12345678.backup"} {
+				keep = append(keep, hierFile{filepath.Join(dir, n), []byte("an admin's file: " + n + "\n")})
 			}
 			hierWrite(t, keep)
 			temps := []string{"." + overName, "." + dataName, "." + tfDataName(t, overName, 256) + ".gz"}
@@ -196,7 +207,11 @@ func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 				t.Errorf("the directory %s was removed: %v", filepath.Base(tempDir), err)
 			}
 			for _, l := range strings.Split(out, "\n") {
-				if strings.Contains(l, "/.keep") || strings.Contains(l, filepath.Base(tempDir)) {
+				bad := strings.Contains(l, filepath.Base(tempDir))
+				for _, f := range keep[2:] {
+					bad = bad || strings.HasSuffix(l, "/"+filepath.Base(f.path))
+				}
+				if bad {
 					t.Errorf("dexpireover reports: %s", l)
 				}
 			}

@@ -210,7 +210,8 @@ static int enterActiveRecord(int recOff, int recLen, int late);
 static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
 static int overFileType(const char *name);
-static int tempRewriteName(const char *name);
+static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
+static int tempRewriteName(const char *dirPath, const char *name);
 static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
 static int gzNameTaken(Group *group, const char *path, artno_t artBase, int hier, char *why, size_t whySize);
 static void expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd);
@@ -1089,7 +1090,7 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	     * delete junk files from previously interrupted
 	     * dexpireover -R
 	     */
-	    if (tempRewriteName(den2->d_name)) {
+	    if (tempRewriteName(path, den2->d_name)) {
 		/*
 		 * a symlink was reported by the first pass; a directory
 		 * is not a temporary file, whatever its name
@@ -1148,29 +1149,103 @@ overFileType(const char *name)
 }
 
 /*
- * tempRewriteName() - name is a temporary file of dexpireover: a '.' and the
- * name of an over or data file, as RewriteData() and rewriteDataFile()
- * create them (createTempFile(), "." + GFName()) and diablo_minigzip()
- * writes the compressed copy of a data file (data name + ".gz"):
+ * tempNameIs() - want (a path below the group home) is the over or data file
+ * name GFName() gives group (gftype, artBase, iter), in its directory, with
+ * ".gz" added when gz, and nothing more.
+ */
+static int
+tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz,
+							const char *want)
+{
+    const char *gf = GFName(group, gftype, artBase, 1, iter,
+					&DOpts.ReaderGroupHashMethod);
+    size_t len = strlen(gf);
+
+    if (strncmp(gf, want, len) != 0)
+	return(0);
+    return(strcmp(want + len, gz ? ".gz" : "") == 0);
+}
+
+/*
+ * tempRewriteName() - name, in the directory dirPath below the group home,
+ * is a temporary file of dexpireover: a '.' followed by exactly the name of
+ * an over or data file of the configured layout in that directory, as
+ * RewriteData() and rewriteDataFile() create them (createTempFile(),
+ * "." + GFName()), or by a data file name and ".gz", as diablo_minigzip()
+ * writes the compressed copy of a data file:
  *
  *	crc		.over.<n>.<hash>[.<iter>]
  *			.data.<n>.<hash>[.<iter>][.gz]
  *	md5-32, md5-64	.<hash>.<iter>.o.<32|64>.<n>
  *			.<hash>.<iter>.d.<32|64>.<n>[.gz]
- *	hierarchy	.o.<n>.<group>
+ *	hierarchy(-full) .o.<n>.<group>
  *			.d.<n>.<group>[.gz]
  *
  * An interrupted -R or -z leaves them behind (D-333: the md5 data and the
- * over temporaries of every layout were not matched before).  No group file
- * name starts with '.' (crc and hierarchy names start with a letter, the md5
- * alphabets have no '.'), and nothing else puts a file named '.' + a group
- * file name in the group directories, so a name that parses as a group file
- * after its leading '.' is one of these, and any other dotfile is left.
+ * over temporaries of every layout were not matched before).  The name after
+ * the '.' is parsed (ExtractGroupHashInfoGz()) and GFName() is asked for the
+ * name of the file it reads as; only when that is the whole name, and the
+ * directory is the one GFName() puts the file in, is it a temporary file.
+ * The parse alone is not enough: it ignores what follows the fields it
+ * reads (an admin's ".over.0.<hash>.backup" reads as an over file), and a
+ * hierarchy name takes any rest as part of the group name
+ * (".o.0.<group>.orig" reads as the over file of "<group>.orig", whose
+ * directory is another one).  A hierarchy name holds the group name, so
+ * GFName() is called with it (both readings of a ".gz" name, D-318); a crc
+ * or md5 name holds only a hash, so the group comes from the group table:
+ * a temporary file of a group that is not in it (removed, or not selected
+ * with -w) is left.  No group file name starts with '.', so the group's own
+ * files are never taken.
  */
 static int
-tempRewriteName(const char *name)
+tempRewriteName(const char *dirPath, const char *name)
 {
-    return(name[0] == '.' && overFileType(name + 1) != 0);
+    char home[PATH_MAX];
+    char want[PATH_MAX];
+    char Hash[PATH_MAX];
+    char HashZ[PATH_MAX];
+    artno_t artBase = -1;
+    int iter = 0;
+    int ghtype;
+    int gftype;
+    int n;
+    size_t homeLen;
+    hash_t hv;
+    Group *group;
+
+    if (name[0] != '.')
+	return(0);
+    Hash[0] = 0;
+    if ((ghtype = ExtractGroupHashInfoGz(name + 1, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
+	return(0);
+    gftype = (ghtype & HASHGRPTYPE_OVER) ? GRPFTYPE_OVER : GRPFTYPE_DATA;
+
+    /* the path GFName() gives with wantdir 1: "<dir below home>/<name>" */
+    n = snprintf(home, sizeof(home), "%s", PatExpand(GroupHomePat));
+    if (n < 0 || (size_t)n >= sizeof(home))
+	return(0);
+    homeLen = (size_t)n;
+    if (strncmp(dirPath, home, homeLen) != 0 || dirPath[homeLen] != '/')
+	return(0);
+    n = snprintf(want, sizeof(want), "%s/%s", dirPath + homeLen + 1, name + 1);
+    if (n < 0 || (size_t)n >= sizeof(want))
+	return(0);
+
+    if ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER) {
+	if (tempNameIs(Hash, gftype, artBase, 0, 0, want))
+	    return(1);
+	return(HashZ[0] != 0 && tempNameIs(HashZ, gftype, artBase, 0, 1, want));
+    }
+    hv = hhash(Hash);
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_Hash, Hash) != 0)
+	    continue;
+	if (tempNameIs(group->gr_GroupName, gftype, artBase, iter, 0, want) ||
+	    (gftype == GRPFTYPE_DATA &&
+	     tempNameIs(group->gr_GroupName, gftype, artBase, iter, 1, want)))
+	    return(1);
+    }
+    return(0);
 }
 
 void
