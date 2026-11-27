@@ -445,6 +445,7 @@ TestDoverctlConvertCopyFailure 0.02
 TestDoverctlConvertCopySymlinkDest 0.58
 TestDoverctlConvertHierarchyClean 0.15
 TestDoverctlConvertMovesCompressedData 0.02
+TestDoverctlConvertSamePath 3.99
 TestDreadartLongDumpLine 0.04
 TestDreadoverHeaderOnlyOver 0.02
 TestDrequeueLongCSize 0.00

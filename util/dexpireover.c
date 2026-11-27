@@ -211,6 +211,7 @@ static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
 static int overFileType(const char *name);
 static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
+static int tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz, const char *want);
 static int tempRewriteName(const char *dirPath, const char *name);
 static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
 static int gzNameTaken(Group *group, const char *path, artno_t artBase, int hier, char *why, size_t whySize);
@@ -1189,12 +1190,14 @@ tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz,
  * The parse alone is not enough: it ignores what follows the fields it
  * reads (an admin's ".over.0.<hash>.backup" reads as an over file), and a
  * hierarchy name takes any rest as part of the group name
- * (".o.0.<group>.orig" reads as the over file of "<group>.orig", whose
- * directory is another one).  A hierarchy name holds the group name, so
- * GFName() is called with it (both readings of a ".gz" name, D-318); a crc
- * or md5 name holds only a hash, so the group comes from the group table:
- * a temporary file of a group that is not in it (removed, or not selected
- * with -w) is left.  No group file name starts with '.', so the group's own
+ * (".o.0.<group>~" or ".o.0.<group>.orig" reads as the over file of the
+ * group "<group>~" or "<group>.orig", which can have the same directory).
+ * So the group must be in the group table, in every layout (#519 r2): the
+ * name GFName() gives is built from the name of a loaded group whose hash
+ * (for hierarchy: the group name) is the one read, and both readings of a
+ * hierarchy ".gz" name are tried (D-318).  A temporary file of a group that
+ * is not in the table (removed from the active file, or not selected with
+ * -w) is left.  No group file name starts with '.', so the group's own
  * files are never taken.
  */
 static int
@@ -1210,8 +1213,6 @@ tempRewriteName(const char *dirPath, const char *name)
     int gftype;
     int n;
     size_t homeLen;
-    hash_t hv;
-    Group *group;
 
     if (name[0] != '.')
 	return(0);
@@ -1232,17 +1233,30 @@ tempRewriteName(const char *dirPath, const char *name)
 	return(0);
 
     if ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER) {
-	if (tempNameIs(Hash, gftype, artBase, 0, 0, want))
+	/* no iteration in the name; "d.<n>.X.gz" is X.gz's plain or X's .gz */
+	if (tempOfGroup(Hash, gftype, artBase, 0, 0, want))
 	    return(1);
-	return(HashZ[0] != 0 && tempNameIs(HashZ, gftype, artBase, 0, 1, want));
+	return(HashZ[0] != 0 && tempOfGroup(HashZ, gftype, artBase, 0, 1, want));
     }
-    hv = hhash(Hash);
+    if (tempOfGroup(Hash, gftype, artBase, iter, 0, want))
+	return(1);
+    return(gftype == GRPFTYPE_DATA && tempOfGroup(Hash, gftype, artBase, iter, 1, want));
+}
+
+/*
+ * tempOfGroup() - a group in the table has the hash Hash (gr_Hash, GFHash():
+ * for hierarchy the group name) and tempNameIs() its file want.
+ */
+static int
+tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz,
+							const char *want)
+{
+    hash_t hv = hhash(Hash);
+    Group *group;
+
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
-	if (strcmp(group->gr_Hash, Hash) != 0)
-	    continue;
-	if (tempNameIs(group->gr_GroupName, gftype, artBase, iter, 0, want) ||
-	    (gftype == GRPFTYPE_DATA &&
-	     tempNameIs(group->gr_GroupName, gftype, artBase, iter, 1, want)))
+	if (strcmp(group->gr_Hash, Hash) == 0 &&
+	    tempNameIs(group->gr_GroupName, gftype, artBase, iter, gz, want))
 	    return(1);
     }
     return(0);

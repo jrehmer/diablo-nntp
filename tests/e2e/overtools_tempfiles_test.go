@@ -132,20 +132,26 @@ func TestDoverctlConvertCopySymlinkDest(t *testing.T) {
 // is '.' followed by exactly the name GFName() gives an over or data file (plus ".gz" for data)
 // in that directory (tempRewriteName()), and nothing else: the name parse alone ignores what
 // follows its fields, so a first version (240ad29c, chatgpt-1's #519 r1 review) also removed an
-// admin's ".over.0.<hash>.backup".
+// admin's ".over.0.<hash>.backup", and the second (07e6c74d) a hierarchy ".o.0.e2e.test~": the
+// group must be in the active file.
 //
-// Input: the group e2e.test (range 1..300) with its over file (500 slots, article 1 received now)
-// and the data file of the base 0; in the group's directory the temporary names for this group:
-// ".<over name>", ".<data name of base 0>" and ".<data name of base 256>.gz"; as controls
-// ".keep", the lookalikes ".<over name>.backup" (hierarchy: ".o.0.e2e.test.backup", the over file
-// name of e2e.test.backup, whose directory is e2e/test/), ".<data name of base 0>.gz.old" and
-// ".over.0.12345678.12345678.backup", and an empty directory named ".<data name of base 512>";
+// Input: the groups e2e.test and e2e.x (range 1..300), each with its over file (500 slots,
+// article 1 received now) and the data file of the base 0; in e2e.test's directory the temporary
+// names for it: ".<over name>", ".<data name of base 0>" and ".<data name of base 256>.gz"; as
+// controls ".keep" and the lookalikes ".<over name>.backup", ".<over name>~", ".<over name>-old",
+// ".<over name>bak", ".<data name of base 0>.gz.old", ".<data name of base 0>_1" and
+// ".over.0.12345678.12345678.backup" (with hierarchy ".o.0.e2e.test~" is the over file name of a
+// group "e2e.test~", which is not in the active file), in e2e.x's directory ".<over name>.orig"
+// and ".<over name>.backup" (with hierarchy the names of the groups e2e.x.orig and e2e.x.backup,
+// whose directory is e2e/ too), and an empty directory named ".<data name of base 512>";
 // `dexpireover -a -v`. Cases: crc, md5-32\1, hierarchy and hierarchy-full. Expected: the three
 // temporary files are removed, each reported with "Removing old temp file: <path>"; the controls,
-// the directory and the group's over and data files are there, unchanged, and nothing is reported
+// the directory and the groups' over and data files are there, unchanged, and nothing is reported
 // about them. **Fails** on 45e090fc and 652d67b9 (main): the temporary over file stays in every
-// layout, and so do the md5 temporary data files; with crc and hierarchy the directory and
-// ".<data name>.gz.old" were removed. **Fails** on 240ad29c: the lookalikes are removed.
+// layout, and so do the md5 temporary data files; with crc and the hierarchy layouts the
+// directory and ".<data name>.gz.old" were removed. **Fails** on 240ad29c: the lookalikes are
+// removed. **Fails** on 07e6c74d (hierarchy layouts): the lookalikes that read as the files of a
+// group that does not exist, in this directory, are removed (go-while's #519 r2 review).
 func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 	for _, tc := range []struct{ name, hash string }{
 		{"crc", ""},
@@ -166,16 +172,32 @@ func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 				t.Fatal(err)
 			}
 			dataName := tfDataName(t, overName, 0)
-			keep := []hierFile{
+			// e2e.x: with hierarchy its directory is e2e/ (a one-character last component is
+			// joined), where ".o.0.e2e.x.orig" is the over file name of a group e2e.x.orig
+			hierGroupRange(t, s, "e2e.x", "1", "300")
+			relX := cleanDirsOver(t, s, "e2e.x")
+			dirX, overX := filepath.Join(home, filepath.Dir(relX)), filepath.Base(relX)
+			if err := os.MkdirAll(dirX, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			files := []hierFile{
 				{filepath.Join(dir, overName), hierOverFile(group, 1, 500)},
 				{filepath.Join(dir, dataName), bytes.Repeat([]byte("x"), 10)},
-				{filepath.Join(dir, ".keep"), []byte("not a temporary file\n")},
+				{filepath.Join(dirX, overX), hierOverFile("e2e.x", 1, 500)},
+				{filepath.Join(dirX, tfDataName(t, overX, 0)), bytes.Repeat([]byte("y"), 10)},
 			}
-			// names the parse reads as group files that no tool creates: they stay
+			// names the parse reads as group files that no tool creates for a group in the
+			// active file (#519 r1, r2): they stay, like .keep
+			controls := []hierFile{{filepath.Join(dir, ".keep"), []byte("not a temporary file\n")}}
 			for _, n := range []string{"." + overName + ".backup", "." + dataName + ".gz.old",
-				".over.0.12345678.12345678.backup"} {
-				keep = append(keep, hierFile{filepath.Join(dir, n), []byte("an admin's file: " + n + "\n")})
+				".over.0.12345678.12345678.backup", "." + overName + "~", "." + overName + "-old",
+				"." + overName + "bak", "." + dataName + "_1"} {
+				controls = append(controls, hierFile{filepath.Join(dir, n), []byte("an admin's file: " + n + "\n")})
 			}
+			for _, n := range []string{"." + overX + ".orig", "." + overX + ".backup"} {
+				controls = append(controls, hierFile{filepath.Join(dirX, n), []byte("an admin's file: " + n + "\n")})
+			}
+			keep := append(append([]hierFile{}, files...), controls...)
 			hierWrite(t, keep)
 			temps := []string{"." + overName, "." + dataName, "." + tfDataName(t, overName, 256) + ".gz"}
 			for _, n := range temps {
@@ -208,7 +230,7 @@ func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 			}
 			for _, l := range strings.Split(out, "\n") {
 				bad := strings.Contains(l, filepath.Base(tempDir))
-				for _, f := range keep[2:] {
+				for _, f := range controls {
 					bad = bad || strings.HasSuffix(l, "/"+filepath.Base(f.path))
 				}
 				if bad {
@@ -218,6 +240,132 @@ func TestDexpireoverRewriteTempLeftovers(t *testing.T) {
 			hierNoBadReport(t, out, nil)
 			if t.Failed() {
 				t.Logf("dexpireover -a -v:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestDoverctlConvertSamePath (go-while's #519 r2 review): two methods can give a group's files
+// the same path: md5-32:30\1 and md5-32:40\1 both keep the whole 26-character hash, so every
+// path is the same, and md5-32/32 and md5-32/64 give the same directory to the groups whose
+// hashNum() mod 64 is below 32. `doverctl -m convert` then copied each such file onto itself:
+// MoveFile() (lib/subs.c) truncated it (O_TRUNC, main) or unlinked it (07e6c74d) and then
+// removed the source, which is the same file, so the group's over and data files were gone while
+// doverctl reported "Converted" and exited 0. MoveFile() now does nothing for a file that is
+// already at its new name (one path, or the same inode), as rename() does.
+//
+// Input: sixteen groups e2e.test and e2e.sp01..e2e.sp15, two articles crossposted to all of
+// them (each group gets an over file and the data file of the base 0), dreaderd stopped;
+// `doverctl -v -m convert <old> <new>`, then readergrouphash <new> in diablo.config and dreaderd
+// restarted. Cases: md5-32:30\1 to md5-32:40\1 (all sixteen paths the same), md5-32/32 to
+// md5-32/64 (some the same, some not; the test checks that there is at least one of each).
+// Expected: exit 0, "Converted <group>" for each group; each group's over and data files at the
+// new names hold the bytes they had at the old names; GROUP gives 211 2 1 2 and OVER 1-2 the
+// same two lines as before for every group. **Fails** on 652d67b9 (main) and 07e6c74d: the
+// files of the groups with the same path are gone.
+func TestDoverctlConvertSamePath(t *testing.T) {
+	for _, tc := range []struct {
+		name, from, to string
+		allSame        bool
+	}{
+		{"md5_sigbytes", `md5-32:30\1`, `md5-32:40\1`, true},
+		{"md5_buckets", "md5-32/32", "md5-32/64", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			groups := []string{"e2e.test"}
+			for i := 1; i <= 15; i++ {
+				groups = append(groups, fmt.Sprintf("e2e.sp%02d", i))
+			}
+			st, spool := spoolStore(t)
+			s := NewReaderSite(t, ReaderOptions{Spool: spool, Groups: groups,
+				Config: map[string]string{"readergrouphash": tc.from}})
+			for i := 1; i <= 2; i++ {
+				feedReader(t, s, st, "e2e.test", newArticle(msgID(t), strings.Join(groups, ","), fmt.Sprintf("same path %d", i), "body"))
+			}
+			groupReply := func(g string) string {
+				c := s.Reader(t)
+				defer c.Close()
+				_, line := c.Cmd("GROUP %s", g)
+				return line
+			}
+			overLines := func(g string) []string {
+				c := s.Reader(t)
+				defer c.Close()
+				c.ExpectCmd(211, "GROUP %s", g)
+				c.ExpectCmd(224, "OVER 1-2")
+				return c.ReadDotLines()
+			}
+			before := map[string][]string{}
+			for _, g := range groups {
+				testkit.WaitFor(t, testkit.Deadline(), "GROUP "+g+" 211 2 1 2", func() bool {
+					return strings.HasPrefix(groupReply(g), "211 2 1 2 ")
+				})
+				if before[g] = overLines(g); len(before[g]) != 2 {
+					t.Fatalf("OVER 1-2 of %s before the conversion: %q, want 2 lines", g, before[g])
+				}
+			}
+			s.Proc.Stop()
+
+			home := strings.TrimSpace(s.Run(t, "dpath", "group"))
+			files := func(g string) []string {
+				rel := cleanDirsOver(t, s, g)
+				return []string{rel, filepath.Join(filepath.Dir(rel), tfDataName(t, filepath.Base(rel), 0))}
+			}
+			oldNames, content := map[string][]string{}, map[string][][]byte{}
+			for _, g := range groups {
+				oldNames[g] = files(g)
+				for _, f := range oldNames[g] {
+					b, err := os.ReadFile(filepath.Join(home, f))
+					if err != nil {
+						t.Fatalf("%s of %s before the conversion: %v", f, g, err)
+					}
+					content[g] = append(content[g], b)
+				}
+			}
+			s.WriteFile(t, "diablo.config", s.ReadFile(t, "diablo.config")+"\nreadergrouphash "+tc.to+"\n")
+			same, moved := 0, 0
+			newNames := map[string][]string{}
+			for _, g := range groups {
+				newNames[g] = files(g)
+				if newNames[g][0] == oldNames[g][0] {
+					same++
+				} else {
+					moved++
+				}
+			}
+			if same == 0 || (tc.allSame && moved != 0) || (!tc.allSame && moved == 0) {
+				t.Fatalf("%s -> %s: %d groups keep their path, %d move; the case needs %s", tc.from, tc.to, same, moved,
+					map[bool]string{true: "all to keep it", false: "some of each"}[tc.allSame])
+			}
+
+			out, err := s.TryRun("doverctl", "-v", "-m", "convert", tc.from, tc.to)
+			if err != nil {
+				t.Errorf("doverctl -v -m convert %s %s: %v", tc.from, tc.to, err)
+			}
+			for _, g := range groups {
+				if !strings.Contains(out, "Converted "+g+"\n") {
+					t.Errorf("doverctl -m did not convert %s", g)
+				}
+				for i, f := range newNames[g] {
+					b, err := os.ReadFile(filepath.Join(home, f))
+					if err != nil {
+						t.Errorf("%s of %s (was %s) after convert -m: %v", f, g, oldNames[g][i], err)
+					} else if !bytes.Equal(b, content[g][i]) {
+						t.Errorf("%s of %s (was %s) after convert -m: %d bytes, not the %d it had", f, g, oldNames[g][i], len(b), len(content[g][i]))
+					}
+				}
+			}
+			restartReader(t, s)
+			for _, g := range groups {
+				if r := groupReply(g); !strings.HasPrefix(r, "211 2 1 2 ") {
+					t.Errorf("GROUP %s after convert -m: %q, want 211 2 1 2", g, r)
+				} else if after := overLines(g); strings.Join(after, "\n") != strings.Join(before[g], "\n") {
+					t.Errorf("OVER 1-2 of %s after convert -m differs:\nbefore %q\nafter  %q", g, before[g], after)
+				}
+			}
+			t.Logf("%s -> %s: %d groups keep their path, %d move", tc.from, tc.to, same, moved)
+			if t.Failed() {
+				t.Logf("doverctl -v -m convert %s %s:\n%s", tc.from, tc.to, out)
 			}
 		})
 	}
