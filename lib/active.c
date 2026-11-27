@@ -234,12 +234,20 @@ GenerateXRef(Buffer *b, const char *nglist, const char *npName, const char *ctl)
 		} else {
 		    char tsBuf[64];
 
-		    KPDBWrite(DActiveDB, group, "NB", "1", KP_LOCK);
-		    KPDBWrite(DActiveDB, group, "NE", "0", KP_LOCK_CONTINUE);
-		    sprintf(tsBuf, "%08x", (int)time(NULL));
-		    KPDBWrite(DActiveDB, group, "CTS", tsBuf, KP_LOCK_CONTINUE);
-		    KPDBWrite(DActiveDB, group, "LMTS", tsBuf, KP_LOCK_CONTINUE);
-		    KPDBWrite(DActiveDB, group, "S", "y", KP_UNLOCK);
+		    /*
+		     * Create if absent (D-254): the group may have been made,
+		     * and numbered, since the read above.  Then it is left as
+		     * it is.
+		     */
+		    if (KPDBCreate(DActiveDB, group, "NB", "1", KP_LOCK) == 0) {
+			KPDBWrite(DActiveDB, group, "NE", "0", KP_LOCK_CONTINUE);
+			sprintf(tsBuf, "%08x", (int)time(NULL));
+			KPDBWrite(DActiveDB, group, "CTS", tsBuf, KP_LOCK_CONTINUE);
+			KPDBWrite(DActiveDB, group, "LMTS", tsBuf, KP_LOCK_CONTINUE);
+			KPDBWrite(DActiveDB, group, "S", "y", KP_UNLOCK);
+		    } else {
+			KPDBWrite(DActiveDB, group, NULL, NULL, KP_UNLOCK);
+		    }
 	    	    rec = KPDBReadRecord(DActiveDB, group, KP_LOCK, &recLen);
 		}
 	    }
