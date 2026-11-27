@@ -252,6 +252,75 @@ func TestOverToolsMd564PlusMinusDir(t *testing.T) {
 	}
 }
 
+// TestDexpireoverMd564SignSymlink (D-326, the #515 r2 review): dexpireover now also scans a
+// top-level directory of the group home whose name starts with '+' or '-' (md5-64), and it removes
+// every over or data file of no group in a directory it scans. Such a name must be a real
+// directory: a symlink of it is not followed. A symlink whose name starts with an alphanumeric
+// character is followed, as on main (stat()).
+//
+// Input: readergrouphash md5-64\1; the symlink "+" (or "-" when "+" is e2e.test's directory)
+// points to a directory outside the group home that holds an over file and a data file of
+// e2e.absent, a group not in the active file; a one-character alphanumeric layout name (not
+// e2e.test's directory) is a symlink to a second outside directory holding a data file of no
+// group; e2e.test's directory holds a data file of no group; `dexpireover -a -v`. Expected: the
+// files of e2e.absent are there, unchanged; the "+" link is still there and points to its
+// directory; dexpireover reports "Skipping symlink <path>:"; the two data files of no group are
+// removed and reported (the scan ran, and followed the alphanumeric link). **Fails** on 8e197418
+// (#515 r2): the "+" link is followed and the files of e2e.absent are removed. On main the files
+// and the link are kept too (main skipped every name starting with '+'); it fails there only for
+// the missing "Skipping symlink" line.
+func TestDexpireoverMd564SignSymlink(t *testing.T) {
+	s, home := overSite(t, map[string]string{"readergrouphash": `md5-64\1`})
+	dir := filepath.Dir(cleanDirsOver(t, s, "e2e.test"))
+	link, alnum := "+", "x"
+	if dir == link {
+		link = "-"
+	}
+	if dir == alnum {
+		alnum = "y"
+	}
+	if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(home, dir, "zzzzzzzzzzzzzzzzzzzzzz.0.d.64.256")
+	writeOver(t, stale, bytes.Repeat([]byte("x"), 10))
+
+	outside := t.TempDir()
+	absent := filepath.Base(cleanDirsOver(t, s, "e2e.absent"))
+	keep := []hierFile{
+		{filepath.Join(outside, absent), hierOverFile("e2e.absent", 1, 500)},
+		{filepath.Join(outside, cleanDirsMD5Data(t, absent, 256)), bytes.Repeat([]byte("x"), 10)},
+	}
+	hierWrite(t, keep)
+	linkPath := filepath.Join(home, link)
+	if err := os.Symlink(outside, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	outside2 := t.TempDir()
+	stale2 := filepath.Join(outside2, "yyyyyyyyyyyyyyyyyyyyyy.0.d.64.256")
+	writeOver(t, stale2, bytes.Repeat([]byte("x"), 10))
+	alnumPath := filepath.Join(home, alnum)
+	if err := os.Symlink(outside2, alnumPath); err != nil {
+		t.Fatal(err)
+	}
+
+	out := s.Run(t, "dexpireover", "-a", "-v")
+
+	hierCheckKept(t, outside, keep)
+	cleanDirsIsLink(t, home, linkPath, outside)
+	if !strings.Contains(out, "Skipping symlink "+linkPath+":") {
+		t.Errorf("dexpireover did not report that it skipped the symlink %s", link)
+	}
+	hierCheckGone(t, home, out, []string{stale}, true)
+	// The alphanumeric link is followed: the path is the one through the link.
+	hierCheckGone(t, home, out, []string{filepath.Join(alnumPath, filepath.Base(stale2))}, true)
+	cleanDirsIsLink(t, home, alnumPath, outside2)
+	if t.Failed() {
+		t.Logf("dexpireover -a -v:\n%s", out)
+	}
+}
+
 // cleanDirsIsLink reports an error unless path is still a symlink to target.
 func cleanDirsIsLink(t *testing.T, home, path, target string) {
 	t.Helper()

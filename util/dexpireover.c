@@ -888,11 +888,22 @@ ScanDirectories(void)
 	     * The first character of a layout directory is alphanumeric,
 	     * but for md5-64 "\N" it can also be '+' or '-' (the base64
 	     * alphabet of the hash): those directories were skipped (D-326).
+	     * Such a name must be a real directory (lstat()): a symlink of
+	     * it is not followed, so that a link out of the group home is
+	     * not scanned and its files removed as of no group.  An
+	     * alphanumeric name is followed with stat(), as before.
 	     */
-	    if ((isalnum((unsigned char)den->d_name[0]) ||
-		(DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_64MD5 &&
-		(den->d_name[0] == '+' || den->d_name[0] == '-'))) &&
-	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode) &&
+	    int signDir = DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_64MD5 &&
+		(den->d_name[0] == '+' || den->d_name[0] == '-');
+
+	    if (signDir && lstat(den->d_name, &st) == 0 && S_ISLNK(st.st_mode)) {
+		if (VerboseOpt > 0)
+		    printf("Skipping symlink %s/%s: followed only when the name starts with an alphanumeric\n", PatExpand(GroupHomePat), den->d_name);
+		continue;
+	    }
+	    if ((isalnum((unsigned char)den->d_name[0]) || signDir) &&
+	    	(signDir ? lstat(den->d_name, &st) : stat(den->d_name, &st)) == 0 &&
+		S_ISDIR(st.st_mode) &&
 		/*
 		 * We explicitly use the first char, because overview
 		 * sizes appear to be not evenly distributed wrt second
