@@ -1,7 +1,7 @@
 package e2e
 
 // D-211 (overview): the reader's overview index keeps only the hash of each Message-ID, and
-// FindMsgInGroup() (XHDR/XOVER/HDR/OVER by Message-ID) and FindCanceledMsg() (a cancel) took
+// OverStoreFindMessageId() (XHDR/XOVER/HDR/OVER by Message-ID) and FindCanceledMsg() (a cancel) took
 // the first entry of the group whose hash matched. With msgidhash hash (crc, the default)
 // "<1510900044@gn>" and "<1510900045@gn>" have one hash (D-210, TestMsgIdHashNeighbours), so
 // with both in one group the lookup of the older one found the newer one's article, and the

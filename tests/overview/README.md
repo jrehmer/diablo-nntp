@@ -81,7 +81,8 @@ produce no output. `lookup` prints zero or one row for a Message-ID within
 that group. Both commands succeed on empty results. The SQL lookup searches
 the whole snapshot for the named group and prints the stored article number.
 In Diablo, an `OVER <Message-ID>` request scans the newest 100,000 slots at
-most in the selected group (`FindMsgInGroup()`). It checks the hash and
+most in the selected group (`OverStoreFindMessageId()`, called from
+`xover.c`). It checks the hash and
 compares the full Message-ID, then formats the number as zero for a by-ID
 reply. The two paths therefore differ in search coverage and response framing.
 

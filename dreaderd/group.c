@@ -89,7 +89,6 @@ Prototype OverInfo *GetOverInfo(const char *group);
 Prototype void PutOverInfo(OverInfo *ov);
 Prototype const char *GetOverRecord(OverInfo *ov, artno_t artno, int *plen, int *aleno, int *plines, TimeRestrict *tr, int *TimeRcvd);
 Prototype OverInfo *FindCanceledMsg(const char *group, const char *msgid, artno_t *partNo, int *pvalidGroups);
-Prototype OverInfo *FindMsgInGroup(const char *group, const char *msgid, artno_t *partNo, artno_t maxScan);
 Prototype int CancelOverArt(OverInfo *ov, artno_t artNo);
 
 Prototype int NNTestOverview(Connection *conn);
@@ -1775,6 +1774,23 @@ OverStoreReadRange(OverStoreRange *range)
     return(1);
 }
 
+int
+OverStoreReadPoint(const char *group, artno_t number, OverStorePoint *point)
+{
+    OverInfo *ov;
+
+    if (group == NULL || (ov = GetOverInfo(group)) == NULL)
+	return(0);
+
+    point->groupIteration = ov->ov_Iter;
+    point->groupEnd = ov->ov_endNo;
+    point->header = GetOverRecord(ov, number, &point->headerLen,
+				  &point->articleSize, &point->lines, NULL,
+				  &point->timeRcvd);
+    PutOverInfo(ov);
+    return(point->header != NULL);
+}
+
 /*
  * OverMsgIdCheck() - whether the article artNo of ov is the article msgid,
  *		      for an overview entry whose hash matches msgid's (D-211).
@@ -1920,9 +1936,9 @@ FindCanceledMsg(const char *group, const char *msgid, artno_t *partNo, int *pval
 }
 
 /*
- * FindMsgInGroup() - the article number of msgid in group, for a reader
- *		      command by message-id (XHDR/XOVER/HDR/OVER, D-193), or
- *		      NULL (*partNo -1).  Like FindCanceledMsg() it reads NB
+ * OverStoreFindMessageId() - the article number of msgid in group, for a
+ *		      reader command by message-id (D-193), or -1.
+ *		      Like FindCanceledMsg() it reads NB
  *		      and NE under the record lock and walks the overview index
  *		      after unlocking (an article added meanwhile is simply not
  *		      found).  An entry with the hash of msgid counts only if
@@ -1934,24 +1950,24 @@ FindCanceledMsg(const char *group, const char *msgid, artno_t *partNo, int *pval
  *		      a whole big group, or hold the record the feed side needs,
  *		      with an unknown message-id.
  */
-OverInfo *
-FindMsgInGroup(const char *group, const char *msgid, artno_t *partNo, artno_t maxScan)
+artno_t
+OverStoreFindMessageId(const char *group, const char *msgid, artno_t maxScan)
 {
     const char *rec;
     int recLen;
     OverInfo *ov;
     artno_t artBeg;
     artno_t artEnd;
+    artno_t found = -1;
     hash_t hv;
 
-    *partNo = -1;
     if (KPDBReadRecord(KDBActive, group, 0, &recLen) == NULL)
-	return(NULL);
+	return(-1);
     if ((ov = GetOverInfo(group)) == NULL)
-	return(NULL);
+	return(-1);
     if ((rec = KPDBReadRecord(KDBActive, group, KP_LOCK_RO, &recLen)) == NULL) {
 	PutOverInfo(ov);
-	return(NULL);
+	return(-1);
     }
     artBeg = strtoll(KPDBGetField(rec, recLen, "NB", NULL, "-1"), NULL, 10);
     artEnd = strtoll(KPDBGetField(rec, recLen, "NE", NULL, "-1"), NULL, 10);
@@ -1969,12 +1985,12 @@ FindMsgInGroup(const char *group, const char *msgid, artno_t *partNo, artno_t ma
 	if (OA_ARTNOEQ(artEnd, oa->oa_ArtNo) &&
 	    bcmp(&oa->oa_MsgHash, &hv, sizeof(hv)) == 0 &&
 	    OverMsgIdCheck(ov, artEnd, msgid) == OMC_MATCH) {
-	    *partNo = artEnd;
-	    return(ov);
+	    found = artEnd;
+	    break;
 	}
     }
     PutOverInfo(ov);
-    return(NULL);
+    return(found);
 }
 
 /*
@@ -2272,74 +2288,71 @@ NNTestOverview(Connection *conn)
 const char *
 NNRetrieveHead(Connection *conn, int *povlen, const char **pmsgid, int *TimeRcvd, int *grpIter, artno_t *endNo)
 {
-    OverInfo *ov;
-    const char *res = NULL;
+    OverStorePoint point;
+    const char *scan;
+    int scanLen;
 
     *povlen = 0;
     if (pmsgid != NULL)
 	*pmsgid = "<>";
 
-    if (conn->co_GroupName == NULL) {
+    if (!OverStoreReadPoint(conn->co_GroupName, conn->co_ArtNo, &point))
 	return(NULL);
-    }
 
-    if ((ov = GetOverInfo(conn->co_GroupName)) != NULL) {
-	if (grpIter != NULL)
-	    *grpIter = ov->ov_Iter;
-	if (endNo != NULL)
-	    *endNo = ov->ov_endNo;
-	if ((res = GetOverRecord(ov, conn->co_ArtNo, povlen, NULL, NULL, NULL, TimeRcvd)) != NULL) {
+    *povlen = point.headerLen;
+    if (TimeRcvd != NULL)
+	*TimeRcvd = point.timeRcvd;
+    if (grpIter != NULL)
+	*grpIter = point.groupIteration;
+    if (endNo != NULL)
+	*endNo = point.groupEnd;
 
-	    const char *scan = res;
-	    int scanLen = *povlen;
+    /*
+     * Locate and extract the Message-ID.
+     */
 
-	    /*
-	     * Locate and extract the Message-ID
-	     */
+    scan = point.header;
+    scanLen = point.headerLen;
+    while (scanLen > 0) {
+	int i;
+	char ch = tolower((unsigned char)scan[0]);
+	for (i = 0; i < scanLen && scan[i] != '\n'; ++i)
+	    ;
+	if (pmsgid != NULL && ch == 'm' &&
+			strncasecmp(scan, "Message-ID:", 11) == 0) {
+	    int b = 11;
+	    int e;
+	    char buf[MAXMSGIDLEN];
 
-	    while (scanLen > 0) {
-		int i;
-		char ch = tolower((unsigned char)scan[0]);
-		for (i = 0; i < scanLen && scan[i] != '\n'; ++i)
-		    ;
-		if (pmsgid != NULL && ch == 'm' &&
-				strncasecmp(scan, "Message-ID:", 11) == 0) {
-		    int b = 11;
-		    int e;
-		    char buf[MAXMSGIDLEN];
-
-		    while (b < scanLen && (scan[b] == ' ' || scan[b] == '\t'))
-			++b;
-		    e = b;
-		    while (e < scanLen && (scan[e] != '>'))
-			++e;
-		    if (e < scanLen)
-			++e;
-		    if (e - b < MAXMSGIDLEN) {
-			bcopy(scan + b, buf, e - b);
-			buf[e-b] = 0;
-			*pmsgid = MsgId(buf, NULL);
-		    }
-		    /*
-		     * Stop scanning through headers
-		     */
-		    break;
-		}
-
-		if (i == 1 && scan[0] == '\r') {
-		    *povlen -= scanLen;
-		    break;
-		}
-		if (i < scanLen)
-		    ++i;
-		scanLen -= i;
-		scan += i;
+	    while (b < scanLen && (scan[b] == ' ' || scan[b] == '\t'))
+		++b;
+	    e = b;
+	    while (e < scanLen && (scan[e] != '>'))
+		++e;
+	    if (e < scanLen)
+		++e;
+	    if (e - b < MAXMSGIDLEN) {
+		bcopy(scan + b, buf, e - b);
+		buf[e-b] = 0;
+		*pmsgid = MsgId(buf, NULL);
 	    }
-	} 
-	PutOverInfo(ov);
+	    /*
+	     * Stop scanning through headers
+	     */
+	    break;
+	}
+
+	if (i == 1 && scan[0] == '\r') {
+	    *povlen -= scanLen;
+	    break;
+	}
+	if (i < scanLen)
+	    ++i;
+	scanLen -= i;
+	scan += i;
     }
     if (pmsgid != NULL && strcmp(*pmsgid, "<>") == 0)
-	res = NULL;
-    return(res);
+	return(NULL);
+    return(point.header);
 }
 
