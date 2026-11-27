@@ -1413,7 +1413,7 @@ again:
 	    (void)GetOverExpire(group->gr_GroupName, &save);
 	    if (DebugOpt)
 		printf("No .gz on %s artBase %lld\n", path, artBase);
-	    if (artBase >= group->gr_EndNo - save.oe_StoreGZMinFiles * dataEntries) {
+	    if (artBase >= group->gr_EndNo - (artno_t)save.oe_StoreGZMinFiles * dataEntries) {
 		if (VerboseOpt > 0) {
 		    printf("Overview %s not eligible for compression: proximity to end of data (%lld/%lld), %d files protected\n", path, artBase, group->gr_EndNo, save.oe_StoreGZMinFiles);
 		}
