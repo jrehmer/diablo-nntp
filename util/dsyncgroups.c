@@ -665,6 +665,8 @@ main(int ac, char **av)
 	    Group *group;
 
 	    for (group = GHash[i]; group; group = group->gr_Next) {
+		int lk = 0;	/* lockMe of the writes: a new group's are all under its lock */
+
 		/* its record is left as it is, and stays (see EnterGroup()) */
 		if (group->gr_State & GRF_BADNUM)
 		    continue;
@@ -700,18 +702,27 @@ main(int ac, char **av)
 			if (ForReal) {
 			    char newBuf[32];
 
+			    /*
+			     * The record stays locked from NB to the last
+			     * write, as for every other creator: a process
+			     * that reads it meanwhile (diablo's Xref numbers,
+			     * dreaderd's article numbers) waits and never sees
+			     * NB without NE and NX.  All remote I/O is over.
+			     */
 			    snprintf(newBuf, sizeof(newBuf), "%010lld", (long long)group->gr_StartNo);
-			    if (KPDBCreate(KDBActive, group->gr_GroupName, "NB", newBuf, 0) != 0) {
+			    if (KPDBCreate(KDBActive, group->gr_GroupName, "NB", newBuf, KP_LOCK) != 0) {
+				KPDBWrite(KDBActive, group->gr_GroupName, NULL, NULL, KP_UNLOCK);
 				printf(": made meanwhile, left as it is\n");
 				continue;
 			    }
+			    lk = KP_LOCK_CONTINUE;
 			}
 		    } else {
 			printf("Updating %s", group->gr_GroupName);
 		    }
 		    if (group->gr_State & GRF_DESCRIPTION) {
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "GD", group->gr_Description, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "GD", group->gr_Description, lk);
 			if (VerboseOpt)
 			    printf(" desc='%s'", group->gr_Description);
 		    }
@@ -719,7 +730,7 @@ main(int ac, char **av)
 			char startBuf[32];
 			snprintf(startBuf, sizeof(startBuf), "%010lld", (long long)group->gr_StartNo);
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NB", startBuf, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NB", startBuf, lk);
 			if (VerboseOpt)
 			    printf(" NB=%s(%+lld)", startBuf, group->gr_StartDiff);
 		    }
@@ -727,7 +738,7 @@ main(int ac, char **av)
 			char endBuf[32];
 			snprintf(endBuf, sizeof(endBuf), "%010lld", (long long)group->gr_EndNo);
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NE", endBuf, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NE", endBuf, lk);
 			if (VerboseOpt)
 			    printf(" NE=%s(%+lld)", endBuf, group->gr_EndDiff);
 		    }
@@ -735,7 +746,7 @@ main(int ac, char **av)
 			char synBuf[32];
 			snprintf(synBuf, sizeof(synBuf), "%010lld", (long long)group->gr_SynNo);
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NX", synBuf, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "NX", synBuf, lk);
 			if (VerboseOpt)
 			    printf(" NX=%s(%+lld)", synBuf, group->gr_SynDiff);
 		    }
@@ -743,7 +754,7 @@ main(int ac, char **av)
 			char ctsBuf[16];
 			sprintf(ctsBuf, "%08x", nowt);
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "CTS", ctsBuf, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "CTS", ctsBuf, lk);
 			if (VerboseOpt)
 			    printf(" CTS=%s", ctsBuf);
 		    }
@@ -751,17 +762,19 @@ main(int ac, char **av)
 			char lmtsBuf[16];
 			sprintf(lmtsBuf, "%08x", nowt);
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "LMTS", lmtsBuf, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "LMTS", lmtsBuf, lk);
 			if (VerboseOpt)
 			    printf(" LMTS=%s", lmtsBuf);
 		    }
 		    if (group->gr_Flags && group->gr_State & GRF_FLAGS) {
 			if (ForReal)
-			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "S", group->gr_Flags, 0);
+			    KPDBWriteEncode(KDBActive, group->gr_GroupName, "S", group->gr_Flags, lk);
 			if (VerboseOpt)
 			    printf(" S=%s",
 				(group->gr_Flags ? group->gr_Flags : "y"));
 		    }
+		    if (lk)
+			KPDBWrite(KDBActive, group->gr_GroupName, NULL, NULL, KP_UNLOCK);
 		    printf("\n");
 		}
 	    }

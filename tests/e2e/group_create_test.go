@@ -199,6 +199,52 @@ fcntl64(int fd, int cmd, ...)
 }
 `
 
+// groupCreateOutPauseSource: with GROUPCREATE_PAUSE=<prefix>, the file <prefix>.arm and
+// GROUPCREATE_PAUSE_ON=<text>, the first printf() whose format contains the text writes
+// <prefix>.held and waits for <prefix>.go (60 s at most), as the shim above does. A program
+// that prints after each step of its work (dsyncgroups -v) stops between two steps.
+const groupCreateOutPauseSource = `#define _GNU_SOURCE
+#define __EXTENSIONS__
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int
+printf(const char *fmt, ...)
+{
+    const char *p = getenv("GROUPCREATE_PAUSE");
+    const char *on = getenv("GROUPCREATE_PAUSE_ON");
+    va_list ap;
+    int r;
+
+    if (p != NULL && on != NULL && strstr(fmt, on) != NULL) {
+	char name[4200], pid[32];
+	int h, i;
+
+	snprintf(name, sizeof(name), "%s.arm", p);
+	if (access(name, F_OK) == 0) {
+	    snprintf(name, sizeof(name), "%s.held", p);
+	    h = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
+	    if (h >= 0) {
+		snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
+		(void)write(h, pid, strlen(pid));
+		close(h);
+		snprintf(name, sizeof(name), "%s.go", p);
+		for (i = 0; i < 3000 && access(name, F_OK) != 0; i++)
+		    usleep(20000);
+	    }
+	}
+    }
+    va_start(ap, fmt);
+    r = vprintf(fmt, ap);
+    va_end(ap);
+    return r;
+}
+`
+
 // Numbers the second creator gives the group, and the number the next article must get.
 const (
 	raceNB   = "0000000005"
@@ -215,7 +261,13 @@ type createRace struct {
 // newCreateRace builds the shim. It skips where LD_PRELOAD shims do not run.
 func newCreateRace(t *testing.T) *createRace {
 	t.Helper()
-	so := preloadShim(t, "groupcreate", groupCreatePauseSource)
+	return newCreateRaceFrom(t, "groupcreate", groupCreatePauseSource)
+}
+
+// newCreateRaceFrom is newCreateRace for another shim source.
+func newCreateRaceFrom(t *testing.T, name, src string) *createRace {
+	t.Helper()
+	so := preloadShim(t, name, src)
 	r := &createRace{prefix: filepath.Join(t.TempDir(), "gc")}
 	r.env = []string{lockFaultEnv(so), "GROUPCREATE_PAUSE=" + r.prefix}
 	t.Cleanup(r.release) // a shimmed process never waits on after the test
@@ -433,6 +485,76 @@ func TestGroupCreateDsyncgroups(t *testing.T) {
 	f := kpFields(t, s, "e2e.fresh")
 	if f == nil || f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "0000000000" || f["GD"] == "" {
 		t.Errorf("e2e.fresh made by dsyncgroups -g has %v, want NB=0000000001 NE=0000000000 NX=0000000000 and a description", f)
+	}
+}
+
+// TestGroupCreateDsyncgroupsLock (D-254): dsyncgroups writes the fields of a new group with
+// one write each. It used to take the record lock for none of them, so a process that read
+// the record in between (diablo's Xref numbers, dreaderd's article numbers: they lock the
+// record, read, and write NX or NE) saw it with NB and NE but no NX, and its number was
+// written over by the next write. Now the record stays locked from the NB write to the last
+// one, as for every other creator.
+//
+// A shim holds dsyncgroups -v when it prints " NE=" (after the write of NE, before that of
+// NX): the group has NB and NE. dgrpctl adjust (it locks the record, reads NX, writes NX+5)
+// starts then. With the lock it must wait for dsyncgroups and so end up behind it:
+// NX=0000000005 at the end. Without it adjust is done at once (the test waits at most 2 s
+// for that) and dsyncgroups then writes NX=0000000000 over its number. Fails on ed4f916e
+// (#507 before this change): adjust ends while the group is half written, and
+// NX=0000000000 at the end.
+func TestGroupCreateDsyncgroupsLock(t *testing.T) {
+	r := newCreateRaceFrom(t, "groupcreateout", groupCreateOutPauseSource)
+	s := NewReaderSite(t, ReaderOptions{SpoolAddr: "127.0.0.1:1", Groups: []string{"e2e.test"}, NoStart: true})
+	port := dsyncPeer{Active: []string{"e2e.lock 10 1 y"}}.listen(t)
+	type result struct {
+		out string
+		err error
+	}
+	r.arm(t)
+	aDone := make(chan result, 1)
+	go func() {
+		cmd := exec.Command(filepath.Join(s.Bin, "dsyncgroups"), "-h", "127.0.0.1", "-p", strconv.Itoa(port),
+			"-F", filepath.Join(s.Dir, "dactive.kp"), "-g", "-v")
+		cmd.Dir = s.Dir
+		cmd.Env = append(append(os.Environ(), s.Env...), append(append([]string{}, r.env...), "GROUPCREATE_PAUSE_ON= NE=")...)
+		cmd.WaitDelay = 3 * time.Second
+		out, err := cmd.CombinedOutput()
+		aDone <- result{string(out), err}
+	}()
+	if !r.waitHeld(60 * time.Second) {
+		t.Fatal("dsyncgroups did not get to the write of NE of the new group (no .held file)")
+	}
+	if f := kpFields(t, s, "e2e.lock"); f == nil || f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "" {
+		t.Fatalf("the held group has %v, want NB and NE and no NX", f)
+	}
+	bDone := make(chan result, 1)
+	go func() {
+		out, err := s.run("dgrpctl", "adjust", "e2e.lock", "NX", "+5")
+		bDone <- result{out, err}
+	}()
+	var b result
+	early := false
+	select {
+	case b = <-bDone:
+		early = true
+	case <-time.After(2 * time.Second):
+	}
+	r.release()
+	a := <-aDone
+	if !early {
+		b = <-bDone
+	}
+	if a.err != nil {
+		t.Fatalf("dsyncgroups: %v\n%s", a.err, a.out)
+	}
+	if b.err != nil {
+		t.Fatalf("dgrpctl adjust: %v\n%s", b.err, b.out)
+	}
+	if early {
+		t.Errorf("dgrpctl adjust got through while dsyncgroups held the new group half written (NB and NE, no NX); it printed:\n%s", b.out)
+	}
+	if f := kpFields(t, s, "e2e.lock"); f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "0000000005" || f["S"] != "y" {
+		t.Errorf("e2e.lock has %v, want NB=0000000001 NE=0000000000 NX=0000000005 S=y (the adjust after dsyncgroups)", f)
 	}
 }
 

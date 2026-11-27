@@ -487,6 +487,7 @@ TestGroupCreateControlNewgroup 0.38
 TestGroupCreateDgrpctlCheckgroups 0.21
 TestGroupCreateDgrpctlNewgroup 0.23
 TestGroupCreateDsyncgroups 0.22
+TestGroupCreateDsyncgroupsLock 2.20
 TestGroupCreateFeederAutoAdd 0.30
 TestGroupCreateReaderAutoAdd 0.35
 TestGroupinfoHeaderOnlyOver 0.02
