@@ -585,7 +585,8 @@ FindGroupByHash(char *Hash, int iter, int hier)
     if (n < 2)
 	return(first);
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
-	if (strcmp(group->gr_Hash, Hash) == 0 && group->gr_Iter == iter &&
+	if (strcmp(group->gr_Hash, Hash) == 0 &&
+	    (hier || group->gr_Iter == iter) &&
 					OverFileIsGroups(group, iter))
 	    return(group);
     }
