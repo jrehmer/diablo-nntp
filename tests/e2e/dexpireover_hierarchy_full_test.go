@@ -312,8 +312,12 @@ func hfxAge(t *testing.T, path string, arts []int, rcvd time.Time) {
 // (the plain data of e2e.x.gz) also reads as the compressed data of e2e.x, whose directory is
 // e2e/ (D-318 keeps it while it is in the range of either; the directory is not compared,
 // D-336): when the scan reaches e2e/x/ before e2e.x's over file in e2e/ is expired, the file is
-// kept for that run and a second `dexpireover -a -v` removes it; the test allows both and logs
-// which happened.
+// kept for that run and a second `dexpireover -a -v` removes it. Which of the two happens depends
+// on the order readdir() gives the entries of e2e/ (the subdirectory x and the over file
+// o.0.e2e.x): on the Debian test VM (ext4) the file was always kept by the first run, on AlmaLinux
+// 9 and 10 (go-while's #522 review) always removed. The order cannot be chosen by the test
+// without changing what it runs, so it accepts both and logs which happened;
+// TestDexpireoverHierarchyFullRemovedGroup shows the D-336 effect on every host.
 func TestDexpireoverHierarchyFullExpire(t *testing.T) {
 	for _, layout := range []string{"hierarchy-full", "hierarchy"} {
 		t.Run(layout, func(t *testing.T) {
@@ -382,27 +386,85 @@ func TestDexpireoverHierarchyFullExpire(t *testing.T) {
 }
 
 // TestDexpireoverHierarchyFullRewrite: `dexpireover -a -R` rewrites the files of every group in
-// the nested directories, and with hierarchy-full the pair e2e.x / e2e.x.gz keeps its data: the
-// data files of e2e.x.gz are in e2e/x/, so the rewrite of e2e.x, which removes "d.<n>.e2e.x" and
-// "d.<n>.e2e.x.gz" (its compressed name) in e2e/, does not touch them. With plain hierarchy both
-// groups have their files in e2e/, and "d.<n>.e2e.x.gz" is the plain data of e2e.x.gz (D-325).
+// the nested directories. RewriteData() reads each old data file plain, else as "<name>.gz",
+// writes the new plain one, and removes both "d.<n>.<group>" and "d.<n>.<group>.gz" in the
+// group's directory before it renames the new one into place. With hierarchy-full the data
+// files of e2e.x.gz are in e2e/x/, so the removals for e2e.x in e2e/ never reach them; with
+// plain hierarchy both groups have their files in e2e/, and "d.<n>.e2e.x.gz" is e2e.x's
+// compressed name and e2e.x.gz's plain data file at once (D-325).
 //
-// Input: the hfxGroups, 12 articles crossposted to all, dexpire.ctl "*:x30:e4", dreaderd
-// stopped; `dexpireover -a -R -v3`. Expected with hierarchy-full: "End of rewrite: <group>" and
-// "Rebuilt 4 data file(s) for <group>" for every group, nothing reported as failed, lost or
-// removed, no '.' file left in any group's directory, the four data files of every group there
-// (those of e2e.x.gz in e2e/x/ hold the Message-IDs of their articles), and after a restart OVER
-// 1-12 of every group as before. Control, plain hierarchy: the same for the groups other than
-// e2e.x and e2e.x.gz; for those two the result is logged, not checked (D-325: one of them loses
-// its overview data).
+// Input: the hfxGroups, 12 articles crossposted to all, dexpire.ctl "*:x30:e4" (and
+// "*:x30:e4:F1:Z1" for compressed), dreaderd stopped. Cases:
+//   - hierarchy-full: `dexpireover -a -R -v3` on plain data only (the .gz removal finds
+//     nothing);
+//   - hierarchy-full_compressed: the data files made two hours old and `dexpireover -a -z`
+//     first ("Compressed 16 files": d.0 and d.4 of every group but e2e.x.gz, whose names end in
+//     ".gz", become d.0.<group>.gz and d.4.<group>.gz; e2e.x's in e2e/), then `-a -R -v3`;
+//   - hierarchy: the control, plain data, `-a -R -v3`.
+//
+// Expected with hierarchy-full: "End of rewrite: <group>" and "Rebuilt 4 data file(s) for
+// <group>" for every group, nothing reported as failed, lost or removed, no '.' file left in any
+// group's directory, the four plain data files of every group there; in compressed the old gzip
+// files d.0.<group>.gz and d.4.<group>.gz are gone (rewritten to the plain d.0 and d.4: a -R that
+// left them would fail here), among them e2e/d.0.e2e.x.gz and e2e/d.4.e2e.x.gz of e2e.x; the
+// four data files of e2e.x.gz in e2e/x/ hold the Message-IDs of their articles; after a restart
+// OVER 1-12 of every group as before. Control, plain hierarchy: the same for the groups other
+// than e2e.x and e2e.x.gz; for those two the result is logged, not checked (D-325: e2e.x.gz loses
+// its overview data; on the Debian VM OVER of e2e.x.gz is empty and its data files are gone,
+// whether empty files remain depends on the order in which the scan meets the two over files).
+// When D-325 is fixed for plain hierarchy, the logged check becomes an assertion: drop pair().
 func TestDexpireoverHierarchyFullRewrite(t *testing.T) {
-	for _, layout := range []string{"hierarchy-full", "hierarchy"} {
-		t.Run(layout, func(t *testing.T) {
-			h := newHfxSite(t, layout, "*:x30:e4\n")
+	for _, tc := range []struct {
+		name, layout string
+		compressed   bool
+	}{
+		{"hierarchy-full", "hierarchy-full", false},
+		{"hierarchy-full_compressed", "hierarchy-full", true},
+		{"hierarchy", "hierarchy", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layout := tc.layout
+			ctl := "*:x30:e4\n"
+			if tc.compressed {
+				skipWithoutZlib(t)
+				ctl = "*:x30:e4:F1:Z1\n"
+			}
+			h := newHfxSite(t, layout, ctl)
+			// D-325: with plain hierarchy e2e.x and e2e.x.gz share e2e/ and the rewrite of one
+			// removes the data of the other; logged only. Assert them too once D-325 is fixed.
 			pair := func(g string) bool { return layout == "hierarchy" && (g == "e2e.x" || g == "e2e.x.gz") }
 			var skip []string
 			if layout == "hierarchy" {
 				skip = []string{" e2e.x", ":e2e.x", "/d.0.e2e.x", "/d.4.e2e.x", "/d.8.e2e.x", "/d.12.e2e.x"}
+			}
+			var gzOld []string // the gzip files -z made, which -R must replace by plain ones
+			if tc.compressed {
+				old := time.Now().Add(-2 * time.Hour)
+				for _, g := range h.groups {
+					for _, f := range h.data(g) {
+						if err := os.Chtimes(f, old, old); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				zout := h.run(t, "-a", "-z", "-v")
+				if !strings.Contains(zout, "Compressed 16 files\n") {
+					t.Errorf("dexpireover -a -z: no \"Compressed 16 files\"")
+				}
+				for _, g := range h.groups {
+					if g == "e2e.x.gz" {
+						continue
+					}
+					for _, b := range []int{0, 4} {
+						f := h.dataOf(g, b)
+						if hfxExists(f) || !hfxExists(f+".gz") {
+							t.Fatalf("after -z: %s there %v, %s.gz there %v, want only the .gz:\n%s",
+								h.rel(f), hfxExists(f), h.rel(f), hfxExists(f+".gz"), zout)
+						}
+						gzOld = append(gzOld, f+".gz")
+					}
+				}
+				h.checkReports(t, zout, nil)
 			}
 
 			out := h.run(t, "-a", "-R", "-v3")
@@ -421,6 +483,11 @@ func TestDexpireoverHierarchyFullRewrite(t *testing.T) {
 					if !hfxExists(f) {
 						t.Errorf("after -R: %s is gone", h.rel(f))
 					}
+				}
+			}
+			for _, f := range gzOld {
+				if hfxExists(f) {
+					t.Errorf("after -R: the old compressed data file %s is still there", h.rel(f))
 				}
 			}
 			for _, l := range strings.Split(out, "\n") {
