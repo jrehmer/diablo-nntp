@@ -276,6 +276,7 @@ TestDexpireoverGroupRemovedBeforeWriteBack 0.05
 TestDexpireoverGroupRemovedDuringResize 0.04
 TestDexpireoverHeaderOnlyOver 0.02
 TestDexpireoverHierarchyCompress 0.10
+TestDexpireoverHierarchyCompressGzName 0.50
 TestDexpireoverHierarchyDataStale 0.05
 TestDexpireoverHierarchyGroupNameO 0.05
 TestDexpireoverHierarchyGzDotD 0.15

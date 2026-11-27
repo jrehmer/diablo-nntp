@@ -459,3 +459,148 @@ func TestDexpireoverHierarchyCompress(t *testing.T) {
 		t.Logf("dexpireover -a -z -v:\n%s", out)
 	}
 }
+
+// TestDexpireoverHierarchyCompressGzName (D-325): the hierarchy layout leaves a last component of
+// one character out of the directory, so the groups e2e.x and e2e.x.gz have their files in one
+// directory, and "d.256.e2e.x.gz" is the compressed data of e2e.x and the plain data of e2e.x.gz.
+// `dexpireover -z` of the plain d.256.e2e.x of e2e.x would put the gzip file on that name:
+// diablo_minigzip() does not replace an existing file (the run reports "Unable to compress" and
+// exits 1 instead, shown on 2b1bf382), and where the name is free, e2e.x.gz takes the gzip file
+// for its own plain data file, also when that group is made later. So a file whose compressed
+// name is the plain data file name of the group "<G>.gz" is never compressed, whether that group
+// exists, is loaded or not (-w), or the compressed file exists; -v says so. e2e.foo and
+// e2e.foo.gz have different directories (e2e/ and e2e/foo/): no collision, the file is compressed.
+//
+// Input: "readergrouphash hierarchy", `dexpire.ctl` "e2e.*:x30:Z0:F0", the group X (range 1..300)
+// with its over file and an old (two days) plain d.256.X of content A, and:
+//   - both_live: e2e.x and e2e.x.gz (range 1..300) with its over file and a live plain
+//     d.256.e2e.x.gz of content B (the file the compression would have replaced);
+//   - group_no_data: e2e.x.gz exists, with no over file and no data file;
+//   - wild_unloaded: as group_no_data, with `-w e2e.x` (e2e.x.gz is not loaded);
+//   - wild_no_group: e2e.x only, with `-w e2e.x`;
+//   - gz_exists: no group e2e.x.gz, but a file d.256.e2e.x.gz (content B);
+//   - no_group: e2e.x only, no file on the compressed name;
+//   - control_other_dir: e2e.foo and e2e.foo.gz (over file and plain d.256.e2e.foo.gz of content B in
+//     e2e/foo/): not the same path.
+//
+// `dexpireover -a -z -v`. Expected (all but the control): exit 0, d.256.X is still A and plain,
+// d.256.e2e.x.gz is still B or absent, "not compressed:" is said for d.256.X, "Unable to compress"
+// and "Compressed" are not printed. Control: "Compressed 1 files", d.256.e2e.foo is gone and
+// d.256.e2e.foo.gz in e2e/ is gzip with content A, e2e.foo.gz's file in e2e/foo/ is B.
+// Fails on 2b1bf382 (both_live and gz_exists: "Unable to compress", exit 1; the others: the file
+// is compressed). Skipped without zlib.
+func TestDexpireoverHierarchyCompressGzName(t *testing.T) {
+	skipWithoutZlib(t)
+	contentA := bytes.Repeat([]byte("A"), 100)
+	contentB := bytes.Repeat([]byte("B"), 70)
+	for _, tc := range []struct {
+		name         string
+		x, z         string
+		zGroup       bool   // the group z exists
+		zOver, zData bool   // z has an over file / its plain data file
+		gzOfX        bool   // d.256.x.gz exists in the directory of x without a group z
+		wild         string // -w pattern
+		compress     bool   // d.256.x is expected to be compressed
+	}{
+		{name: "both_live", x: "e2e.x", z: "e2e.x.gz", zGroup: true, zOver: true, zData: true},
+		{name: "group_no_data", x: "e2e.x", z: "e2e.x.gz", zGroup: true},
+		{name: "wild_unloaded", x: "e2e.x", z: "e2e.x.gz", zGroup: true, wild: "e2e.x"},
+		{name: "wild_no_group", x: "e2e.x", z: "e2e.x.gz", wild: "e2e.x"},
+		{name: "gz_exists", x: "e2e.x", z: "e2e.x.gz", gzOfX: true},
+		{name: "no_group", x: "e2e.x", z: "e2e.x.gz"},
+		{name: "control_other_dir", x: "e2e.foo", z: "e2e.foo.gz", zGroup: true, zOver: true, zData: true, compress: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+			s.WriteFile(t, "dexpire.ctl", "e2e.*:x30:Z0:F0\n")
+			dirX := hierGroupDir(t, s, home, tc.x)
+			hierGroupRange(t, s, tc.x, "1", "300")
+			plain := filepath.Join(home, dirX, "d.256."+tc.x)
+			keep := []hierFile{{filepath.Join(home, dirX, "o.0."+tc.x), hierOverFile(tc.x, 1, 500)}}
+			writeOver(t, plain, contentA)
+			old := time.Now().Add(-48 * time.Hour)
+			if err := os.Chtimes(plain, old, old); err != nil {
+				t.Fatal(err)
+			}
+			var zData string // the file of content B
+			if tc.zGroup {
+				hierGroupRange(t, s, tc.z, "1", "300")
+				dirZ := hierGroupDir(t, s, home, tc.z)
+				if (dirZ == dirX) != (tc.x == "e2e.x") {
+					t.Fatalf("directories of %s and %s: %q and %q", tc.x, tc.z, dirX, dirZ)
+				}
+				if tc.zOver {
+					keep = append(keep, hierFile{filepath.Join(home, dirZ, "o.0."+tc.z), hierOverFile(tc.z, 1, 500)})
+				}
+				if tc.zData {
+					zData = filepath.Join(home, dirZ, "d.256."+tc.z)
+				}
+			}
+			if tc.gzOfX {
+				zData = plain + ".gz"
+			}
+			if zData != "" {
+				keep = append(keep, hierFile{zData, contentB})
+			}
+			hierWrite(t, keep)
+
+			args := []string{"-a", "-z", "-v"}
+			if tc.wild != "" {
+				args = append(args, "-w", tc.wild)
+			}
+			out, err := s.TryRun("dexpireover", args...)
+			if err != nil {
+				t.Errorf("dexpireover %s: %v", strings.Join(args, " "), err)
+			}
+
+			hierCheckKept(t, home, keep)
+			if strings.Contains(out, "Unable to compress") {
+				t.Errorf("dexpireover tried to compress %s onto an existing file", plain)
+			}
+			if tc.compress {
+				if !strings.Contains(out, "Compressed 1 files") {
+					t.Errorf("dexpireover did not compress %s", plain)
+				}
+				if _, err := os.Stat(plain); err == nil {
+					t.Errorf("the plain file %s is still there", plain)
+				}
+				zr, err := os.Open(plain + ".gz")
+				if err != nil {
+					t.Errorf("no compressed file: %v", err)
+				} else {
+					defer zr.Close()
+					gr, err := gzip.NewReader(zr)
+					if err != nil {
+						t.Errorf("%s.gz is not gzip: %v", plain, err)
+					} else if got, _ := io.ReadAll(gr); !bytes.Equal(got, contentA) {
+						t.Errorf("%s.gz holds %q", plain, got)
+					}
+				}
+			} else {
+				if got, err := os.ReadFile(plain); err != nil || !bytes.Equal(got, contentA) {
+					t.Errorf("%s was removed or changed: %v", plain, err)
+				}
+				if strings.Contains(out, "Compressed ") {
+					t.Errorf("dexpireover compressed a file: %s", out)
+				}
+				if zData == "" {
+					if _, err := os.Stat(plain + ".gz"); err == nil {
+						t.Errorf("%s.gz was made", plain)
+					}
+				}
+				said := false
+				for _, l := range strings.Split(out, "\n") {
+					if strings.HasPrefix(l, "Overview "+plain+" not compressed: ") {
+						said = true
+					}
+				}
+				if !said {
+					t.Errorf("dexpireover -v does not say that it did not compress %s", plain)
+				}
+			}
+			if t.Failed() {
+				t.Logf("dexpireover %s:\n%s", strings.Join(args, " "), out)
+			}
+		})
+	}
+}

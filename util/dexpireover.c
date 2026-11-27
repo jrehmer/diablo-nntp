@@ -198,6 +198,7 @@ static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
 static int overFileType(const char *name);
 static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
+static int gzNameTaken(Group *group, const char *path, artno_t artBase, int hier, char *why, size_t whySize);
 static void expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd);
 int nearestPower(int n);
 void ReadDExpOverList(void);
@@ -1420,6 +1421,7 @@ again:
 	    } else {
 		/* Eligible based on window, but is it eligible based on time? */
 		struct stat st;
+		char why[PATH_MAX + 256];
 		if (stat(path, &st) == 0) {
 		    if (st.st_mtime > time(NULL) - save.oe_StoreGZHours * 3600) {
 		        if (VerboseOpt > 0) {
@@ -1430,6 +1432,10 @@ again:
 		        if (VerboseOpt > 0) {
 			    printf("Overview %s not eligible for compression: empty\n", path);
 		        }
+		    } else if (gzNameTaken(group, path, artBase, hier, why, sizeof(why))) {
+			if (VerboseOpt > 0) {
+			    printf("Overview %s not compressed: %s\n", path, why);
+			}
 		    } else {
 		        if (VerboseOpt > 0) {
 			    printf("Overview %s compressing\n", path);
@@ -1447,6 +1453,60 @@ again:
 	    }
 	}
     }
+}
+
+/*
+ * gzNameTaken() - 1 when the plain hierarchy data file "path" of group "<G>"
+ * must not be compressed, because its compressed name (path + ".gz") is also
+ * the plain data file name of another group, "<G>.gz" (D-325).  The directory
+ * of a group leaves out a last component of one character, so for a group
+ * like e2e.x the files of e2e.x and e2e.x.gz lie in one directory, and
+ * "d.<n>.e2e.x.gz" is the compressed data of the one and the plain data of
+ * the other.  A gzip file on that name is taken by the group "<G>.gz"
+ * (dreaderd) for its own plain data, from the day it exists: not only a group
+ * that exists now, but one made later.  So in this layout the file is never
+ * compressed, whether the group "<G>.gz" exists, is loaded (-w) or the
+ * compressed file exists.  Only when the two names are the same path
+ * (GFName() of "<G>.gz" equals the compressed name; with e2e.foo and
+ * e2e.foo.gz, in e2e/ and e2e/foo/, they are not) is the file kept plain;
+ * otherwise 0.  A name too long to check counts as taken.  The reason goes
+ * in why.
+ */
+static int
+gzNameTaken(Group *group, const char *path, artno_t artBase, int hier,
+		char *why, size_t whySize)
+{
+    char zname[PATH_MAX];
+    char plain[PATH_MAX];
+    char zplain[PATH_MAX];
+    int n;
+
+    if (!hier)
+	return(0);
+    n = snprintf(zname, sizeof(zname), "%s.gz", group->gr_GroupName);
+    if (n < 0 || (size_t)n >= sizeof(zname) - 64) {
+	snprintf(why, whySize, "group name too long to check for a group %s.gz", group->gr_GroupName);
+	return(1);
+    }
+    n = snprintf(plain, sizeof(plain), "%s.gz", GFName(group->gr_GroupName,
+			GRPFTYPE_DATA, artBase, 1, group->gr_Iter,
+			&DOpts.ReaderGroupHashMethod));
+    if (n < 0 || (size_t)n >= sizeof(plain)) {
+	snprintf(why, whySize, "name too long");
+	return(1);
+    }
+    n = snprintf(zplain, sizeof(zplain), "%s", GFName(zname,
+			GRPFTYPE_DATA, artBase, 1, group->gr_Iter,
+			&DOpts.ReaderGroupHashMethod));
+    if (n < 0 || (size_t)n >= sizeof(zplain)) {
+	snprintf(why, whySize, "name too long");
+	return(1);
+    }
+    if (strcmp(plain, zplain) != 0)
+	return(0);			/* a directory of its own: no collision */
+
+    snprintf(why, whySize, "%s.gz is also the data file name of the group %s (D-325)", path, zname);
+    return(1);
 }
 
 /*
