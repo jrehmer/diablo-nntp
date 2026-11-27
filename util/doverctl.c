@@ -810,15 +810,19 @@ ProcessFile(const char *dirPath, const char *name)
      * A hierarchy data file "d.<n>.X.gz" is the plain data file of group
      * "X.gz" or the compressed one of group "X" (D-318): HashZ is "X".  The
      * file is kept for as long as it is not stale for every one of the
-     * two groups that exist.
+     * two groups that exist.  Either group may have been created since the
+     * scan, so a reading that is missing causes the rescan, also when the
+     * other one was found: the file must not be judged by one group alone
+     * while the other, created in between, is not known yet.
      */
     group = FindGroupByHash(Hash, iter, hier);
     if (HashZ[0])
 	groupZ = FindGroupByHash(HashZ, iter, hier);
-    if (group == NULL && groupZ == NULL && RescanActive()) {
-	/* created since the scan */
-	group = FindGroupByHash(Hash, iter, hier);
-	if (HashZ[0])
+    if ((group == NULL || (HashZ[0] && groupZ == NULL)) && RescanActive()) {
+	/* created since the scan: look up again what was missing */
+	if (group == NULL)
+	    group = FindGroupByHash(Hash, iter, hier);
+	if (HashZ[0] && groupZ == NULL)
 	    groupZ = FindGroupByHash(HashZ, iter, hier);
     }
     if (group == NULL && groupZ == NULL && IterInProgress(Hash, iter)) {

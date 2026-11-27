@@ -190,3 +190,62 @@ func TestDoverctlCleanHierarchyGzGroupName(t *testing.T) {
 		})
 	}
 }
+
+// TestDoverctlCleanHierarchyGzCreatedDuringClean (D-318, found in the #511 review): the data
+// file d.256.e2e.foo.gz is the plain data of the group e2e.foo.gz (in e2e/foo/) or the
+// compressed data of the group e2e.foo (in e2e/), and ProcessFile() looks up both. It looked the
+// groups up again in the live active file (RescanActive()) only when both were missing, so a
+// group created during the run was not seen while the other one was known: the file was judged
+// by that one alone, whose range is empty, and removed although it is in range of the group
+// created during clean.
+//
+// Input: "readergrouphash hierarchy", one of the two groups in the active file at the start with
+// an empty range (NB 1, NE 0), and the file of the other one, d.256.e2e.foo.gz, in the directory
+// of that other group (the only file of the test: the rescan is also caused by any other file
+// of a group that is not known, in the order readdir() gives them). A preloaded opendir() holds
+// `doverctl -v clean` at its first directory scan, after the active file was read, until the
+// test has created the other group with dgrpctl (NB 1, NE 300). Cases: e2e.foo known and
+// e2e.foo.gz created (file e2e/foo/d.256.e2e.foo.gz), and e2e.foo.gz known and e2e.foo created
+// (file e2e/d.256.e2e.foo.gz). Expected: the file is still there, unchanged, and clean does not
+// report it.
+func TestDoverctlCleanHierarchyGzCreatedDuringClean(t *testing.T) {
+	so := preloadShim(t, "holdopendir", holdOpendirSource)
+	for _, tc := range []struct {
+		name        string
+		known, late string // the group in the active file at the start, the group created during clean
+		dir         string // the directory below the group home of the file, that of the late group
+	}{
+		{"e2e.foo.gz_created", "e2e.foo", "e2e.foo.gz", "e2e/foo"},
+		{"e2e.foo_created", "e2e.foo.gz", "e2e.foo", "e2e"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+			s.Run(t, "dgrpctl", "newgroup", tc.known, "y")
+			s.Run(t, "dgrpctl", "adjust", tc.known, "NB", "=1")
+			s.Run(t, "dgrpctl", "adjust", tc.known, "NE", "=0")
+			dir := filepath.Join(home, tc.dir)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			plain := bytes.Repeat([]byte("x"), 10)
+			file := filepath.Join(dir, "d.256.e2e.foo.gz")
+			writeOver(t, file, plain)
+
+			out := runCleanHeld(t, s, so, func() {
+				hierNewGroup(t, s, tc.late)
+			})
+
+			if got, err := os.ReadFile(file); err != nil {
+				t.Errorf("%s/d.256.e2e.foo.gz, in range of the group %s created during clean, was removed: %v", tc.dir, tc.late, err)
+			} else if !bytes.Equal(got, plain) {
+				t.Errorf("%s/d.256.e2e.foo.gz was changed", tc.dir)
+			}
+			if strings.Contains(out, file) {
+				t.Errorf("clean reported the file %s", file)
+			}
+			if t.Failed() {
+				t.Logf("doverctl -v clean:\n%s", out)
+			}
+		})
+	}
+}
