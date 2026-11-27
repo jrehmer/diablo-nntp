@@ -51,6 +51,7 @@ KPDB  *KDBActive;
 int SyncOverwriteOpt = 0; /* allow remote info to replace existing info	*/
 int SyncDeleteOpt = 0;	/* delete local info not present on remote	*/
 int ListLinesDropped = 0; /* list lines too long for ReadListLine()	*/
+int GFileNoDot = 0;	/* the -G file ended without a "." line (D-328)	*/
 int SyncGroupsOpt = 0;	/* synchronize newsgroup names 			*/
 int SyncDescrOpt = 0;	/* synchronize newsgroup descriptions		*/
 int SyncModStatusOpt = 0; /* synchronize newsgroup moderation status	*/
@@ -246,6 +247,7 @@ Usage(void)
     fprintf(stderr, "  -m            = update moderation status\n");
     fprintf(stderr, "  -M c          = update moderation status to the specified flag\n");
     fprintf(stderr, "  -D            = delete local groups in not on remote\n");
+    fprintf(stderr, "                  (not if a list line was skipped; with -G only if the file ends with a . line)\n");
     fprintf(stderr, "  -N            = sync begin and end numbers\n");
     fprintf(stderr, "  -NB           = sync begin numbers\n");
     fprintf(stderr, "  -NE           = sync end numbers\n");
@@ -699,11 +701,27 @@ main(int ac, char **av)
 	char cmd[4096];
 	int count = 0;
 	int r;
+	int dot = 0;
+
+	/*
+	 * A -G file ends at its "." line (LF or CR LF; a "." at the end of the
+	 * input too), as a list from a remote does: the lines after it are not
+	 * read.  A file without one may be cut short (a full disk, a bad copy),
+	 * so -D must not take what it does not name for gone (D-328, see
+	 * Writeback).  Without -D a missing "." is nothing to note.
+	 */
 	while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
 	    if (r < 0)
 		continue;
+	    if (strcmp(cmd, ".\n") == 0 || strcmp(cmd, ".\r\n") == 0 ||
+		strcmp(cmd, ".") == 0) {
+		dot = 1;
+		break;
+	    }
 	    processLine(cmd, wild, &count, NULL);
 	}
+	if (!dot)
+	    GFileNoDot = 1;
 	printf("%d groups found\n", count);
     }
 
@@ -830,6 +848,17 @@ main(int ac, char **av)
 	if (SyncDeleteOpt && ListLinesDropped) {
 	    printf("%d list lines over 4095 bytes were skipped: not deleting groups (-D)\n",
 		ListLinesDropped);
+	    SyncDeleteOpt = 0;
+	}
+
+	/*
+	 * The same for a -G file that ends without its "." line: it may be
+	 * cut short, and a group it does not name is no proof that the
+	 * remote lacks it (D-328).  Creates and updates go on.
+	 */
+	if (SyncDeleteOpt && GFileNoDot) {
+	    printf("-G file %s has no \".\" line at its end: not deleting groups (-D)\n",
+		grpfile);
 	    SyncDeleteOpt = 0;
 	}
 
