@@ -428,7 +428,10 @@ TestDoverctlCleanGroupCreatedDuringClean 0.25
 TestDoverctlCleanHierarchyGz 0.15
 TestDoverctlCleanHierarchyGzCreatedDuringClean 0.30
 TestDoverctlCleanHierarchyGzGroupName 0.30
+TestDoverctlCleanHierarchyOneCharComponent 0.15
 TestDoverctlCleanIterChangeDuringClean 0.30
+TestDoverctlCleanLeavesForeignDirs 0.45
+TestDoverctlCleanMd5OneCharDirs 0.15
 TestDoverctlCleanMisalignedData 0.02
 TestDoverctlCleanRemovesUnknownEntries 0.02
 TestDoverctlConvertCopyFailure 0.02
@@ -646,6 +649,7 @@ TestNoZlibCompressionOff 0.00
 TestNulTakethisFraming 0.12
 TestOverGzipTruncatedHeader 0.02
 TestOverToolsGroupRemovedWhileWaiting 0.07
+TestOverToolsMd564PlusMinusDir 0.60
 TestOverviewMsgIdCollisionCancel 0.07
 TestOverviewMsgIdCollisionXhdr 0.06
 TestOverviewMsgIdTwoHeaders 0.06

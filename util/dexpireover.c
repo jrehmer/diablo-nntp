@@ -884,7 +884,14 @@ ScanDirectories(void)
 	struct stat st;
 
 	while ((den = readdir(dir)) != NULL) {
-	    if (isalnum((unsigned char)den->d_name[0]) &&
+	    /*
+	     * The first character of a layout directory is alphanumeric,
+	     * but for md5-64 "\N" it can also be '+' or '-' (the base64
+	     * alphabet of the hash): those directories were skipped (D-326).
+	     */
+	    if ((isalnum((unsigned char)den->d_name[0]) ||
+		(DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_64MD5 &&
+		(den->d_name[0] == '+' || den->d_name[0] == '-'))) &&
 	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode) &&
 		/*
 		 * We explicitly use the first char, because overview

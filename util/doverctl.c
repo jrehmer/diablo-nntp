@@ -593,6 +593,74 @@ FindGroupByHash(char *Hash, int iter, int hier)
     return(first);
 }
 
+/*
+ * LayoutDirName() - name is the name of a top-level directory of the group
+ * home that the layout (readergrouphash) can have made, as GFName() builds
+ * it (D-326):
+ *	crc		two hex digits
+ *	md5 "/N"	hex digits, as many as the decimal digits of N-1
+ *	md5-32 "\N"	the first N characters of the base32 hash: [a-z0-5]
+ *	md5-64 "\N"	the first N characters of the base64 hash: [a-zA-Z0-9+-]
+ *	hierarchy	a group name component or the components joined by "."
+ *			(a one-character component is joined to the next:
+ *			"a.bcd"): starts with a letter or digit, which a
+ *			group name must (RFC 5536 3.1.4), so ".hidden" and the
+ *			junk files of dexpireover -R are not; "lost+found" is
+ *			left alone (a group "lost+found.x.y" is not expected)
+ * The length is the exact length of the layout's first level: a directory
+ * that is not ours, such as lost+found, can have the right characters.
+ */
+static int
+LayoutDirName(const char *name)
+{
+    const GroupHashType *m = &DOpts.ReaderGroupHashMethod;
+    size_t len = strlen(name);
+    size_t want = 0;
+    size_t i;
+    int hex = 0;
+    int plus = 0;
+
+    switch (m->gh_type) {
+	case HASHGRP_HIER:
+	    return(isalnum((unsigned char)name[0]) &&
+					strcmp(name, "lost+found") != 0);
+	case HASHGRP_CRC:
+	    want = 2;
+	    hex = 1;
+	    break;
+	case HASHGRP_32MD5:
+	case HASHGRP_64MD5:
+	    if (m->gh_dirlvl < 1)
+		return(0);
+	    plus = (m->gh_type == HASHGRP_64MD5);
+	    if (m->gh_dirtype == HASHGRP_DIR_NUM) {
+		int c = m->gh_dirinfo[0];
+
+		hex = 1;
+		while (c > 0) {
+		    ++want;
+		    c = (c - 1) / 10;
+		}
+	    } else {
+		want = (size_t)m->gh_dirinfo[0];
+		if (m->gh_sigbytes > 0 && want > (size_t)m->gh_sigbytes - 1)
+		    want = (size_t)m->gh_sigbytes - 1;
+	    }
+	    break;
+	default:
+	    return(0);
+    }
+    if (len != want)
+	return(0);
+    for (i = 0; i < len; ++i) {
+	unsigned char c = (unsigned char)name[i];
+
+	if (hex ? !isxdigit(c) : !(isalnum(c) || (plus && (c == '+' || c == '-'))))
+	    return(0);
+    }
+    return(1);
+}
+
 void
 CleanSpool(char *cleanDir)
 {
@@ -612,15 +680,16 @@ CleanSpool(char *cleanDir)
 	struct stat st;
 
 	while ((den = readdir(dir)) != NULL) {
-	    if (isalnum((unsigned char)den->d_name[0]) &&
-		isalnum((unsigned char)den->d_name[1]) &&
-	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode)
-		/*
-		 * We explicitly use the first char, because overview
-		 * sizes appear to be not evenly distributed wrt second
-		 * char.
-		 */
-	    ) {
+	    /*
+	     * Only a directory the layout can have made (D-326).  Not by
+	     * the first two characters: md5 "\1" and the hierarchy layout
+	     * ("a.bcd.efg" lives in "a.bcd/") have names that do not start
+	     * with two alphanumerics.  scanDirectory() removes every file
+	     * and entry of a directory that is not a group file, so a
+	     * directory that is not ours (lost+found) must not be entered.
+	     */
+	    if (LayoutDirName(den->d_name) &&
+	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
 		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level);
 		/*
 		 * This is a bit of a hack, but we try to remove the
