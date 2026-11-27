@@ -34,6 +34,7 @@ int SetField(char **pptr, const char *str);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
 Group *FindGroupByHash(char *Hash, int iter);
 Group *FindGroupByName(const char *groupName);
+int IterInProgress(char *Hash, int iter);
 int ScanActive(int convert, int newOnly);
 int RescanActive(void);
 void CleanSpool(char *cleanDir);
@@ -496,6 +497,41 @@ FindGroupByName(const char *groupName)
     return(group);
 }
 
+/*
+ * IterInProgress() - the file of iteration iter for Hash belongs to no group
+ * in the table, but a group we know by Hash may be taking it right now.  A
+ * group whose hash is already used by another gets the next iteration: the
+ * writer (dreaderd, dcancel, dgrpctl) creates the files of iteration n and
+ * writes ITER=n into dactive.kp only afterwards, so a file of the group's
+ * current iteration or a higher one can be that group's, and an append count
+ * that has not changed yet does not show it.  Files of a lower iteration
+ * than the group has now stay stale (a group removed and created again).
+ * ITER is read from the live record, not from the table (D-285).
+ */
+int
+IterInProgress(char *Hash, int iter)
+{
+    Group *group;
+    hash_t hv = hhash(Hash);
+
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_Hash, Hash) == 0) {
+	    int recLen;
+	    int cur;
+	    const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
+							KP_LOCK, &recLen);
+
+	    if (rec == NULL)
+		continue;
+	    cur = (int)strtoul(KPDBGetField(rec, recLen, "ITER", NULL, "0"), NULL, 10);
+	    KPDBUnlock(KDBActive, rec);
+	    if (cur <= iter)
+		return(1);
+	}
+    }
+    return(0);
+}
+
 Group *
 FindGroupByHash(char *Hash, int iter)
 {
@@ -676,6 +712,12 @@ ProcessFile(const char *dirPath, const char *name)
     group = FindGroupByHash(Hash, iter);
     if (group == NULL && RescanActive())
 	group = FindGroupByHash(Hash, iter);	/* created since the scan */
+    if (group == NULL && IterInProgress(Hash, iter)) {
+	/* a known group is taking this iteration (D-285) */
+	if (VerboseOpt)
+	    printf("file of a group changing its iteration, left alone: %s\n", path);
+	return;
+    }
     if (group == NULL) {
 	/*
 	 * If we gave a wildcard, we can't remove stale groups because
