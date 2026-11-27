@@ -43,4 +43,30 @@ typedef struct OverStoreRange {
  */
 int OverStoreReadRange(OverStoreRange *range);
 
+typedef struct OverStorePoint {
+    const char *header;
+    int headerLen;
+    int articleSize;
+    int lines;
+    int timeRcvd;
+    int groupIteration;
+    artno_t groupEnd;
+} OverStorePoint;
+
+/*
+ * Return one with a readable row, or zero on a miss. The group name and
+ * number are already resolved by the caller. The header is NUL-terminated
+ * at headerLen; consume it before another overview lookup or yielding to
+ * the reader event loop. The scalar fields can be kept for a spool request.
+ */
+int OverStoreReadPoint(const char *group, artno_t number, OverStorePoint *point);
+
+/*
+ * Find an exact Message-ID in the named group, newest first. A positive
+ * maxScan limits the number of article numbers visited, including holes.
+ * Return the article number, or -1 if no readable match was found. The
+ * caller handles group access policy, NNTP replies and any spool fallback.
+ */
+artno_t OverStoreFindMessageId(const char *group, const char *msgid, artno_t maxScan);
+
 #endif

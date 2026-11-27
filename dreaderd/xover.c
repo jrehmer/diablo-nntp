@@ -29,7 +29,7 @@ void NNListNewNews(Connection *conn);
 void NNStartListOverview(Connection *conn, const char *hdr, const char *ran, const char *pat, int mode);
 
 void NNStartListOverviewRange(Connection *conn);
-void NNStartListOverviewMsgId(Connection *conn, const char *msgid);
+static void StartListOverviewMsgId(Connection *conn);
 void NNListOverviewRange(Connection *conn);
 static int StartListOverviewRangeRun(Connection *conn);
 static int ListOverviewRangeRun(Connection *conn);
@@ -356,19 +356,16 @@ NNStartListOverview(Connection *conn, const char *hdr, const char *ran, const ch
     /*
      * A message-id is resolved before the "follows" response, so an unknown
      * one answers 430 instead of an empty 221/224 list.  The found article
-     * number and message-id are kept for NNStartListOverviewMsgId below.
+     * number and message-id are kept for StartListOverviewMsgId below.
      */
     if (ran != NULL && ran[0] == '<') {
 	const char *mid = MsgId(ran, NULL);
 	artno_t artNo = -1;
-	OverInfo *ov = NULL;
 
 	/* Try the bounded current-group overview lookup first. */
 	if (mid != NULL && strcmp(mid, "<>") != 0 && conn->co_GroupName != NULL)
-	    ov = FindMsgInGroup(conn->co_GroupName, mid, &artNo, READER_MSGID_SCAN);
-	if (ov == NULL || artNo < 0) {
-	    if (ov != NULL)
-		PutOverInfo(ov);
+	    artNo = OverStoreFindMessageId(conn->co_GroupName, mid, READER_MSGID_SCAN);
+	if (artNo < 0) {
 	    if (mode == COM_XHDR && mid != NULL && strcmp(mid, "<>") != 0) {
 		/* HEAD is queued on the existing nonblocking spool machinery.
 		 * Do not select a group or alter the current article for it.
@@ -391,7 +388,6 @@ NNStartListOverview(Connection *conn, const char *hdr, const char *ran, const ch
 	    NNCommand(conn);
 	    return;
 	}
-	PutOverInfo(ov);
 	conn->co_ListBegNo = artNo;
 	conn->co_ListEndNo = artNo;
 	conn->co_ListMsgId = zallocStr(&conn->co_MemPool, mid);
@@ -456,11 +452,8 @@ NNStartListOverview(Connection *conn, const char *hdr, const char *ran, const ch
 	}
 
 	NNStartListOverviewRange(conn);
-    } else if ((ran = MsgId(ran, NULL)) && strcmp(ran, "<>") != 0) {
-	NNStartListOverviewMsgId(conn, ran);
     } else {
-	FinishOverviewDotNewline(conn);
-	NNCommand(conn);
+	StartListOverviewMsgId(conn);
     }
 }
 
@@ -623,36 +616,23 @@ ListOverviewRangeRun(Connection *conn)
     return(0);
 }
 
-void
-NNStartListOverviewMsgId(Connection *conn, const char *msgid)
+static void
+StartListOverviewMsgId(Connection *conn)
 {
-    OverInfo *ov;
-    const char *res;
-    int resLen = 0;
-    int artSize = 0;
-    int lines = -1;
+    OverStorePoint point;
 
     /*
      * The message-id was already resolved in NNStartListOverview, which set
      * co_ListBegNo to the article and co_ListMsgId to the message-id (the
      * first field of the output).  Fetch the record and output it.
      */
-    if ((ov = GetOverInfo(conn->co_GroupName)) == NULL) {
+    if (!OverStoreReadPoint(conn->co_GroupName, conn->co_ListBegNo, &point)) {
 	MBLogPrintf(conn, &conn->co_TMBuf, "430 No such article\r\n");
 	zfreeStr(&conn->co_MemPool, &conn->co_ListMsgId);
 	NNCommand(conn);
 	return;
     }
-    res = GetOverRecord(ov, conn->co_ListBegNo, &resLen, &artSize, &lines, NULL, NULL);
-    if (res == NULL) {
-	PutOverInfo(ov);
-	MBLogPrintf(conn, &conn->co_TMBuf, "430 No such article\r\n");
-	zfreeStr(&conn->co_MemPool, &conn->co_ListMsgId);
-	NNCommand(conn);
-	return;
-    }
-    OutputOverview(conn, res, resLen, artSize, lines);
-    PutOverInfo(ov);
+    OutputOverview(conn, point.header, point.headerLen, point.articleSize, point.lines);
     /* only this list uses it: no later list may print it as its index */
     zfreeStr(&conn->co_MemPool, &conn->co_ListMsgId);
     FinishOverviewDotNewline(conn);

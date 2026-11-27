@@ -730,7 +730,7 @@ typedef union OverHead {
 #define oh_Gname	v.gName
 #define oh_DataEntries	v.dataEntries
 
-#define OH_VERSION	4
+#define OH_VERSION	4	/* keep version numbers positive in the signed field */
 #define OH_BYTEORDER	((int)0xF1E2D3C4)
 
 /*
