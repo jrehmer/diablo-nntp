@@ -58,6 +58,15 @@ typedef struct OverStorePoint {
  * number are already resolved by the caller. The header is NUL-terminated
  * at headerLen; consume it before another overview lookup or yielding to
  * the reader event loop. The scalar fields can be kept for a spool request.
+ *
+ * The call returns with no reference held on the group, so the header
+ * points into memory the store does not pin. The legacy store is safe
+ * because PutOverInfo() never unmaps: a group is closed only in
+ * OpenOverInfo(), OvCacheReclaim() and FlushOverCache(), and an overview
+ * data file only while another record is read. A later store must keep
+ * the returned header bytes alive itself until the next overview lookup
+ * or the reader event loop.
+ * On a miss (return value zero) the fields of *point are undefined.
  */
 int OverStoreReadPoint(const char *group, artno_t number, OverStorePoint *point);
 
