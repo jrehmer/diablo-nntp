@@ -85,8 +85,14 @@ func TestDoverctlCleanHierarchyGz(t *testing.T) {
 	if strings.Contains(out, "Group for over file not found, removing "+keep[2].path) {
 		t.Errorf("clean took the compressed data file of e2e.test for a file of no group")
 	}
-	if !strings.Contains(out, "Deleting stale overview data e2e.test: ") || !strings.Contains(out, filepath.Base(stale)) {
-		t.Errorf("the compressed file outside the range was not reported as stale overview data")
+	staleReported := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "Deleting stale overview data e2e.test: ") && strings.HasSuffix(line, stale) {
+			staleReported = true
+		}
+	}
+	if !staleReported {
+		t.Errorf("the compressed file outside the range was not reported as stale overview data of e2e.test")
 	}
 	if t.Failed() {
 		t.Logf("doverctl -v clean:\n%s", out)
@@ -94,29 +100,46 @@ func TestDoverctlCleanHierarchyGz(t *testing.T) {
 }
 
 // TestDoverctlCleanHierarchyGzGroupName (D-318): a group name may end in ".gz". In the hierarchy
-// layout d.256.e2e.x.gz is then the plain data file of the group e2e.x.gz (in e2e/x/) or the
-// compressed data file of the group e2e.x (in e2e/); the name alone does not tell. clean must
-// keep the file as long as either group exists.
+// layout d.256.e2e.foo.gz is then the plain data file of the group e2e.foo.gz (in e2e/foo/) or
+// the compressed data file of the group e2e.foo (in e2e/); the name alone does not tell. clean
+// must keep the file as long as either group exists. (With a one-character last component,
+// e2e.x and e2e.x.gz would share the directory e2e/ and so the path: see D-325.)
 //
-// Input: the groups e2e.x and e2e.x.gz (range 1..300 each), in three combinations: both, only
-// e2e.x, only e2e.x.gz; each existing group with its over file and its data file (e2e.x: the gzip
-// e2e/d.256.e2e.x.gz; e2e.x.gz: the plain e2e/x/d.256.e2e.x.gz). `doverctl -v clean`. Expected:
-// all files of the existing groups are there, unchanged, nothing is reported as "not found,
-// removing". Control: a stale data file of no group in the same directory is removed.
+// Input: the groups e2e.foo and e2e.foo.gz (range 1..300 each), in three combinations: both,
+// only e2e.foo, only e2e.foo.gz; each existing group with its over file and its data file
+// (e2e.foo: the gzip e2e/d.256.e2e.foo.gz; e2e.foo.gz: the plain e2e/foo/d.256.e2e.foo.gz). The
+// directories are taken from `dgrpctl listgrouphashfile` and checked to be e2e and e2e/foo, so
+// the test cannot drift from dreaderd's layout. `doverctl -v clean`. Expected: all files of the
+// existing groups are there, unchanged, nothing is reported as "not found, removing". Control: a
+// stale data file of no group in the same directory is removed.
 func TestDoverctlCleanHierarchyGzGroupName(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		hasX, hasZ bool
 	}{
 		{"both_groups", true, true},
-		{"only_e2e.x", true, false},
-		{"only_e2e.x.gz", false, true},
+		{"only_e2e.foo", true, false},
+		{"only_e2e.foo.gz", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
-			e2e := filepath.Join(home, "e2e")
-			if err := os.MkdirAll(filepath.Join(e2e, "x"), 0o755); err != nil {
-				t.Fatal(err)
+			// groupDir is the directory of a group's files below the group home, as dreaderd
+			// puts them (the over file of the group, without its name).
+			groupDir := func(group string) string {
+				f := strings.Fields(s.Run(t, "dgrpctl", "listgrouphashfile", group))
+				if len(f) != 2 || f[1] != group || filepath.Base(f[0]) != "o.0."+group {
+					t.Fatalf("dgrpctl listgrouphashfile %s: %q", group, f)
+				}
+				return filepath.Dir(f[0])
+			}
+			dirX, dirZ := groupDir("e2e.foo"), groupDir("e2e.foo.gz")
+			if dirX != "e2e" || dirZ != "e2e/foo" {
+				t.Fatalf("directories of e2e.foo and e2e.foo.gz: %q and %q, want e2e and e2e/foo", dirX, dirZ)
+			}
+			for _, d := range []string{dirX, dirZ} {
+				if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
+					t.Fatal(err)
+				}
 			}
 			gz := hierGzBytes(t)
 			plain := bytes.Repeat([]byte("x"), 10)
@@ -126,21 +149,21 @@ func TestDoverctlCleanHierarchyGzGroupName(t *testing.T) {
 			}
 			var keep []file
 			if tc.hasX {
-				hierNewGroup(t, s, "e2e.x")
+				hierNewGroup(t, s, "e2e.foo")
 				keep = append(keep,
-					file{filepath.Join(e2e, "o.0.e2e.x"), overHead("e2e.x")},
-					file{filepath.Join(e2e, "d.256.e2e.x.gz"), gz})
+					file{filepath.Join(home, dirX, "o.0.e2e.foo"), overHead("e2e.foo")},
+					file{filepath.Join(home, dirX, "d.256.e2e.foo.gz"), gz})
 			}
 			if tc.hasZ {
-				hierNewGroup(t, s, "e2e.x.gz")
+				hierNewGroup(t, s, "e2e.foo.gz")
 				keep = append(keep,
-					file{filepath.Join(e2e, "x", "o.0.e2e.x.gz"), overHead("e2e.x.gz")},
-					file{filepath.Join(e2e, "x", "d.256.e2e.x.gz"), plain})
+					file{filepath.Join(home, dirZ, "o.0.e2e.foo.gz"), overHead("e2e.foo.gz")},
+					file{filepath.Join(home, dirZ, "d.256.e2e.foo.gz"), plain})
 			}
 			for _, f := range keep {
 				writeOver(t, f.path, f.want)
 			}
-			noGroup := filepath.Join(e2e, "d.256.e2e.nogroup.gz")
+			noGroup := filepath.Join(home, dirX, "d.256.e2e.nogroup.gz")
 			writeOver(t, noGroup, gz)
 
 			out := s.Run(t, "doverctl", "-v", "clean")
