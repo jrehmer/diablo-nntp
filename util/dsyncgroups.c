@@ -51,6 +51,8 @@ KPDB  *KDBActive;
 int SyncOverwriteOpt = 0; /* allow remote info to replace existing info	*/
 int SyncDeleteOpt = 0;	/* delete local info not present on remote	*/
 int ListLinesDropped = 0; /* list lines too long for ReadListLine()	*/
+int GFileNoDot = 0;	/* the -G file's last non-blank line is no "." (D-328) */
+int GFileReadErr = 0;	/* errno of a read error on the -G file (D-328)	*/
 int SyncGroupsOpt = 0;	/* synchronize newsgroup names 			*/
 int SyncDescrOpt = 0;	/* synchronize newsgroup descriptions		*/
 int SyncModStatusOpt = 0; /* synchronize newsgroup moderation status	*/
@@ -85,7 +87,7 @@ int CommandResponse(const char *cmd, char **pres);
 int hash(const char *str);
 int SetField(char **pptr, const char *str);
 static void CreateNewGroup(Group *group, int nowt);
-static int ReadListLine(char *buf, int size);
+static int ReadListLine(char *buf, int size, int *plen);
 
 /*
  * Read one line of a list reply or of the -G file into buf (size bytes) (D-320).
@@ -98,9 +100,12 @@ static int ReadListLine(char *buf, int size);
  * see only what is before it.
  * The dropped lines are counted: a list with a missing line is incomplete, so
  * what it does not name proves nothing and -D deletes nothing (see Writeback).
+ * If plen is not NULL it gets the number of bytes stored in buf, counting any
+ * NUL: a "." line is known by this length, not by strcmp(), which stops at a
+ * NUL (a "." and a NUL and more would pass for a "." line).
  */
 static int
-ReadListLine(char *buf, int size)
+ReadListLine(char *buf, int size, int *plen)
 {
     int c = 0;
     int n = 0;
@@ -111,6 +116,8 @@ ReadListLine(char *buf, int size)
 	    break;
     }
     buf[n] = 0;
+    if (plen)
+	*plen = n;
     if (n == 0)
 	return(0);
     if (c == '\n' || c == EOF)
@@ -246,6 +253,7 @@ Usage(void)
     fprintf(stderr, "  -m            = update moderation status\n");
     fprintf(stderr, "  -M c          = update moderation status to the specified flag\n");
     fprintf(stderr, "  -D            = delete local groups in not on remote\n");
+    fprintf(stderr, "                  (not if a list line was skipped; with -G only if its last non-blank line is a . line)\n");
     fprintf(stderr, "  -N            = sync begin and end numbers\n");
     fprintf(stderr, "  -NB           = sync begin numbers\n");
     fprintf(stderr, "  -NE           = sync end numbers\n");
@@ -678,7 +686,7 @@ main(int ac, char **av)
 	snprintf(cmd, sizeof(cmd), "list active%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd), NULL)) != 0) {
 		if (r < 0)
 		    continue;
 		processLine(cmd, wild, &count, &ok);
@@ -699,11 +707,54 @@ main(int ac, char **av)
 	char cmd[4096];
 	int count = 0;
 	int r;
-	while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
-	    if (r < 0)
+	int len = 0;
+	int dot = 0;
+	int k;
+
+	/*
+	 * The whole file is read, as before: a "." line is no group and is not
+	 * passed to processLine() (it did nothing with one), every other line
+	 * is processed.  Without -D that is all.
+	 * With -D (D-328) a group the file does not name is taken for gone, so
+	 * the file must be known to be whole: its last line that is not blank
+	 * must be a "." line, as a list from a remote ends, and it must have
+	 * been read to its end without an error.  A file without one may be cut
+	 * short (a full disk, a bad copy); a "." in the middle (a second list,
+	 * a file pasted together) does not make the file whole: dot is cleared
+	 * by any line that is not blank after it.  Empty lines after the last
+	 * "." do not matter.
+	 * The "." is known by the length of the line (ReadListLine()), not by
+	 * strcmp(): a line of "." and a NUL byte and more is not the end.
+	 */
+	while ((r = ReadListLine(cmd, sizeof(cmd), &len)) != 0) {
+	    if (r < 0) {
+		dot = 0;		/* a dropped line is not blank */
 		continue;
+	    }
+	    if (cmd[0] == '.' &&
+		((len == 1) ||
+		 (len == 2 && cmd[1] == '\n') ||
+		 (len == 3 && cmd[1] == '\r' && cmd[2] == '\n'))) {
+		dot = 1;
+		continue;
+	    }
+	    for (k = 0; k < len; ++k) {
+		if (cmd[k] != ' ' && cmd[k] != '\t' && cmd[k] != '\r' &&
+		    cmd[k] != '\n')
+		    break;
+	    }
+	    if (k < len)
+		dot = 0;
 	    processLine(cmd, wild, &count, NULL);
 	}
+	/*
+	 * ReadListLine() returns 0 for an end and for a read error alike: a
+	 * "." before an error is not the end of the file.
+	 */
+	if (ferror(Fi))
+	    GFileReadErr = errno ? errno : EIO;
+	if (!dot)
+	    GFileNoDot = 1;
 	printf("%d groups found\n", count);
     }
 
@@ -722,7 +773,7 @@ main(int ac, char **av)
 	sprintf(cmd, "list newsgroups%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd), NULL)) != 0) {
 		char *group;
 		char *desc;
 		Group *grp;
@@ -830,6 +881,23 @@ main(int ac, char **av)
 	if (SyncDeleteOpt && ListLinesDropped) {
 	    printf("%d list lines over 4095 bytes were skipped: not deleting groups (-D)\n",
 		ListLinesDropped);
+	    SyncDeleteOpt = 0;
+	}
+
+	/*
+	 * The same for a -G file whose last line that is not blank is not a
+	 * "." line, or that was not read to its end: it may be cut short, and
+	 * a group it does not name is no proof that the remote lacks it
+	 * (D-328).  Creates and updates go on.
+	 */
+	if (SyncDeleteOpt && GFileReadErr) {
+	    printf("-G file %s: read error (%s): not deleting groups (-D)\n",
+		grpfile, strerror(GFileReadErr));
+	    SyncDeleteOpt = 0;
+	}
+	if (SyncDeleteOpt && GFileNoDot) {
+	    printf("-G file %s has no \".\" line at its end: not deleting groups (-D)\n",
+		grpfile);
 	    SyncDeleteOpt = 0;
 	}
 

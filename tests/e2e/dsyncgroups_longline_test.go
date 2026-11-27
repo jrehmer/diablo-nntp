@@ -290,6 +290,17 @@ func TestDsyncgroupsLongListLine(t *testing.T) {
 		if !strings.Contains(out, note) {
 			t.Errorf("want the note %q:\n%s", note, out)
 		}
+		// control: no dropped line, and the whole list ends with its "." line (writeList adds
+		// it; -D with a -G file deletes only then, D-328): e2e.gone and e2e.ctl are deleted
+		out, err = s.TryRun("dsyncgroups", "-G", writeList(t, s, "e2e.keep 10 1 y", "e2e.other 10 1 y"),
+			"-f", db, "-D")
+		if err != nil {
+			t.Fatalf("dsyncgroups -G -D (control): %v\n%s", err, out)
+		}
+		want(t, db, out, []string{"e2e.keep", "e2e.other"}, []string{"e2e.gone", "e2e.ctl"})
+		if strings.Contains(out, "not deleting groups") {
+			t.Errorf("the note is printed with no line dropped:\n%s", out)
+		}
 	})
 
 	// a LIST NEWSGROUPS entry also marks a local group as listed, so a dropped line of it counts too:
@@ -310,6 +321,20 @@ func TestDsyncgroupsLongListLine(t *testing.T) {
 		want(t, db, out, all, nil)
 		if !strings.Contains(out, note) {
 			t.Errorf("want the note %q:\n%s", note, out)
+		}
+		// control: no dropped line; e2e.keep is named only in LIST NEWSGROUPS (it marks the group
+		// as listed), so it stays, and e2e.gone and e2e.ctl, named in neither list, are deleted
+		port = dsyncPeer{
+			Active:     []string{"e2e.other 10 1 y"},
+			Newsgroups: []string{"e2e.keep\tShort description.", "e2e.other\tShort description."},
+		}.listen(t)
+		out, err = s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-f", db, "-D", "-i")
+		if err != nil {
+			t.Fatalf("dsyncgroups -D -i (control): %v\n%s", err, out)
+		}
+		want(t, db, out, []string{"e2e.keep", "e2e.other"}, []string{"e2e.gone", "e2e.ctl"})
+		if strings.Contains(out, "not deleting groups") {
+			t.Errorf("the note is printed with no line dropped:\n%s", out)
 		}
 	})
 }

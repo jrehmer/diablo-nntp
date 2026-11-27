@@ -451,6 +451,7 @@ TestDspoolrefeed 0.53
 TestDsyncgroupsAuthinfoUser281 0.01
 TestDsyncgroupsAuthinfoUser381NoPassword 0.01
 TestDsyncgroupsBlankNewsgroupLine 0.01
+TestDsyncgroupsFileDelete 0.67
 TestDsyncgroupsLongCredentialsRefused 0.01
 TestDsyncgroupsLongListLine 0.22
 TestDsyncgroupsModeReaderReply 0.02
