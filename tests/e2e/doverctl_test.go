@@ -162,7 +162,13 @@ func TestDoverctlConvertCopyFailure(t *testing.T) {
 // and still counted the file as removed.
 func TestDoverctlCleanRemovesUnknownEntries(t *testing.T) {
 	s, home := overSite(t, nil)
-	fifo := filepath.Join(home, "e2e", "junk")
+	// the directory of e2e.test in the default (crc) layout: clean enters only directories the
+	// layout can have made (D-326), and overSite's e2e/ is a hierarchy directory
+	dir := filepath.Join(home, filepath.Dir(cleanDirsOver(t, s, "e2e.test")))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(dir, "junk")
 	if err := exec.Command("mkfifo", fifo).Run(); err != nil {
 		t.Skipf("no fifo: %v", err)
 	}
