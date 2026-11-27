@@ -84,6 +84,55 @@ int CommandResponse(const char *cmd, char **pres);
 int hash(const char *str);
 int SetField(char **pptr, const char *str);
 static void CreateNewGroup(Group *group, int nowt);
+static int ReadListLine(char *buf, int size);
+
+/*
+ * Read one line of a list reply or of the -G file into buf (size bytes) (D-320).
+ * Returns 1 for a line (the line end is kept when it fits), 0 at the end of the
+ * input, and -1 for a line that does not fit: it is read to its end and
+ * dropped whole, so its tail is not taken for a line of its own (its first
+ * word as a group name).  A line with a NUL in it is read to its end as well.
+ */
+static int
+ReadListLine(char *buf, int size)
+{
+    int c = 0;
+    int n = 0;
+
+    while (n < size - 1 && (c = getc(Fi)) != EOF) {
+	buf[n++] = c;
+	if (c == '\n')
+	    break;
+    }
+    buf[n] = 0;
+    if (n == 0)
+	return(0);
+    if (c == '\n' || c == EOF)
+	return(1);
+
+    /*
+     * The buffer is full without a line end: a line of exactly size-1 bytes
+     * (or the last, unterminated one) still fits, a longer one does not.
+     */
+    c = getc(Fi);
+    if (c == EOF || c == '\n')
+	return(1);
+    while ((c = getc(Fi)) != EOF && c != '\n')
+	;
+    {
+	/* the first word shows which line it was; it is the remote's text */
+	char name[41];
+	int k;
+
+	for (k = 0; k < 40 && buf[k] != ' ' && buf[k] != '\t' &&
+			buf[k] != '\r' && buf[k] != '\n' && buf[k] != 0; ++k)
+	    name[k] = buf[k];
+	name[k] = 0;
+	SanitizeString(name);
+	printf("Line over %d bytes - skipping : %s\n", size - 1, name);
+    }
+    return(-1);
+}
 
 /*
  * Make the record of a new group: all its fields in one append (D-316), so a
@@ -612,11 +661,14 @@ main(int ac, char **av)
 	char cmd[4096];
 	int count = 0;
 	int ok = 0;
+	int r;
 
 	snprintf(cmd, sizeof(cmd), "list active%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while (fgets(cmd, sizeof(cmd), Fi) != NULL) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+		if (r < 0)
+		    continue;
 		processLine(cmd, wild, &count, &ok);
 		if (ok)
 		    break;
@@ -634,8 +686,12 @@ main(int ac, char **av)
     } else {
 	char cmd[4096];
 	int count = 0;
-	while (fgets(cmd, sizeof(cmd), Fi) != NULL)
+	int r;
+	while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
+	    if (r < 0)
+		continue;
 	    processLine(cmd, wild, &count, NULL);
+	}
 	printf("%d groups found\n", count);
     }
 
@@ -649,14 +705,18 @@ main(int ac, char **av)
 	char cmd[4096];
 	int count = 0;
 	int ok = 0;
+	int r;
 
 	sprintf(cmd, "list newsgroups%s%s", ((wild) ? " " : ""), ((wild) ? wild : ""));
 	switch(CommandResponse(cmd, &line)) {
 	case 215:
-	    while (fgets(cmd, sizeof(cmd), Fi) != NULL) {
+	    while ((r = ReadListLine(cmd, sizeof(cmd))) != 0) {
 		char *group;
 		char *desc;
 		Group *grp;
+
+		if (r < 0)
+		    continue;
 
 		if (strcmp(cmd, ".\r\n") == 0) {
 		    ok = 1;
@@ -682,9 +742,13 @@ main(int ac, char **av)
 		if (wild && WildCmp(wild, group) != 0)
 		    continue;
 
-		if (group)
+		/*
+		 * pass 3: only the description of a group that is there, from
+		 * the scan of dactive.kp or from LIST ACTIVE; a group named
+		 * here alone is not made (D-320)
+		 */
 		grp = EnterGroup(
-		    2,
+		    3,
 		    group, 
 		    -1,
 		    -1,
@@ -693,7 +757,7 @@ main(int ac, char **av)
 		    -1,
 		    NULL,
 		    desc
-		); else grp = NULL;
+		);
 		if (grp)
 		    grp->gr_State |= GRF_FROMREMOTE;
 		++count;
@@ -970,9 +1034,9 @@ EnterGroup(int pass, const char *groupName, artno_t begNo, artno_t endNo, artno_
     if (group == NULL) {
 	/*
 	 * ignore groups not already in the dactive.kp file if SyncGroupsOpt is not
-	 * set.
+	 * set.  Pass 3 (LIST NEWSGROUPS) never makes one (D-320).
 	 */
-	if (SyncGroupsOpt == 0)
+	if (SyncGroupsOpt == 0 || pass == 3)
 	    return(NULL);
 	*pgroup = group = calloc(sizeof(Group) + strlen(groupName) + 1, 1);
 	group->gr_State = GRF_NEW | GRF_LMTS | GRF_CTS;
