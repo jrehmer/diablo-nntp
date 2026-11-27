@@ -169,4 +169,111 @@ func TestDsyncgroupsLongListLine(t *testing.T) {
 			t.Errorf("want 2 groups found:\n%s", out)
 		}
 	})
+
+	// -D deletes the local groups that the lists do not name. A line that was dropped may have
+	// named one, so the lists are incomplete: with a dropped line nothing is deleted, with a note.
+	// Each setup makes e2e.keep, e2e.gone, e2e.ctl and e2e.other; the first run has a long line
+	// for e2e.keep and must delete nothing, the control run has none and deletes what the list
+	// does not name (e2e.gone, e2e.ctl). Fails on cd366c0e: e2e.keep (named only on the long
+	// line, which the fix drops whole) is deleted, with e2e.gone and e2e.ctl.
+	setup := func(t *testing.T, s *Site, db string) {
+		t.Helper()
+		out, err := s.TryRun("dsyncgroups", "-G", writeList(t, s, "e2e.keep 10 1 y", "e2e.gone 10 1 y",
+			"e2e.ctl 10 1 y", "e2e.other 10 1 y"), "-F", db, "-g")
+		if err != nil {
+			t.Fatalf("setup dsyncgroups -G: %v\n%s", err, out)
+		}
+		for _, g := range []string{"e2e.keep", "e2e.gone", "e2e.ctl", "e2e.other"} {
+			if live, _, _ := kpRecords(t, db, g); len(live) != 1 {
+				t.Fatalf("setup: group %s has %d records\n%s", g, len(live), out)
+			}
+		}
+	}
+	want := func(t *testing.T, db, out string, keep, gone []string) {
+		t.Helper()
+		for _, g := range keep {
+			if live, _, _ := kpRecords(t, db, g); len(live) != 1 {
+				t.Errorf("group %s was deleted by -D: %d records\n%s", g, len(live), out)
+			}
+		}
+		for _, g := range gone {
+			if live, _, _ := kpRecords(t, db, g); len(live) != 0 {
+				t.Errorf("group %s was not deleted by -D: %q\n%s", g, live, out)
+			}
+		}
+	}
+	const note = "1 list lines over 4095 bytes were skipped: not deleting groups (-D)"
+	all := []string{"e2e.keep", "e2e.gone", "e2e.ctl", "e2e.other"}
+
+	t.Run("delete_active", func(t *testing.T) {
+		s := NewSite(t, SiteOptions{NoStart: true})
+		db := filepath.Join(s.Dir, "long.kp")
+		setup(t, s, db)
+		long := pad("e2e.keep 10 1 ", 'y') + "junk.act 10 1 y"
+		port := dsyncPeer{Active: []string{long, "e2e.other 10 1 y"}}.listen(t)
+		out, err := s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-f", db, "-D")
+		if err != nil {
+			t.Fatalf("dsyncgroups -D: %v\n%s", err, out)
+		}
+		want(t, db, out, all, nil)
+		if !strings.Contains(out, note) {
+			t.Errorf("want the note %q:\n%s", note, out)
+		}
+		// control: no dropped line, the same list without the long one is a whole list
+		port = dsyncPeer{Active: []string{"e2e.keep 10 1 y", "e2e.other 10 1 y"}}.listen(t)
+		out, err = s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-f", db, "-D")
+		if err != nil {
+			t.Fatalf("dsyncgroups -D (control): %v\n%s", err, out)
+		}
+		want(t, db, out, []string{"e2e.keep", "e2e.other"}, []string{"e2e.gone", "e2e.ctl"})
+		if strings.Contains(out, "not deleting groups") {
+			t.Errorf("the note is printed with no line dropped:\n%s", out)
+		}
+	})
+
+	t.Run("delete_file", func(t *testing.T) {
+		s := NewSite(t, SiteOptions{NoStart: true})
+		db := filepath.Join(s.Dir, "long.kp")
+		setup(t, s, db)
+		list := writeList(t, s, pad("e2e.keep 10 1 ", 'y')+"junk.file 10 1 y", "e2e.other 10 1 y")
+		out, err := s.TryRun("dsyncgroups", "-G", list, "-f", db, "-D")
+		if err != nil {
+			t.Fatalf("dsyncgroups -G -D: %v\n%s", err, out)
+		}
+		want(t, db, out, all, nil)
+		if !strings.Contains(out, note) {
+			t.Errorf("want the note %q:\n%s", note, out)
+		}
+	})
+
+	// a LIST NEWSGROUPS entry also marks a local group as listed, so a dropped line of it counts too:
+	// e2e.keep is named only on the long LIST NEWSGROUPS line
+	t.Run("delete_newsgroups", func(t *testing.T) {
+		s := NewSite(t, SiteOptions{NoStart: true})
+		db := filepath.Join(s.Dir, "long.kp")
+		setup(t, s, db)
+		long := pad("e2e.keep\t", 'x') + "junk.tail some more text"
+		port := dsyncPeer{
+			Active:     []string{"e2e.other 10 1 y"},
+			Newsgroups: []string{long, "e2e.other\tShort description."},
+		}.listen(t)
+		out, err := s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-f", db, "-D", "-i")
+		if err != nil {
+			t.Fatalf("dsyncgroups -D -i: %v\n%s", err, out)
+		}
+		want(t, db, out, all, nil)
+		if !strings.Contains(out, note) {
+			t.Errorf("want the note %q:\n%s", note, out)
+		}
+	})
+}
+
+// writeList writes the lines of a -G file (CR LF, ended by ".") and returns its path.
+func writeList(t *testing.T, s *Site, lines ...string) string {
+	t.Helper()
+	list := filepath.Join(s.Dir, "glist"+strconv.Itoa(len(lines))+".txt")
+	if err := os.WriteFile(list, []byte(strings.Join(lines, "\r\n")+"\r\n.\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return list
 }

@@ -50,6 +50,7 @@ KPDB  *KDBActive;
 
 int SyncOverwriteOpt = 0; /* allow remote info to replace existing info	*/
 int SyncDeleteOpt = 0;	/* delete local info not present on remote	*/
+int ListLinesDropped = 0; /* list lines too long for ReadListLine()	*/
 int SyncGroupsOpt = 0;	/* synchronize newsgroup names 			*/
 int SyncDescrOpt = 0;	/* synchronize newsgroup descriptions		*/
 int SyncModStatusOpt = 0; /* synchronize newsgroup moderation status	*/
@@ -92,6 +93,8 @@ static int ReadListLine(char *buf, int size);
  * input, and -1 for a line that does not fit: it is read to its end and
  * dropped whole, so its tail is not taken for a line of its own (its first
  * word as a group name).  A line with a NUL in it is read to its end as well.
+ * The dropped lines are counted: a list with a missing line is incomplete, so
+ * what it does not name proves nothing and -D deletes nothing (see Writeback).
  */
 static int
 ReadListLine(char *buf, int size)
@@ -131,6 +134,7 @@ ReadListLine(char *buf, int size)
 	SanitizeString(name);
 	printf("Line over %d bytes - skipping : %s\n", size - 1, name);
     }
+    ++ListLinesDropped;
     return(-1);
 }
 
@@ -807,6 +811,19 @@ main(int ac, char **av)
     {
 	int i;
 	int nowt = (int)time(NULL);
+
+	/*
+	 * A line that was dropped may have named a local group (LIST ACTIVE,
+	 * -G file, or LIST NEWSGROUPS, which also marks a group as listed):
+	 * the lists are incomplete, so a group missing from them is no proof
+	 * that the remote lacks it.  The same as a list without its "."
+	 * terminator, which ends the run above.
+	 */
+	if (SyncDeleteOpt && ListLinesDropped) {
+	    printf("%d list lines over 4095 bytes were skipped: not deleting groups (-D)\n",
+		ListLinesDropped);
+	    SyncDeleteOpt = 0;
+	}
 
 	for (i = 0; i < GHSIZE; ++i) {
 	    Group *group;
