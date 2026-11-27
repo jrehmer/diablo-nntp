@@ -810,6 +810,7 @@ TestReaderOverviewLinesHeaderFeed 0.10
 TestReaderOverviewLinesOldHeaderFeed 0.06
 TestReaderOverviewLinesOldQueue 0.10
 TestReaderOverviewLockFailure 0.49
+TestReaderOverviewRangeContinuation 0.10
 TestReaderPerlAuth 0.13
 TestReaderPerlAuthFullCode 0.08
 TestReaderPidsFromLog 0.00

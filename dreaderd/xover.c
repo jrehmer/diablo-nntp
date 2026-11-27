@@ -10,6 +10,7 @@
  */
 
 #include "defs.h"
+#include "overstore.h"
 
 /* articles a reader command by message-id looks at, newest first (D-193) */
 #define READER_MSGID_SCAN	100000
@@ -532,21 +533,72 @@ NNListOverviewRange(Connection *conn)
 	NNListNewNews(conn);
 }
 
+/* Bound each pass even when a range of holes produces no output. */
+#define OVERVIEW_PASS_RECORDS	10000
+
+typedef struct OverviewRangePass {
+    Connection *conn;
+    int writeError;
+    int steps;
+    int xpatSteps;
+} OverviewRangePass;
+
+static int
+OverviewRangeCanContinue(void *context)
+{
+    OverviewRangePass *pass = context;
+    Connection *conn = pass->conn;
+
+    if (pass->writeError || conn->co_TMBuf.mh_Bytes >= MBUF_HIWAT)
+	return(0);
+    if (++pass->steps > OVERVIEW_PASS_RECORDS ||
+	(conn->co_ArtMode == COM_XPAT && ++pass->xpatSteps > 50)) {
+	FD_SET(conn->co_Desc->d_Fd, &WFds);
+	return(0);
+    }
+    return(1);
+}
+
+static void
+OverviewRangeEmit(void *context, artno_t number, const char *header,
+		  int headerLen, int articleSize, int lines)
+{
+    OverviewRangePass *pass = context;
+    Connection *conn = pass->conn;
+
+    conn->co_ListBegNo = number;
+    OutputOverview(conn, header, headerLen, articleSize, lines);
+}
+
 /*
  * Nonzero: the group of a NEWNEWS list is done, take the next one.
  */
 static int
 ListOverviewRangeRun(Connection *conn)
 {
+    OverviewRangePass pass = {
+	.conn = conn,
+	.writeError = conn->co_TMBuf.mh_WError
+    };
+    OverStoreRange range = {
+	.group = conn->co_GroupName,
+	.next = conn->co_ListBegNo,
+	.last = conn->co_ListEndNo,
+	.timeRestrict = conn->co_ArtMode == COM_NEWNEWS ? &conn->co_TimeRestrict : NULL,
+	.canContinue = OverviewRangeCanContinue,
+	.emit = OverviewRangeEmit,
+	.context = &pass
+    };
     int result;
 
     conn->co_Func = NNListOverviewRange;
     conn->co_State = "listover";
 
-    result = ReadOverviewRange(conn);
-    if (result <= 0) {
-	if (result == 0 && conn->co_ArtMode == COM_NEWNEWS)
-	    return(1);			/* no overview for this group: the next one */
+    result = OverStoreReadRange(&range);
+    conn->co_ListBegNo = range.next;
+    if (result == 0 && conn->co_ArtMode == COM_NEWNEWS)
+	return(1);			/* no overview for this group: the next one */
+    if (result == 0 || pass.writeError) {
 	/* This also cleans up compression state after a write error. */
 	FinishOverviewDotNewline(conn);
 	NNCommand(conn);
