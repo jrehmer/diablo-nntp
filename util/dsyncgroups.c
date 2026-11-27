@@ -92,7 +92,10 @@ static int ReadListLine(char *buf, int size);
  * Returns 1 for a line (the line end is kept when it fits), 0 at the end of the
  * input, and -1 for a line that does not fit: it is read to its end and
  * dropped whole, so its tail is not taken for a line of its own (its first
- * word as a group name).  A line with a NUL in it is read to its end as well.
+ * word as a group name).  The limit is size-1 bytes before the line end: a line
+ * of size-1 bytes and its LF or CR LF fits.  A NUL byte does not end a line (as
+ * with fgets(), the count goes on after it); the parsers, which read C strings,
+ * see only what is before it.
  * The dropped lines are counted: a list with a missing line is incomplete, so
  * what it does not name proves nothing and -D deletes nothing (see Writeback).
  */
@@ -115,13 +118,18 @@ ReadListLine(char *buf, int size)
 
     /*
      * The buffer is full without a line end: a line of exactly size-1 bytes
-     * (or the last, unterminated one) still fits, a longer one does not.
+     * (or the last, unterminated one) still fits, a longer one does not.  The
+     * line end may be CR LF: with size-1 bytes read, a CR followed by LF or
+     * the end of the input is eaten like the LF (fgets() left that "\r\n"
+     * as a line the parsers skip), a CR followed by more is part of a longer line.
      */
     c = getc(Fi);
+    if (c == '\r')
+	c = getc(Fi);
     if (c == EOF || c == '\n')
 	return(1);
-    while ((c = getc(Fi)) != EOF && c != '\n')
-	;
+    while (c != EOF && c != '\n')
+	c = getc(Fi);
     {
 	/* the first word shows which line it was; it is the remote's text */
 	char name[41];

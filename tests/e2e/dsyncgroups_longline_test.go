@@ -119,25 +119,71 @@ func TestDsyncgroupsLongListLine(t *testing.T) {
 		}
 	})
 
-	// the limit: a line of 4096 bytes with its CR LF fits the 4096-byte buffer (4095 bytes and the
-	// NUL, the line feed is the next byte read), one byte more does not and is skipped whole
+	// the limit is 4095 bytes before the line end: a line of 4095 bytes and its CR LF fits (the
+	// buffer of 4096 is full after them, the next byte read is the CR, then the LF), as it did with
+	// fgets() (the rest was a bare CR LF the parsers skip); one byte more does not and is skipped whole
 	t.Run("limit", func(t *testing.T) {
 		s := NewSite(t, SiteOptions{NoStart: true})
 		db := filepath.Join(s.Dir, "long.kp")
-		fit := "e2e.fit 10 1 " + strings.Repeat("y", 4096-2-len("e2e.fit 10 1 "))
-		over := "e2e.over 10 1 " + strings.Repeat("y", 4097-2-len("e2e.over 10 1 "))
-		port := dsyncPeer{Active: []string{fit, over, "e2e.after 20 1 y"}}.listen(t)
+		fit := "e2e.fit 10 1 " + strings.Repeat("y", 4095-len("e2e.fit 10 1 "))
+		port := dsyncPeer{Active: []string{fit, "e2e.after 20 1 y"}}.listen(t)
 		out, err := s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-F", db, "-g")
 		if err != nil {
 			t.Fatalf("dsyncgroups: %v\n%s", err, out)
+		}
+		for _, g := range []string{"e2e.fit", "e2e.after"} {
+			if live, _, _ := kpRecords(t, db, g); len(live) != 1 {
+				t.Errorf("group %s: %d records, want 1\n%.600s", g, len(live), out)
+			}
+		}
+		if !strings.Contains(out, "2 groups returned by list active") {
+			t.Errorf("want 2 groups returned by list active:\n%.600s", out)
+		}
+		if strings.Contains(out, "Line over") {
+			t.Errorf("a line of 4095 bytes and its CR LF was skipped:\n%.600s", out)
+		}
+	})
+
+	t.Run("limit_over", func(t *testing.T) {
+		s := NewSite(t, SiteOptions{NoStart: true})
+		db := filepath.Join(s.Dir, "long.kp")
+		over := "e2e.over 10 1 " + strings.Repeat("y", 4096-len("e2e.over 10 1 "))
+		port := dsyncPeer{Active: []string{over, "e2e.after 20 1 y"}}.listen(t)
+		out, err := s.TryRun("dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-F", db, "-g")
+		if err != nil {
+			t.Fatalf("dsyncgroups: %v\n%s", err, out)
+		}
+		for g, want := range map[string]int{"e2e.over": 0, "e2e.after": 1} {
+			if live, _, _ := kpRecords(t, db, g); len(live) != want {
+				t.Errorf("group %s: %d records, want %d\n%.600s", g, len(live), want, out)
+			}
+		}
+		if n := strings.Count(out, "Line over 4095 bytes - skipping : e2e.over"); n != 1 {
+			t.Errorf("want one note about e2e.over, got %d:\n%.600s", n, out)
+		}
+	})
+
+	// the same limit with a bare LF as the line end (a -G file)
+	t.Run("limit_lf", func(t *testing.T) {
+		s := NewSite(t, SiteOptions{NoStart: true})
+		db := filepath.Join(s.Dir, "long.kp")
+		fit := "e2e.fit 10 1 " + strings.Repeat("y", 4095-len("e2e.fit 10 1 "))
+		over := "e2e.over 10 1 " + strings.Repeat("y", 4096-len("e2e.over 10 1 "))
+		list := filepath.Join(s.Dir, "lf.txt")
+		if err := os.WriteFile(list, []byte(fit+"\n"+over+"\ne2e.after 20 1 y\n.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, err := s.TryRun("dsyncgroups", "-G", list, "-F", db, "-g")
+		if err != nil {
+			t.Fatalf("dsyncgroups -G: %v\n%s", err, out)
 		}
 		for g, want := range map[string]int{"e2e.fit": 1, "e2e.over": 0, "e2e.after": 1} {
 			if live, _, _ := kpRecords(t, db, g); len(live) != want {
 				t.Errorf("group %s: %d records, want %d\n%.600s", g, len(live), want, out)
 			}
 		}
-		if !strings.Contains(out, "2 groups returned by list active") {
-			t.Errorf("want 2 groups returned by list active:\n%.600s", out)
+		if n := strings.Count(out, "Line over 4095 bytes - skipping : e2e.over"); n != 1 {
+			t.Errorf("want one note about e2e.over, got %d:\n%.600s", n, out)
 		}
 	})
 

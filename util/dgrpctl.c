@@ -141,26 +141,39 @@ main(int ac, char **av)
  */
 
 static void
-OutAppend(char **pbuf, size_t *plen, const char *fmt, ...)
+OutAppend(char **pbuf, size_t *plen, size_t *pcap, const char *fmt, ...)
 {
     va_list ap;
     va_list cp;
     int n;
-    char *nb;
 
     va_start(ap, fmt);
     va_copy(cp, ap);
     n = vsnprintf(NULL, 0, fmt, cp);
     va_end(cp);
-    if (n < 0 || (nb = realloc(*pbuf, *plen + n + 1)) == NULL) {
+    if (n < 0) {
 	va_end(ap);
 	/* not stdout: the lock is held; the exit releases it */
 	fprintf(stderr, ">> masscancel: malloc fail\n");
 	exit(1);
     }
-    vsnprintf(nb + *plen, n + 1, fmt, ap);
+    if (*pbuf == NULL || *plen + n + 1 > *pcap) {
+	/* double the capacity, so many lines are not a realloc each */
+	size_t ncap = *pcap ? *pcap : 256;
+	char *nb;
+
+	while (ncap < *plen + n + 1)
+	    ncap *= 2;
+	if ((nb = realloc(*pbuf, ncap)) == NULL) {
+	    va_end(ap);
+	    fprintf(stderr, ">> masscancel: malloc fail\n");
+	    exit(1);
+	}
+	*pbuf = nb;
+	*pcap = ncap;
+    }
+    vsnprintf(*pbuf + *plen, n + 1, fmt, ap);
     va_end(ap);
-    *pbuf = nb;
     *plen += n;
 }
 
@@ -180,6 +193,7 @@ GrpCtlMassCancel(char *group)
     int recLen;
     char *out = NULL;		/* the text printed after the unlock (D-321) */
     size_t outLen = 0;
+    size_t outCap = 0;
 
     bzero(msgids, sizeof(msgids));
 
@@ -248,19 +262,19 @@ GrpCtlMassCancel(char *group)
 				copy.oa_ArtNo = -1;	/* Flag as cancelled */
 
 				if (hflock(ov->ov_OFd, 0, XLOCK_EX) < 0) {
-				    OutAppend(&out, &outLen, ">> masscancel: overview lock failed: %s\n",
+				    OutAppend(&out, &outLen, &outCap, ">> masscancel: overview lock failed: %s\n",
 							strerror(errno));
 				    break;
 				}
 				lseek(ov->ov_OFd, ovpos, 0);
 				if (WriteAll(ov->ov_OFd, &copy, sizeof(copy)) < 0)
-				    OutAppend(&out, &outLen, ">> masscancel: overview write failed: %s\n",
+				    OutAppend(&out, &outLen, &outCap, ">> masscancel: overview write failed: %s\n",
 							strerror(errno));
 				hflock(ov->ov_OFd, 0, XLOCK_UN);
 
 				elem->found++;
 				found++;
-				OutAppend(&out, &outLen, ">> cancelled %s:%lld\n", group, artEnd);
+				OutAppend(&out, &outLen, &outCap, ">> cancelled %s:%lld\n", group, artEnd);
 			    }
 			    elem = elem->next;
 			}
