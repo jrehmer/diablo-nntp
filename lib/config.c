@@ -1267,6 +1267,13 @@ SetGroupHashMethod(const char *opt, GroupHashType *pmethod)
 	pmethod->gh_dirtype = HASHGRP_DIR_BIT;
 	pmethod->gh_dirlvl = 1;
 	pmethod->gh_dirinfo[0] = 0;
+    } else if (strcasecmp(opt, "hierarchy-full") == 0) {
+	pmethod->gh_type = HASHGRP_HIER;
+	pmethod->gh_sigbytes = 1024;
+	pmethod->gh_dirtype = HASHGRP_DIR_BIT;
+	pmethod->gh_dirlvl = 1;
+	pmethod->gh_dirinfo[0] = 0;
+	pmethod->gh_hierfull = 1;
     } else if (strncasecmp(opt, "md5", 3) == 0) {
 	const char *p;
 	int v;

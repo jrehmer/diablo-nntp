@@ -538,6 +538,13 @@ TestHdrMessageIdSpool 0.08
 TestHdrMessageIdSpoolAsync 0.11
 TestHdrMessageIdSpoolBound 0.08
 TestHeaderFeedToReader 0.10
+TestHierarchyFullCleanOneCharDirs 0.09
+TestHierarchyFullConfig 0.09
+TestHierarchyFullConvertRefused 0.29
+TestHierarchyFullGroupPaths 0.17
+TestHierarchyFullLongGroupName 0.26
+TestHierarchyFullReaderFiles 0.31
+TestHierarchyFullReaderGzipPair 0.35
 TestHiscachesizePowerOfTwo 0.10
 TestHistoryAddAfterPartialRecord 0.29
 TestHistoryAddDuringDhisexpire 1.11

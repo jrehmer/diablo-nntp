@@ -117,6 +117,7 @@ Usage(char *progname)
     printf("\t\tmd5-32/N[/N]\n");
     printf("\t\tmd5-64/N[/N]\n");
     printf("\t\thierarchy\n");
+    printf("\t\thierarchy-full\n");
     printf("\t    WARNING: No other diablo processes must be running during\n");
     printf("\t\tthe conversion\n");
     exit(1);
@@ -144,6 +145,19 @@ main(int ac, char **av)
 		}
 		if (bcmp(&SrcHash, &DstHash, sizeof(SrcHash)) == 0) {
 		    printf("Cannot convert to same method\n");
+		    Usage(av[0]);
+		}
+		/*
+		 * hierarchy and hierarchy-full are both HASHGRP_HIER with the
+		 * same file names; only the directories differ.  In hierarchy
+		 * the plain data of "X.gz" and the compressed data of "X" can be
+		 * one file (D-325), and which group it belongs to cannot be told,
+		 * so there is no safe conversion between the two yet.
+		 */
+		if (SrcHash.gh_type == HASHGRP_HIER &&
+		    DstHash.gh_type == HASHGRP_HIER &&
+		    SrcHash.gh_hierfull != DstHash.gh_hierfull) {
+		    printf("Cannot convert between hierarchy and hierarchy-full (not supported yet, D-325)\n");
 		    Usage(av[0]);
 		}
 		Action |= ACT_CONVERT;
@@ -625,6 +639,9 @@ FindGroupByHash(char *Hash, int iter, int hier)
  *			component may also start with '+', '-' or '_' (lib
  *			ValidGroupName() accepts them): such groups are not
  *			cleaned, as on main (D-330)
+ *	hierarchy-full	the first component of the group name alone ("a" for
+ *			"a.b.c", "e2e" for "e2e.x.gz"), by the same first-
+ *			character rule as hierarchy
  * The length is the exact length of the layout's first level: a directory
  * that is not ours, such as lost+found, can have the right characters.
  */
