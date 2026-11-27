@@ -200,11 +200,13 @@ fcntl64(int fd, int cmd, ...)
 `
 
 // groupCreateOutPauseSource: with GROUPCREATE_PAUSE=<prefix>, the file <prefix>.arm and
-// GROUPCREATE_PAUSE_ON=<text>, the first printf() whose format contains the text writes
-// <prefix>.held and waits for <prefix>.go (60 s at most), as the shim above does. A program
-// that prints after each step of its work (dsyncgroups -v) stops between two steps. A build
-// with _FORTIFY_SOURCE (the default of Ubuntu's gcc at -O2) calls __printf_chk(flag, fmt, ...)
-// for the same line, so that is taken too.
+// GROUPCREATE_PAUSE_ON=<text>, the first printf() whose output contains the text writes
+// <prefix>.held and waits for <prefix>.go (60 s at most), as the shim above does. It stands
+// for a stdout that does not drain: the process is stuck in the call that prints the text. A
+// build with _FORTIFY_SOURCE (the default of Ubuntu's gcc at -O2) calls __printf_chk(flag,
+// fmt, ...) for the same line, so that is taken too. The text is looked for in the formatted
+// output, so it does not matter whether a program prints "%s" of a line it has collected or
+// the fields one by one.
 const groupCreateOutPauseSource = `#define _GNU_SOURCE
 #define __EXTENSIONS__
 #include <dlfcn.h>
@@ -216,14 +218,20 @@ const groupCreateOutPauseSource = `#define _GNU_SOURCE
 #include <unistd.h>
 
 static void
-pause_on(const char *fmt)
+pause_on(const char *fmt, va_list ap)
 {
     const char *p = getenv("GROUPCREATE_PAUSE");
     const char *on = getenv("GROUPCREATE_PAUSE_ON");
-    char name[4200], pid[32];
+    char name[4200], pid[32], text[8192];
+    va_list cp;
     int h, i;
 
-    if (p == NULL || on == NULL || strstr(fmt, on) == NULL)
+    if (p == NULL || on == NULL)
+	return;
+    va_copy(cp, ap);
+    vsnprintf(text, sizeof(text), fmt, cp);
+    va_end(cp);
+    if (strstr(text, on) == NULL)
 	return;
     snprintf(name, sizeof(name), "%s.arm", p);
     if (access(name, F_OK) != 0)
@@ -246,8 +254,8 @@ printf(const char *fmt, ...)
     va_list ap;
     int r;
 
-    pause_on(fmt);
     va_start(ap, fmt);
+    pause_on(fmt, ap);
     r = vprintf(fmt, ap);
     va_end(ap);
     return r;
@@ -260,12 +268,97 @@ __printf_chk(int flag, const char *fmt, ...)
     va_list ap;
     int r;
 
-    pause_on(fmt);
     va_start(ap, fmt);
+    pause_on(fmt, ap);
     r = chk ? chk(flag, fmt, ap) : vprintf(fmt, ap);
     va_end(ap);
     return r;
 }
+`
+
+// groupCreateKillPauseSource: with GROUPCREATE_PAUSE=<prefix> and the file <prefix>.arm, the
+// first process that has written, to a file called dactive.kp, either the line of a new
+// record (GROUPCREATE_PAUSE_AT=record: the record is in the file, not yet published) or the
+// append counter (anything else: 8 bytes at offset 26, the last write of the creation of a
+// record: the record is in the file and published) writes <prefix>.held (its process id) and
+// waits for <prefix>.go (60 s at most). The test kills the process there. Which record the
+// file holds then is what a killed creator leaves behind.
+const groupCreateKillPauseSource = `#define _GNU_SOURCE
+#define __EXTENSIONS__
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+/*FDPATH*/
+static void
+pause_here(int fd, const void *buf, size_t n, long long off)
+{
+    const char *p = getenv("GROUPCREATE_PAUSE");
+    const char *at = getenv("GROUPCREATE_PAUSE_AT");
+    char path[4096], name[4200], pid[32];
+    size_t l;
+    int h, i;
+
+    if (p == NULL)
+	return;
+    if (at != NULL && strcmp(at, "record") == 0) {
+	if (n < 15 || memcmp(buf, "+00000000.0000:", 15) != 0)
+	    return;
+    } else if (n != 8 || off != 26) {
+	return;
+    }
+    fdpath(fd, path, sizeof(path));
+    l = strlen(path);
+    if (l < 10 || strcmp(path + l - 10, "dactive.kp") != 0)
+	return;
+    snprintf(name, sizeof(name), "%s.arm", p);
+    if (access(name, F_OK) != 0)
+	return;
+    snprintf(name, sizeof(name), "%s.held", p);
+    h = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
+    if (h < 0)
+	return;
+    snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
+    (void)write(h, pid, strlen(pid));
+    close(h);
+    snprintf(name, sizeof(name), "%s.go", p);
+    for (i = 0; i < 3000 && access(name, F_OK) != 0; i++)
+	usleep(20000);
+}
+
+ssize_t
+pwrite(int fd, const void *buf, size_t n, off_t off)
+{
+    static ssize_t (*real)(int, const void *, size_t, off_t);
+    ssize_t r;
+
+    if (real == NULL)
+	real = (ssize_t (*)(int, const void *, size_t, off_t))dlsym(RTLD_NEXT, "pwrite");
+    r = real(fd, buf, n, off);
+    if (r == (ssize_t)n)
+	pause_here(fd, buf, n, (long long)off);
+    return r;
+}
+
+/* glibc only: musl's pwrite takes a 64-bit off_t and has no off64_t */
+#ifdef __GLIBC__
+ssize_t
+pwrite64(int fd, const void *buf, size_t n, off64_t off)
+{
+    static ssize_t (*real)(int, const void *, size_t, off64_t);
+    ssize_t r;
+
+    if (real == NULL)
+	real = (ssize_t (*)(int, const void *, size_t, off64_t))dlsym(RTLD_NEXT, "pwrite64");
+    r = real(fd, buf, n, off);
+    if (r == (ssize_t)n)
+	pause_here(fd, buf, n, (long long)off);
+    return r;
+}
+#endif
 `
 
 // Numbers the second creator gives the group, and the number the next article must get.
@@ -457,7 +550,7 @@ func TestGroupCreateDgrpctlNewgroup(t *testing.T) {
 
 // TestGroupCreateDgrpctlCheckgroups (D-254): the same for dgrpctl checkgroups exec, which
 // creates the groups of the list that do not exist. A group made and numbered after it looked
-// is left as it is. Fails on main: NB=0000000001 NE=0000000000.
+// keeps its numbers (its status and description: TestGroupCreateCheckgroupsMeanwhileDgrpctl). Fails on main: NB=0000000001 NE=0000000000.
 func TestGroupCreateDgrpctlCheckgroups(t *testing.T) {
 	r := newCreateRace(t)
 	s := NewReaderSite(t, ReaderOptions{SpoolAddr: "127.0.0.1:1", Groups: []string{"e2e.test"}, NoStart: true})
@@ -511,24 +604,44 @@ func TestGroupCreateDsyncgroups(t *testing.T) {
 	}
 }
 
-// TestGroupCreateDsyncgroupsLock (D-254): dsyncgroups writes the fields of a new group with
-// one write each. It used to take the record lock for none of them, so a process that read
+// newGroupFields are the fields every group made by dsyncgroups -g -i has.
+var newGroupFields = []string{"NB", "GD", "NE", "NX", "CTS", "LMTS", "S"}
+
+// missingFields returns the fields of newGroupFields that f lacks.
+func missingFields(f map[string]string) []string {
+	var m []string
+	for _, k := range newGroupFields {
+		if _, ok := f[k]; !ok {
+			m = append(m, k)
+		}
+	}
+	return m
+}
+
+// TestGroupCreateDsyncgroupsLock (D-254, D-315): dsyncgroups -g makes the record of a new group
+// with all its fields in one append, so the group is complete for every process that can see it
+// and no record lock is held while dsyncgroups goes on (it prints the -v text of the group
+// after that). Before D-254 it wrote the fields one by one with no lock, so a process that read
 // the record in between (diablo's Xref numbers, dreaderd's article numbers: they lock the
-// record, read, and write NX or NE) saw it with NB and NE but no NX, and its number was
-// written over by the next write. Now the record stays locked from the NB write to the last
-// one, as for every other creator.
+// record, read, and write NX or NE) saw it with NB and NE but no NX, and its number was written
+// over by the next write. In #507 the record stayed locked from the NB write to the last one,
+// with the -v printf calls in that window: a stdout that does not drain (a pipe nobody reads, a
+// paused terminal) kept the group locked for every writer of it (D-315).
 //
-// A shim holds dsyncgroups -v when it prints " NE=" (after the write of NE, before that of
-// NX): the group has NB and NE. dgrpctl adjust (it locks the record, reads NX, writes NX+5)
-// starts then. With the lock it must wait for dsyncgroups and so end up behind it:
-// NX=0000000005 at the end. Without it adjust is done at once (the test waits at most 2 s
-// for that) and dsyncgroups then writes NX=0000000000 over its number. Fails on ed4f916e
-// (#507 before this change): adjust ends while the group is half written, and
-// NX=0000000000 at the end.
+// A shim holds dsyncgroups -v where it prints " NE=" of the new group (stuck on a stdout that
+// does not drain). There the group must be complete (NB, GD, NE, NX, CTS, LMTS, S), and
+// dgrpctl adjust (it locks the record, reads NX, writes NX+5) must be done within 2 s, not wait
+// for dsyncgroups; NX=0000000005 at the end. Fails on 257981c2 (#507): the record is locked and
+// has NB, GD and NE only, adjust waits (it ends once the shim lets go), and on ed4f916e (#507
+// before the lock): adjust gets through at once, reads no NX and dsyncgroups then writes
+// NX=0000000000 over its number.
 func TestGroupCreateDsyncgroupsLock(t *testing.T) {
 	r := newCreateRaceFrom(t, "groupcreateout", groupCreateOutPauseSource)
 	s := NewReaderSite(t, ReaderOptions{SpoolAddr: "127.0.0.1:1", Groups: []string{"e2e.test"}, NoStart: true})
-	port := dsyncPeer{Active: []string{"e2e.lock 10 1 y"}}.listen(t)
+	port := dsyncPeer{
+		Active:     []string{"e2e.lock 10 1 y"},
+		Newsgroups: []string{"e2e.lock\tThe lock group."},
+	}.listen(t)
 	type result struct {
 		out string
 		err error
@@ -537,7 +650,7 @@ func TestGroupCreateDsyncgroupsLock(t *testing.T) {
 	aDone := make(chan result, 1)
 	go func() {
 		cmd := exec.Command(filepath.Join(s.Bin, "dsyncgroups"), "-h", "127.0.0.1", "-p", strconv.Itoa(port),
-			"-F", filepath.Join(s.Dir, "dactive.kp"), "-g", "-v")
+			"-F", filepath.Join(s.Dir, "dactive.kp"), "-g", "-i", "-v")
 		cmd.Dir = s.Dir
 		cmd.Env = append(append(os.Environ(), s.Env...), append(append([]string{}, r.env...), "GROUPCREATE_PAUSE_ON= NE=")...)
 		cmd.WaitDelay = 3 * time.Second
@@ -547,11 +660,9 @@ func TestGroupCreateDsyncgroupsLock(t *testing.T) {
 	if !r.waitHeld(60 * time.Second) {
 		r.release()
 		a := <-aDone
-		t.Fatalf("dsyncgroups did not get to the write of NE of the new group (no .held file); it ended with %v and printed:\n%s", a.err, a.out)
+		t.Fatalf("dsyncgroups did not get to the -v text of the new group (no .held file); it ended with %v and printed:\n%s", a.err, a.out)
 	}
-	if f := kpFields(t, s, "e2e.lock"); f == nil || f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "" {
-		t.Fatalf("the held group has %v, want NB and NE and no NX", f)
-	}
+	held := kpFields(t, s, "e2e.lock")
 	bDone := make(chan result, 1)
 	go func() {
 		out, err := s.run("dgrpctl", "adjust", "e2e.lock", "NX", "+5")
@@ -575,11 +686,142 @@ func TestGroupCreateDsyncgroupsLock(t *testing.T) {
 	if b.err != nil {
 		t.Fatalf("dgrpctl adjust: %v\n%s", b.err, b.out)
 	}
-	if early {
-		t.Errorf("dgrpctl adjust got through while dsyncgroups held the new group half written (NB and NE, no NX); it printed:\n%s", b.out)
+	if held == nil || len(missingFields(held)) != 0 {
+		t.Errorf("the group at the -v text has %v, want a complete record (missing %v)", held, missingFields(held))
 	}
-	if f := kpFields(t, s, "e2e.lock"); f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "0000000005" || f["S"] != "y" {
-		t.Errorf("e2e.lock has %v, want NB=0000000001 NE=0000000000 NX=0000000005 S=y (the adjust after dsyncgroups)", f)
+	if !early {
+		t.Errorf("dgrpctl adjust waited while dsyncgroups was stuck on its output: the new group's record was locked")
+	}
+	if f := kpFields(t, s, "e2e.lock"); f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "0000000005" || f["S"] != "y" || f["GD"] == "" {
+		t.Errorf("e2e.lock has %v, want NB=0000000001 NE=0000000000 NX=0000000005 S=y and a description (the adjust after the creation)", f)
+	}
+	if !strings.Contains(a.out, "NX=0000000000(") || !strings.Contains(a.out, "desc='The lock group.'") {
+		t.Errorf("the -v text of the new group is missing its fields:\n%s", a.out)
+	}
+}
+
+// TestGroupCreateDsyncgroupsKilled (D-316): dsyncgroups -g killed (SIGKILL) while it makes the
+// record of a new group leaves no record, or the whole one: never a record with NB and without
+// NE and NX. A shim holds the process at two points of the creation, the test kills it there and
+// reads the group: right after the line of the record is written (not yet published: the
+// append counter is not bumped) and right after the counter is (published). Then a second
+// run must complete the group (made, or there). Fails on 257981c2 (#507) at both points: the
+// group has NB and nothing else (the fields followed one by one), and a second run leaves it so
+// (the group exists).
+func TestGroupCreateDsyncgroupsKilled(t *testing.T) {
+	for _, at := range []string{"record", "counter"} {
+		t.Run(at, func(t *testing.T) {
+			r := newCreateRaceFrom(t, "groupcreatekill", groupCreateKillPauseSource)
+			s := NewReaderSite(t, ReaderOptions{SpoolAddr: "127.0.0.1:1", Groups: []string{"e2e.test"}, NoStart: true})
+			db := filepath.Join(s.Dir, "dactive.kp")
+			peer := dsyncPeer{
+				Active:     []string{"e2e.kill 10 1 y"},
+				Newsgroups: []string{"e2e.kill\tThe kill group."},
+			}
+			r.arm(t)
+			cmd := exec.Command(filepath.Join(s.Bin, "dsyncgroups"), "-h", "127.0.0.1", "-p", strconv.Itoa(peer.listen(t)),
+				"-F", db, "-g", "-i")
+			cmd.Dir = s.Dir
+			cmd.Env = append(append(os.Environ(), s.Env...), append(append([]string{}, r.env...), "GROUPCREATE_PAUSE_AT="+at)...)
+			var out strings.Builder
+			cmd.Stdout, cmd.Stderr = &out, &out
+			cmd.WaitDelay = 3 * time.Second
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			if !r.waitHeld(60 * time.Second) {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				t.Fatalf("dsyncgroups did not write a record (no .held file); it printed:\n%s", out.String())
+			}
+			if err := cmd.Process.Kill(); err != nil { // SIGKILL
+				t.Fatal(err)
+			}
+			_ = cmd.Wait()
+
+			f := kpFields(t, s, "e2e.kill")
+			switch {
+			case f == nil:
+				t.Logf("the killed dsyncgroups left no record for e2e.kill")
+			case len(missingFields(f)) != 0:
+				t.Errorf("the killed dsyncgroups left e2e.kill with %v, a partial record (missing %v)", f, missingFields(f))
+			}
+			// the next run neither fails nor hangs, and the group is complete after it
+			s.Run(t, "dsyncgroups", "-h", "127.0.0.1", "-p", strconv.Itoa(peer.listen(t)), "-F", db, "-g", "-i")
+			if f := kpFields(t, s, "e2e.kill"); f == nil || len(missingFields(f)) != 0 {
+				t.Errorf("after a second run e2e.kill has %v, want a complete record", f)
+			}
+		})
+	}
+}
+
+// TestGroupCreateCheckgroupsMeanwhileDgrpctl (D-312): a group the list has with "(Moderated)"
+// that did not exist at the first look of dgrpctl checkgroups exec, and was made as a plain
+// y group (and numbered) before it wrote, is checked as an existing group: status m and the
+// description of the list, numbers kept (D-254), one "Modified" line, no "Added". Before, it
+// stayed y with no description until the next checkgroups. Fails on 257981c2: S=y, no GD.
+func TestGroupCreateCheckgroupsMeanwhileDgrpctl(t *testing.T) {
+	r := newCreateRace(t)
+	s := NewReaderSite(t, ReaderOptions{SpoolAddr: "127.0.0.1:1", Groups: []string{"e2e.test"}, NoStart: true})
+	s.WriteFile(t, "checkgroups", "e2e.test\tThe test group.\ne2e.race\tThe race group. (Moderated)\n")
+	s.Run(t, "dgrpctl", "newgroup", "e2e.test", "y", `""`, "The test group.")
+	cg := filepath.Join(s.Dir, "checkgroups")
+	out := r.runHeld(t, s, secondCreator(s, "e2e.race", false), "dgrpctl", "checkgroups", "exec", cg)
+	wantNumbers(t, s, "e2e.race", "dgrpctl checkgroups exec")
+	f := kpFields(t, s, "e2e.race")
+	if f["S"] != "m" || !strings.Contains(f["GD"], "Moderated") {
+		t.Errorf("e2e.race made meanwhile has S=%q GD=%q, want S=m and the description of the list:\n%s", f["S"], f["GD"], out)
+	}
+	if n := strings.Count(out, "Modified group e2e.race"); n != 1 {
+		t.Errorf("%d \"Modified group e2e.race\" lines, want 1:\n%s", n, out)
+	}
+	if strings.Contains(out, "Added group e2e.race") || strings.Count(out, "Group e2e.race was made meanwhile") != 1 {
+		t.Errorf("the output should say once that e2e.race was made meanwhile and never that it was added:\n%s", out)
+	}
+}
+
+// TestGroupCreateCheckgroupsMeanwhileControl (D-312): the same for a checkgroups control
+// message: the group made as a plain y group after dreaderd looked gets status m and the
+// description of the message, and its numbers stay; the log has one "Changed group ...
+// flags=m" and no "Added group". Fails on 257981c2: S=y, no GD.
+func TestGroupCreateCheckgroupsMeanwhileControl(t *testing.T) {
+	r := newCreateRace(t)
+	st, spool := spoolStore(t)
+	s := NewReaderSite(t, ReaderOptions{
+		Spool:  spool,
+		Groups: []string{"e2e.test"},
+		Files:  map[string]string{"dcontrol.ctl": "checkgroups:*:*:doit=checkgroups.log\n" + cgGroupLines},
+		Env:    r.env,
+	})
+	s.Run(t, "dgrpctl", "newgroup", "e2e.test", "y", `""`, "The test group.")
+	r.arm(t)
+	errc := r.between(secondCreator(s, "e2e.race", false))
+	feedReader(t, s, st, "e2e.test", controlArticle(t, "checkgroups", "e2e.test\tThe test group.", "e2e.race\tThe race group. (Moderated)"))
+	if err := <-errc; err != nil {
+		t.Fatalf("the second creator: %v", err)
+	}
+	logFile := filepath.Join(s.Dir, "log", "checkgroups.log")
+	testkit.WaitFor(t, 10*time.Second, "the checkgroups log of e2e.race", func() bool {
+		b, _ := os.ReadFile(logFile)
+		return strings.Contains(string(b), "e2e.race")
+	})
+	// the change is made after the log line of the meanwhile; wait a little for it
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		if f := kpFields(t, s, "e2e.race"); f != nil && f["S"] == "m" {
+			break
+		}
+	}
+	wantNumbers(t, s, "e2e.race", "checkgroups control message")
+	f := kpFields(t, s, "e2e.race")
+	if f["S"] != "m" || !strings.Contains(f["GD"], "Moderated") {
+		t.Errorf("e2e.race made meanwhile has S=%q GD=%q, want S=m and the description of the message", f["S"], f["GD"])
+	}
+	b, _ := os.ReadFile(logFile)
+	if n := strings.Count(string(b), "Changed group e2e.race flags=m"); n != 1 {
+		t.Errorf("%d \"Changed group e2e.race flags=m\" lines in the log, want 1:\n%s", n, b)
+	}
+	if strings.Contains(string(b), "Added group e2e.race") {
+		t.Errorf("the log says e2e.race was added, which existed by then:\n%s", b)
 	}
 }
 
@@ -630,8 +872,8 @@ func TestGroupCreateControlNewgroup(t *testing.T) {
 }
 
 // TestGroupCreateControlCheckgroups (D-254): a checkgroups control message creates the groups
-// of its list that do not exist; a group made and numbered after dreaderd looked is left as it
-// is. Fails on main: NB=0000000001 NE=0000000000 (and "Added group e2e.race" in the log).
+// of its list that do not exist; a group made and numbered after dreaderd looked keeps its
+// numbers (TestGroupCreateCheckgroupsMeanwhileControl has its status). Fails on main: NB=0000000001 NE=0000000000 (and "Added group e2e.race" in the log).
 func TestGroupCreateControlCheckgroups(t *testing.T) {
 	r := newCreateRace(t)
 	st, spool := spoolStore(t)

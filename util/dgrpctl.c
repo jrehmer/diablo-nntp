@@ -836,19 +836,26 @@ GrpCtlCheckGroups(int ac, char **av, int pos)
 	    grpList = gl;
 	}
 
-	if ((rec = KPDBReadRecord(KDBActive, newsgroup, KP_LOCK, &recLen)) == NULL) {
-	    if (exec) {
-		char tsBuf[64];
+	rec = KPDBReadRecord(KDBActive, newsgroup, KP_LOCK, &recLen);
+	if (rec == NULL && exec) {
+	    char tsBuf[64];
 
-		/* as GrpCtlNewGroup(): S last, which releases the lock */
-		sprintf(tsBuf, "%08x", (int)time(NULL));
-		/* create if absent (D-254): not over a group made since the read */
-		if (KPDBCreate(KDBActive, newsgroup, "NB", "0000000001",
+	    /* as GrpCtlNewGroup(): S last, which releases the lock */
+	    sprintf(tsBuf, "%08x", (int)time(NULL));
+	    /* create if absent (D-254): not over a group made since the read */
+	    if (KPDBCreate(KDBActive, newsgroup, "NB", "0000000001",
 							KP_LOCK) != 0) {
-		    KPDBWrite(KDBActive, newsgroup, NULL, NULL, KP_UNLOCK);
-		    printf(">> Checkgroups: Group %s was made meanwhile, left as it is\n", newsgroup);
-		    continue;
-		}
+		/*
+		 * Made since the read (D-312): check it as a group that was
+		 * there, status and description, as newgroup does.  Its
+		 * numbers stay.
+		 */
+		KPDBWrite(KDBActive, newsgroup, NULL, NULL, KP_UNLOCK);
+		printf(">> Checkgroups: Group %s was made meanwhile, checked as an existing group\n", newsgroup);
+		rec = KPDBReadRecord(KDBActive, newsgroup, KP_LOCK, &recLen);
+		if (rec == NULL)
+		    continue;			/* removed again */
+	    } else {
 		KPDBWrite(KDBActive, newsgroup, "NE", "0000000000",
 							KP_LOCK_CONTINUE);
 		if (description[0])
@@ -858,12 +865,14 @@ GrpCtlCheckGroups(int ac, char **av, int pos)
 		KPDBWrite(KDBActive, newsgroup, "LMTS", tsBuf, KP_LOCK_CONTINUE);
 		KPDBWrite(KDBActive, newsgroup, "S", flags, KP_UNLOCK);
 		printf(">> Checkgroups: Added group %s\n", newsgroup);
-	    } else {
-		printf("dgrpctl newgroup %s %s \"\" \"%s\"\n",
+		continue;
+	    }
+	}
+	if (rec == NULL) {
+	    printf("dgrpctl newgroup %s %s \"\" \"%s\"\n",
 						newsgroup,
 						flags,
 						description);
-	    }
 	} else {
 	    const char *p;
 	    char buf[MAXGNAME];
