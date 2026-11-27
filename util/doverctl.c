@@ -39,7 +39,19 @@ int IterInProgress(char *Hash, int iter);
 int ScanActive(int convert, int newOnly);
 int RescanActive(void);
 void CleanSpool(char *cleanDir);
-void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks);
+/*
+ * DirFrame - one directory of the path from the group home down to the
+ * directory being scanned, by (st_dev, st_ino) of its stat(): a symlink
+ * to a directory on that path (cd -> ., up -> ..) is a loop.
+ */
+typedef struct DirFrame {
+    dev_t		df_Dev;
+    ino_t		df_Ino;
+    const struct DirFrame *df_Up;
+} DirFrame;
+
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs);
 int DeleteFile(const char *dirPath, const char *name);
 int MoveGroupFile(char *path1, char *path2);
 void ProcessFile(const char *dirPath, const char *name);
@@ -606,10 +618,13 @@ FindGroupByHash(char *Hash, int iter, int hier)
  *			(N at most :B minus 1 and the 22 characters of the hash)
  *	hierarchy	a group name component or the components joined by "."
  *			(a one-character component is joined to the next:
- *			"a.bcd"): starts with a letter or digit, which a
- *			group name must (RFC 5536 3.1.4), so ".hidden" and the
- *			junk files of dexpireover -R are not; "lost+found" is
- *			left alone (a group "lost+found.x.y" is not expected)
+ *			"a.bcd"): entered only when it starts with a letter
+ *			or digit, so ".hidden" and the junk files of
+ *			dexpireover -R are not; "lost+found" is left alone (a
+ *			group "lost+found.x.y" is not expected).  A group name
+ *			component may also start with '+', '-' or '_' (lib
+ *			ValidGroupName() accepts them): such groups are not
+ *			cleaned, as on main (D-330)
  * The length is the exact length of the layout's first level: a directory
  * that is not ours, such as lost+found, can have the right characters.
  */
@@ -687,11 +702,27 @@ OldDirName(const char *name)
     return(isalnum((unsigned char)name[0]) && isalnum((unsigned char)name[1]));
 }
 
+/*
+ * DirOnPath() - the directory st (of stat(), so a link's target) is one of
+ * dirs, the path from the group home down to the directory being scanned.
+ */
+static int
+DirOnPath(const DirFrame *dirs, const struct stat *st)
+{
+    for (; dirs != NULL; dirs = dirs->df_Up) {
+	if (dirs->df_Dev == st->st_dev && dirs->df_Ino == st->st_ino)
+	    return(1);
+    }
+    return(0);
+}
+
 void
 CleanSpool(char *cleanDir)
 {
     DIR *dir;
     int level = 0;
+    DirFrame home;
+    struct stat hst;
 
     if (VerboseOpt)
 	printf("Scanning group directories\n");
@@ -701,10 +732,20 @@ CleanSpool(char *cleanDir)
 				PatExpand(GroupHomePat), strerror(errno));
 	exit(1);
     }
+    /* the root of every path: a link back to the group home is a loop */
+    if (stat(".", &hst) != 0) {
+	fprintf(stderr, "Unable to stat(\"%s\"): %s\n",
+				PatExpand(GroupHomePat), strerror(errno));
+	exit(1);
+    }
+    home.df_Dev = hst.st_dev;
+    home.df_Ino = hst.st_ino;
+    home.df_Up = NULL;
     if ((dir = opendir(".")) != NULL) {
 	den_t *den;
 	struct stat st;
 	int isLink;
+	DirFrame top;
 
 	while ((den = readdir(dir)) != NULL) {
 	    /*
@@ -732,16 +773,25 @@ CleanSpool(char *cleanDir)
 	    }
 	    if (isLink && stat(den->d_name, &st) != 0)
 		continue;
+	    if (S_ISDIR(st.st_mode) && DirOnPath(&home, &st)) {
+		if (VerboseOpt)
+		    printf("Skipping directory loop %s/%s: it is the group home\n", PatExpand(GroupHomePat), den->d_name);
+		continue;
+	    }
 	    if (S_ISDIR(st.st_mode)) {
+		top.df_Dev = st.st_dev;
+		top.df_Ino = st.st_ino;
+		top.df_Up = &home;
 		/*
 		 * Below a directory that main did not enter (a name only the
-		 * layout rule accepts), a directory symlink is not followed
-		 * either (#515 r3): main never scanned such a tree, so a link
-		 * out of it would be a new way to remove files outside the
-		 * group home.  The trees main entered follow links as before.
+		 * layout rule accepts), no symlink is followed, opened or
+		 * removed either (#515 r3, r4): main never scanned such a
+		 * tree, so a link out of it would be a new way to remove or
+		 * change files outside the group home.  The trees main
+		 * entered follow links as before.
 		 */
 		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level,
-					!OldDirName(den->d_name));
+					!OldDirName(den->d_name), &top);
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the
@@ -764,13 +814,16 @@ CleanSpool(char *cleanDir)
 
 /*
  * scanDirectory() - scan dirpath/dirname for group files and remove the
- * files of no group.  With noLinks a child that is a symlink to a
- * directory is skipped (not followed, not removed); a symlink to a regular
- * file is handled as on main: DeleteFile() unlinks the link, not its
- * target.  Without noLinks child links are followed, as on main.
+ * files of no group.  With noLinks every child that is a symlink, of any
+ * type and also a dangling one, is skipped: not followed, not opened, not
+ * removed (#515 r4).  Without noLinks child links are followed, as on
+ * main.  dirs is the path from the group home down to dirname itself: a
+ * child directory on it (a link such as cd -> . or up -> ..) is skipped,
+ * not scanned and not removed, as the recursion would not end there.
  */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs)
 {
     DIR *dir2;
     char path[PATH_MAX];
@@ -801,23 +854,36 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 	den_t *den2;
 	struct stat st;
 	int isLink;
+	DirFrame sub;
 
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
-	    isLink = (lstat(den2->d_name, &st) == 0 && S_ISLNK(st.st_mode));
-	    if (stat(den2->d_name, &st) != 0) {
+	    if (lstat(den2->d_name, &st) != 0) {
 		printf("Unable to stat(%s/%s)\n", dirname, den2->d_name);
 		continue;
 	    }
-	    if (S_ISDIR(st.st_mode) && isLink && noLinks) {
+	    isLink = S_ISLNK(st.st_mode);
+	    if (isLink && noLinks) {
 		if (VerboseOpt)
 		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with two alphanumerics\n", path, den2->d_name);
 		continue;
 	    }
+	    if (isLink && stat(den2->d_name, &st) != 0) {
+		printf("Unable to stat(%s/%s)\n", dirname, den2->d_name);
+		continue;
+	    }
+	    if (S_ISDIR(st.st_mode) && DirOnPath(dirs, &st)) {
+		if (VerboseOpt)
+		    printf("Skipping directory loop %s/%s: already on the path from the group home\n", path, den2->d_name);
+		continue;
+	    }
 	    if (S_ISDIR(st.st_mode)) {
+		sub.df_Dev = st.st_dev;
+		sub.df_Ino = st.st_ino;
+		sub.df_Up = dirs;
 		if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level, noLinks);
+		    scanDirectory(path, den2->d_name, level, noLinks, &sub);
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the

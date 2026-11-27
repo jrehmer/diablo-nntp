@@ -169,7 +169,19 @@ KPDB  *KDBActive;
 Group *GHash[GHSIZE];
 
 void ScanDirectories(void);
-void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks);
+/*
+ * DirFrame - one directory of the path from the group home down to the
+ * directory being scanned, by (st_dev, st_ino) of its stat(): a symlink
+ * to a directory on that path (cd -> ., up -> ..) is a loop.
+ */
+typedef struct DirFrame {
+    dev_t		df_Dev;
+    ino_t		df_Ino;
+    const struct DirFrame *df_Up;
+} DirFrame;
+
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs);
 void DeleteJunkFile(const char *dirPath, const char *name);
 void ProcessOverviewFile(const char *dirPath, const char *name, int type);
 int getFirstArtAge(Group *group, int fd, OverHead *oh);
@@ -865,11 +877,38 @@ deleteStaleGroup(Group *group, int t)
  * If a newsgroup for a file cannot be found, the file is removed
  */
 
+/*
+ * DirOnPath() - the directory st (of stat(), so a link's target) is one of
+ * dirs, the path from the group home down to the directory being scanned.
+ */
+static int
+DirOnPath(const DirFrame *dirs, const struct stat *st)
+{
+    for (; dirs != NULL; dirs = dirs->df_Up) {
+	if (dirs->df_Dev == st->st_dev && dirs->df_Ino == st->st_ino)
+	    return(1);
+    }
+    return(0);
+}
+
+/*
+ * EntryIsLink() - the entry name of the current directory is a symlink.
+ */
+static int
+EntryIsLink(const char *name)
+{
+    struct stat lst;
+
+    return(lstat(name, &lst) == 0 && S_ISLNK(lst.st_mode));
+}
+
 void
 ScanDirectories(void)
 {
     DIR *dir;
     int level = 0;
+    DirFrame home;
+    struct stat hst;
 
     if (VerboseOpt)
 	printf("Scanning group directories\n");
@@ -879,9 +918,19 @@ ScanDirectories(void)
 				PatExpand(GroupHomePat), strerror(errno));
 	exit(1);
     }
+    /* the root of every path: a link back to the group home is a loop */
+    if (stat(".", &hst) != 0) {
+	fprintf(stderr, "Unable to stat(\"%s\"): %s\n",
+				PatExpand(GroupHomePat), strerror(errno));
+	exit(1);
+    }
+    home.df_Dev = hst.st_dev;
+    home.df_Ino = hst.st_ino;
+    home.df_Up = NULL;
     if ((dir = opendir(".")) != NULL) {
 	den_t *den;
 	struct stat st;
+	DirFrame top;
 
 	while ((den = readdir(dir)) != NULL) {
 	    /*
@@ -911,13 +960,22 @@ ScanDirectories(void)
 		 */
 		(ParallelCount ? ((GFIndex(den->d_name[0]) % ParallelCount) ==
 				      ParallelIdx) : 1)
-	    )
+	    ) {
+		if (DirOnPath(&home, &st)) {
+		    if (VerboseOpt > 0)
+			printf("Skipping directory loop %s/%s: it is the group home\n", PatExpand(GroupHomePat), den->d_name);
+		    continue;
+		}
+		top.df_Dev = st.st_dev;
+		top.df_Ino = st.st_ino;
+		top.df_Up = &home;
 		/*
-		 * Below a sign directory a directory symlink is not followed
-		 * either (#515 r3): main never entered those trees.  The
+		 * Below a sign directory no symlink is followed or opened
+		 * (#515 r3, r4): main never entered those trees.  The
 		 * alphanumeric trees follow links as before.
 		 */
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level, signDir);
+		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level, signDir, &top);
+	    }
 	}
 	closedir(dir);
     }
@@ -945,13 +1003,17 @@ ScanDirectories(void)
 
 /*
  * scanDirectory() - expire the group files of dirpath/dirname and remove
- * the files of no group.  With noLinks a child that is a symlink to a
- * directory is skipped (not followed); a symlink to a regular file is
- * handled as on main (a removal unlinks the link, not its target).
- * Without noLinks child links are followed, as on main.
+ * the files of no group.  With noLinks every child that is a symlink, of
+ * any type and also a dangling one, is skipped: not followed, not opened
+ * (an over file would be expired in the link's target), not removed
+ * (#515 r4).  Without noLinks child links are followed, as on main.  dirs
+ * is the path from the group home down to dirname itself: a child
+ * directory on it (a link such as cd -> . or up -> ..) is skipped, as
+ * the recursion would not end there.
  */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs)
 {
     DIR *dir2;
     char path[PATH_MAX];
@@ -978,18 +1040,26 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 	char tbuf[24];
 	int tint;
 	struct stat st;
-	struct stat lst;
+	DirFrame sub;
 
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
+	    if (noLinks && EntryIsLink(den2->d_name)) {
+		if (VerboseOpt > 0)
+		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with an alphanumeric\n", path, den2->d_name);
+		continue;
+	    }
 	    if (stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
-		if (noLinks && lstat(den2->d_name, &lst) == 0 &&
-						S_ISLNK(lst.st_mode)) {
+		if (DirOnPath(dirs, &st)) {
 		    if (VerboseOpt > 0)
-			printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with an alphanumeric\n", path, den2->d_name);
-		} else if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level, noLinks);
+			printf("Skipping directory loop %s/%s: already on the path from the group home\n", path, den2->d_name);
+		} else if (*level <= 2) {
+		    sub.df_Dev = st.st_dev;
+		    sub.df_Ino = st.st_ino;
+		    sub.df_Up = dirs;
+		    scanDirectory(path, den2->d_name, level, noLinks, &sub);
+		}
 	    } else if (overFileType(den2->d_name) == 1)
 		ProcessOverviewFile(path, den2->d_name, 1);
 	    if (MustExit)
@@ -1004,7 +1074,9 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 	    if (strncmp(den2->d_name, ".data.", 6) == 0 ||
 		strncmp(den2->d_name, ".d.", 3) == 0 ||
 		sscanf(den2->d_name, ".%23[^.]s.%d.d.", tbuf, &tint) == 2) {
-		DeleteJunkFile(path, den2->d_name);
+		/* a symlink was reported by the first pass */
+		if (!(noLinks && EntryIsLink(den2->d_name)))
+		    DeleteJunkFile(path, den2->d_name);
 		continue;
 	    }
 
@@ -1017,6 +1089,7 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 	     * group name component and never parses as "d.<n>.<group>").
 	     */
 	    if (overFileType(den2->d_name) == 2 &&
+		!(noLinks && EntryIsLink(den2->d_name)) &&
 		!(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		ProcessOverviewFile(path, den2->d_name, 2);
 	    if (MustExit)

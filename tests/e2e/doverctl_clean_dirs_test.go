@@ -2,11 +2,13 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cleanDirsOver returns the path of the over file of group below the group home, as
@@ -710,6 +712,246 @@ func TestOverToolsOldNameDirChildSymlink(t *testing.T) {
 				t.Errorf("%s skipped a symlink", tool.name)
 			}
 			if t.Failed() {
+				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}
+
+// cleanDirsOldOver is hierOverFile(group, 1, 500) with article 1 received 60 days ago, so that
+// `dexpireover -a` with "e2e.*:x30" in dexpire.ctl expires it and so writes to the file.
+func cleanDirsOldOver(group string) []byte {
+	b := hierOverFile(group, 1, 500)
+	const head, slot = 16 + 256 + 4, 32 // OverHead, OverArt (dreaderd/defs.h)
+	binary.NativeEndian.PutUint32(b[head+1*slot+24:], uint32(time.Now().Add(-60*24*time.Hour).Unix()))
+	return b
+}
+
+// cleanDirsCRCData turns the crc over file name "over.0.<hash>" into the name of the data file
+// with the article base base: "data.<base>.<hash>".
+func cleanDirsCRCData(t *testing.T, over string, base int) string {
+	t.Helper()
+	if !strings.HasPrefix(over, "over.0.") {
+		t.Fatalf("%q is not a crc over file name", over)
+	}
+	return fmt.Sprintf("data.%d.%s", base, strings.TrimPrefix(over, "over.0."))
+}
+
+// cleanDirsFileLinks makes in d the three symlinks of the file-symlink tests, named as files of a
+// live group (range 1..300): over (the group's over file name) to outside/over, which holds
+// cleanDirsOldOver(group); data (a data file name of the group, base 1024: out of range) to
+// outside/data, which holds 10 bytes; dangling (base 1280) to outside/missing, which does not
+// exist. It returns the links and the two outside files.
+func cleanDirsFileLinks(t *testing.T, d, outside, group, over, data, dangling string) (links [3][2]string, targets []hierFile) {
+	t.Helper()
+	targets = []hierFile{
+		{filepath.Join(outside, "over"), cleanDirsOldOver(group)},
+		{filepath.Join(outside, "data"), bytes.Repeat([]byte("x"), 10)},
+	}
+	hierWrite(t, targets)
+	links = [3][2]string{
+		{filepath.Join(d, over), targets[0].path},
+		{filepath.Join(d, data), targets[1].path},
+		{filepath.Join(d, dangling), filepath.Join(outside, "missing")},
+	}
+	for _, l := range links {
+		if err := os.Symlink(l[1], l[0]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return links, targets
+}
+
+// TestOverToolsMd564SignDirFileSymlink (D-326, the #515 r4 review): below a top-level directory "+"
+// or "-" of the group home (md5-64\1), which main skipped, doverctl clean and dexpireover -a skip
+// every symlink, not only a symlink to a directory (r3): a link named as a live group's over file
+// is otherwise opened read-write through the link, and dexpireover expires the over file it
+// points to, wherever that is; a link named as a stale data file is removed.
+//
+// Input: readergrouphash md5-64\1, "e2e.*:x30" in dexpire.ctl; a group whose directory is "+" or
+// "-" (found with `dgrpctl listgrouphashfile`, range 1..300); in that real directory a data file
+// of no group and three symlinks named as files of the group: its over file name to an over file
+// of the group outside the group home with article 1 received 60 days ago, its data file of base
+// 1024 (out of range) to an outside file, and its data file of base 1280 to a file that does not
+// exist; `doverctl -v clean` and `dexpireover -a -v` in a case each. Expected: both outside files
+// are byte-identical; all three links are still there and point to their targets; the tool
+// reports "Skipping symlink <path>:" for each; the data file of no group is removed and reported
+// (the directory was scanned); the tool exits 0. **Fails** on 20427179 (#515 r4): dexpireover
+// expires the outside over file (it changes) and removes the data link and the dangling link;
+// doverctl removes the data link (stale) and prints no "Skipping symlink" line.
+func TestOverToolsMd564SignDirFileSymlink(t *testing.T) {
+	for _, tool := range cleanDirsTools {
+		t.Run(tool.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": `md5-64\1`})
+			s.WriteFile(t, "dexpire.ctl", "e2e.*:x30\n")
+			group, over := cleanDirsPlusMinusGroup(t, s)
+			hierGroupRange(t, s, group, "1", "300")
+			dir, base := filepath.Split(over)
+			d := filepath.Join(home, dir)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			stale := filepath.Join(d, "zzzzzzzzzzzzzzzzzzzzzz.0.d.64.256")
+			writeOver(t, stale, bytes.Repeat([]byte("x"), 10))
+			links, targets := cleanDirsFileLinks(t, d, t.TempDir(), group, base,
+				cleanDirsMD5Data(t, base, 1024), cleanDirsMD5Data(t, base, 1280))
+
+			out, err := s.TryRun(tool.args[0], tool.args[1:]...)
+			if err != nil {
+				t.Errorf("%s: %v", strings.Join(tool.args, " "), err)
+			}
+
+			hierCheckKept(t, home, targets)
+			for _, l := range links {
+				cleanDirsIsLink(t, home, l[0], l[1])
+				if !strings.Contains(out, "Skipping symlink "+l[0]+":") {
+					t.Errorf("%s did not report that it skipped the symlink %s", tool.name, strings.TrimPrefix(l[0], home))
+				}
+			}
+			hierCheckGone(t, home, out, []string{stale}, true)
+			if t.Failed() {
+				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}
+
+// TestOverToolsOldNameDirFileSymlink (D-326, the #515 r4 review, control): below a top-level
+// directory that main entered (crc: two lowercase hex digits), symlinks to files are handled as on
+// main and on 20427179; the r4 change (TestOverToolsMd564SignDirFileSymlink) is only for the trees
+// main did not enter.
+//
+// Input: readergrouphash crc, "e2e.*:x30" in dexpire.ctl; in e2e.test's directory a data file of
+// no group and the three symlinks of TestOverToolsMd564SignDirFileSymlink, named as e2e.test's over
+// file, its data file of base 1024 (out of range) and of base 1280 (dangling); `doverctl -v clean`
+// and `dexpireover -a -v` in a case each. Expected, as on 20427179: no "Skipping symlink" line;
+// the over link is kept; dexpireover expires article 1 in the outside over file through the link
+// (the file changes), doverctl only reads it (unchanged); the out-of-range data link is removed
+// (the link, not the outside file, which is unchanged); the dangling link is removed by
+// dexpireover (stale by its name) and kept by doverctl ("Unable to stat(<dir>/<name>)"); the data
+// file of no group is removed; the tool exits 0.
+func TestOverToolsOldNameDirFileSymlink(t *testing.T) {
+	for _, tool := range cleanDirsTools {
+		t.Run(tool.name, func(t *testing.T) {
+			dexpire := tool.name == "dexpireover"
+			s, home := overSite(t, nil)
+			s.WriteFile(t, "dexpire.ctl", "e2e.*:x30\n")
+			dir, base := filepath.Split(cleanDirsOver(t, s, "e2e.test"))
+			dir = strings.TrimSuffix(dir, "/")
+			d := filepath.Join(home, dir)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			stale := filepath.Join(d, "data.256.deadbeef.cafebabe")
+			writeOver(t, stale, bytes.Repeat([]byte("x"), 10))
+			links, targets := cleanDirsFileLinks(t, d, t.TempDir(), "e2e.test", base,
+				cleanDirsCRCData(t, base, 1024), cleanDirsCRCData(t, base, 1280))
+
+			out, err := s.TryRun(tool.args[0], tool.args[1:]...)
+			if err != nil {
+				t.Errorf("%s: %v", strings.Join(tool.args, " "), err)
+			}
+
+			if strings.Contains(out, "Skipping symlink ") {
+				t.Errorf("%s skipped a symlink", tool.name)
+			}
+			cleanDirsIsLink(t, home, links[0][0], links[0][1])
+			if got, err := os.ReadFile(targets[0].path); err != nil {
+				t.Errorf("the outside over file was removed: %v", err)
+			} else if changed := !bytes.Equal(got, targets[0].want); changed != dexpire {
+				t.Errorf("the outside over file changed: %v, want %v (expired through the link only by dexpireover)", changed, dexpire)
+			}
+			hierCheckKept(t, home, targets[1:])
+			if _, err := os.Lstat(links[1][0]); err == nil {
+				t.Errorf("the out-of-range data link %s is still there", strings.TrimPrefix(links[1][0], home))
+			}
+			_, err = os.Lstat(links[2][0])
+			if kept := err == nil; kept == dexpire {
+				t.Errorf("the dangling link %s kept: %v, want %v", strings.TrimPrefix(links[2][0], home), kept, !dexpire)
+			}
+			if !dexpire && !strings.Contains(out, "Unable to stat("+dir+"/"+filepath.Base(links[2][0])+")") {
+				t.Errorf("doverctl did not report the dangling link as not stat-able")
+			}
+			hierCheckGone(t, home, out, []string{stale}, true)
+			if t.Failed() {
+				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}
+
+// TestOverToolsDirLoopSymlink (D-326, go-while's #515 review, F3): a symlink to a directory that
+// is already on the path from the group home (a loop: "cd -> ." in the group home, "loop -> ."
+// or "up -> .." in a group directory) is skipped with a -v line "Skipping directory loop
+// <path>:", not scanned again and not removed. scanDirectory()'s depth limit (*level) is never
+// incremented, so before the check the recursion ended only when the path no longer fitted
+// PATH_MAX, and since r1 doverctl no longer drifts with chdir(".."). Each scan through the loop
+// also entered every directory of the group home with scanDirectory(), which does not apply
+// CleanSpool()'s layout rule, so the files of lost+found were removed.
+//
+// Input: readergrouphash crc; in the group home the symlink "cd" (or "ab" when "cd" is e2e.test's
+// directory) to "." and lost+found/junk.txt; in e2e.test's directory its over file, a data file of
+// no group and the symlinks "loop" to "." and "up" to ".."; a data file of no group in the parent
+// of the group home (outside it); `doverctl -v clean` and `dexpireover -a -v` in a case each.
+// Expected: the tool exits 0; the over file is unchanged; the data file of no group in e2e.test's
+// directory is removed and reported; the three links, junk.txt and the file outside the group
+// home are still there; "Skipping directory loop <path>:" for each link. **Fails** on 20427179:
+// both tools die of SIGSEGV (stack overflow); whether junk.txt goes before that depends on the
+// readdir() order (go-while saw it removed). On main dexpireover dies of SIGSEGV too, and doverctl
+// exits 1 with 1527 failed file operations: its chdir("..") after the links drifted out of the
+// group home.
+func TestOverToolsDirLoopSymlink(t *testing.T) {
+	for _, tool := range cleanDirsTools {
+		t.Run(tool.name, func(t *testing.T) {
+			s, home := overSite(t, nil)
+			dir, base := filepath.Split(cleanDirsOver(t, s, "e2e.test"))
+			dir = strings.TrimSuffix(dir, "/")
+			top := "cd"
+			if dir == top {
+				top = "ab"
+			}
+			d := filepath.Join(home, dir)
+			for _, x := range []string{d, filepath.Join(home, "lost+found")} {
+				if err := os.MkdirAll(x, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			keep := []hierFile{
+				{filepath.Join(d, base), hierOverFile("e2e.test", 1, 500)},
+				{filepath.Join(home, "lost+found", "junk.txt"), []byte("keep me")},
+				{filepath.Join(filepath.Dir(home), "data.256.deadbeef.cafebab9"), bytes.Repeat([]byte("x"), 10)},
+			}
+			hierWrite(t, keep)
+			stale := filepath.Join(d, "data.256.deadbeef.cafebabe")
+			writeOver(t, stale, bytes.Repeat([]byte("x"), 10))
+			links := [][2]string{
+				{filepath.Join(home, top), "."},
+				{filepath.Join(d, "loop"), "."},
+				{filepath.Join(d, "up"), ".."},
+			}
+			for _, l := range links {
+				if err := os.Symlink(l[1], l[0]); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			out, err := s.TryRun(tool.args[0], tool.args[1:]...)
+			if err != nil {
+				t.Errorf("%s: %v", strings.Join(tool.args, " "), err)
+			}
+
+			hierCheckKept(t, home, keep)
+			hierCheckGone(t, home, out, []string{stale}, true)
+			for _, l := range links {
+				cleanDirsIsLink(t, home, l[0], l[1])
+				if !strings.Contains(out, "Skipping directory loop "+l[0]+":") {
+					t.Errorf("%s did not report the directory loop %s", tool.name, strings.TrimPrefix(l[0], home))
+				}
+			}
+			if t.Failed() {
+				if len(out) > 8000 {
+					out = out[:4000] + "\n...\n" + out[len(out)-4000:]
+				}
 				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
 			}
 		})

@@ -653,10 +653,13 @@ TestNewsgroupsSpaceInsideList 0.05
 TestNoZlibCompressionOff 0.00
 TestNulTakethisFraming 0.12
 TestOverGzipTruncatedHeader 0.02
+TestOverToolsDirLoopSymlink 0.13
 TestOverToolsGroupRemovedWhileWaiting 0.07
 TestOverToolsMd564PlusMinusDir 0.60
 TestOverToolsMd564SignDirChildSymlink 0.09
+TestOverToolsMd564SignDirFileSymlink 0.58
 TestOverToolsOldNameDirChildSymlink 0.09
+TestOverToolsOldNameDirFileSymlink 0.14
 TestOverviewMsgIdCollisionCancel 0.07
 TestOverviewMsgIdCollisionXhdr 0.06
 TestOverviewMsgIdTwoHeaders 0.06
