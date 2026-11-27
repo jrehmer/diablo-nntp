@@ -28,6 +28,7 @@
  */
 
 #include "defs.h"
+#include "overstore.h"
 #include <sys/resource.h>	/* getrlimit() in OverCacheLimit(); defs.h has it only with USE_PRCTL */
 
 #define OVHSIZE		1024
@@ -87,11 +88,9 @@ Prototype void OverCacheFdPressure(void);
 Prototype OverInfo *GetOverInfo(const char *group);
 Prototype void PutOverInfo(OverInfo *ov);
 Prototype const char *GetOverRecord(OverInfo *ov, artno_t artno, int *plen, int *aleno, int *plines, TimeRestrict *tr, int *TimeRcvd);
-Prototype int ReadOverviewRange(Connection *conn);
 Prototype OverInfo *FindCanceledMsg(const char *group, const char *msgid, artno_t *partNo, int *pvalidGroups);
 Prototype OverInfo *FindMsgInGroup(const char *group, const char *msgid, artno_t *partNo, artno_t maxScan);
 Prototype int CancelOverArt(OverInfo *ov, artno_t artNo);
-Prototype void OutputOverRange(OverInfo *ov, Connection *conn);
 
 Prototype int NNTestOverview(Connection *conn);
 Prototype const char *NNRetrieveHead(Connection *conn, int *povlen, const char **pmsgid, int *TimeRcvd, int *grpIter, artno_t *endNo);
@@ -1541,14 +1540,17 @@ GetOverRecord(OverInfo *ov, artno_t artno, int *plen, int *alen, int *plines, Ti
     }
 }
 
-int
-ProcessOverMmapNeed(OverInfo *ov, Connection *conn, TimeRestrict *tr, artno_t artend, size_t maxsize, int *beg, int *end)
+#ifdef USE_OVER_MADVISE
+static int
+ProcessOverMmapNeed(OverInfo *ov, OverStoreRange *range, artno_t artend,
+		    int *beg, int *end)
 {
     artno_t i;
     int nart=0;
     const OverArt *oa;
+    TimeRestrict *tr = range->timeRestrict;
 
-    for (i=conn->co_ListBegNo; i<=artend; i++) {
+    for (i=range->next; i<=artend; i++) {
 	oa = GetOverArt(ov, i, NULL);
 	if ( (oa == NULL)
 		|| (! OA_ARTNOEQ(i, oa->oa_ArtNo)) 
@@ -1556,7 +1558,7 @@ ProcessOverMmapNeed(OverInfo *ov, Connection *conn, TimeRestrict *tr, artno_t ar
 		|| (oa->oa_SeekPos < 0)
 	) {
 	    /* move artno to first available article */
-	    if (i==conn->co_ListBegNo) conn->co_ListBegNo++;
+	    if (i==range->next) range->next++;
 	    continue;
 	}
 	if (nart) {
@@ -1576,8 +1578,8 @@ ProcessOverMmapNeed(OverInfo *ov, Connection *conn, TimeRestrict *tr, artno_t ar
     return nart;
 }
 
-void
-OutputOverRange(OverInfo *ov, Connection *conn)
+static void
+ScanMappedOverviewRange(OverInfo *ov, OverStoreRange *range)
 {
     int hvpos;
     int xpos=0;
@@ -1585,20 +1587,17 @@ OutputOverRange(OverInfo *ov, Connection *conn)
     int nart=0;
     const OverArt *oa;
     OverData *od;
-    artno_t artBase = conn->co_ListBegNo & ~ov->ov_DataEntryMask;
-    artno_t artend = conn->co_ListEndNo;
-    TimeRestrict *tr = NULL;
-
-    if (conn->co_ArtMode == COM_NEWNEWS)
-	tr = &conn->co_TimeRestrict;
+    artno_t artBase = range->next & ~ov->ov_DataEntryMask;
+    artno_t artend = range->last;
+    TimeRestrict *tr = range->timeRestrict;
 
     /* one datafile at a time */
     if (artend>artBase+ov->ov_DataEntryMask) {
 	artend = artBase+ov->ov_DataEntryMask;
     }
     /* process mmap needs */
-    if ((conn->co_ListBegNo>artBase) || (artend<artBase+ov->ov_DataEntryMask)) {
-	nart = ProcessOverMmapNeed(ov, conn, tr, artend, OVER_HMAPSIZE, &xpos, &xsize);
+    if ((range->next>artBase) || (artend<artBase+ov->ov_DataEntryMask)) {
+	nart = ProcessOverMmapNeed(ov, range, artend, &xpos, &xsize);
 	if (nart==0) return;
 	if (xpos) xpos--;
 	xsize -= xpos-1;
@@ -1606,7 +1605,7 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 
     /* mmaping datafile */
     if ((od = MakeOverHFile(ov, artBase, 0)) == NULL) {
-	conn->co_ListBegNo = artend+1;
+	range->next = artend+1;
 	return;
     }
 
@@ -1636,20 +1635,20 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 
 	if (!st.st_size) {
 	    if (xsize) {
-		logit(LOG_CRIT, "Group %s data file is empty (%i/%i)", conn->co_GroupName, st.st_size, xsize);
+		logit(LOG_CRIT, "Group %s data file is empty (%i/%i)", range->group, st.st_size, xsize);
 	    }
-	    conn->co_ListBegNo = artend+1;
+	    range->next = artend+1;
 	    return;
 	}
 	if (xpos > st.st_size) {
-	    logit(LOG_CRIT, "Group %s data file is too small to be mmapped (%i/%i)", conn->co_GroupName, st.st_size, xpos);
-	    conn->co_ListBegNo = artend+1;
+	    logit(LOG_CRIT, "Group %s data file is too small to be mmapped (%i/%i)", range->group, st.st_size, xpos);
+	    range->next = artend+1;
 	    return;
 	} 
 
 	if (nart==0) {
 	    if (st.st_size>OVER_HMAPSIZE) {
-		nart = ProcessOverMmapNeed(ov, conn, tr, artend, OVER_HMAPSIZE, &xpos, &xsize);
+		nart = ProcessOverMmapNeed(ov, range, artend, &xpos, &xsize);
 		if (nart==0) return;
 		if (xpos) xpos--;
 		xsize -= xpos-1;
@@ -1662,13 +1661,13 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 	od->od_HMapPos = xpos;
 	if (xpos + xsize > st.st_size) {
 	    /* check if first article is inside the file */
-    	    oa = GetOverArt(ov, conn->co_ListBegNo, NULL);
+	    oa = GetOverArt(ov, range->next, NULL);
 	    if (oa->oa_SeekPos + oa->oa_Bytes > st.st_size) {
-		logit(LOG_CRIT, "Group %s data file is too small to contain header #%lld (%i+%i>%i)", conn->co_GroupName, conn->co_ListBegNo, oa->oa_SeekPos, oa->oa_Bytes, st.st_size);
-		conn->co_ListBegNo++;
+		logit(LOG_CRIT, "Group %s data file is too small to contain header #%lld (%i+%i>%i)", range->group, range->next, oa->oa_SeekPos, oa->oa_Bytes, st.st_size);
+		range->next++;
 		return;
 	    }
-	    logit(LOG_CRIT, "Group %s data file is too small to be fully mmapped (%i+%i>%i)", conn->co_GroupName, xpos, xsize, st.st_size);
+	    logit(LOG_CRIT, "Group %s data file is too small to be fully mmapped (%i+%i>%i)", range->group, xpos, xsize, st.st_size);
 	    od->od_HMapBytes = st.st_size - xpos;
 	} else {
 	    od->od_HMapBytes= xsize;
@@ -1676,17 +1675,17 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 	
 	od->od_HMapBase = xmap(NULL, od->od_HMapBytes, PROT_READ, MAP_SHARED, od->od_HFd, od->od_HMapPos);
 	if (od->od_HMapBase == NULL) {
-	    logit(LOG_CRIT, "mmap() failed C (%s) group %s (%lld:%lld@%i:%i)", strerror(errno), conn->co_GroupName, conn->co_ListBegNo, artend, od->od_HMapPos, od->od_HMapBytes);
+	    logit(LOG_CRIT, "mmap() failed C (%s) group %s (%lld:%lld@%i:%i)", strerror(errno), range->group, range->next, artend, od->od_HMapPos, od->od_HMapBytes);
 	    exit(1);
 	}
 	xadvise(od->od_HMapBase, od->od_HMapBytes, advise);
     }
 
-    for( ; conn->co_ListBegNo <= artend ; conn->co_ListBegNo++) {
+    for( ; range->next <= artend ; range->next++) {
 
-	oa = GetOverArt(ov, conn->co_ListBegNo, NULL);
+	oa = GetOverArt(ov, range->next, NULL);
 
-	if (oa==NULL || ! OA_ARTNOEQ(conn->co_ListBegNo, oa->oa_ArtNo)) continue;
+	if (oa==NULL || ! OA_ARTNOEQ(range->next, oa->oa_ArtNo)) continue;
 	if (tr && tr->tr_Time > oa->oa_TimeRcvd) continue;
     	if (oa->oa_SeekPos == -1) continue;
 
@@ -1720,73 +1719,43 @@ OutputOverRange(OverInfo *ov, Connection *conn)
 	    if (*r == 0)
 		continue;
 	    if (xpos < hvpos && r[-1] != 0) {
-		logit(LOG_ERR, "corrupt overview entry for %s:%lld", ov->ov_Group, conn->co_ListBegNo);
+		logit(LOG_ERR, "corrupt overview entry for %s:%lld", ov->ov_Group, range->next);
 		continue;
 	    }
 	    if (r[oa->oa_Bytes] != 0) {
-		logit(LOG_ERR, "corrupt overview entry for %s:%lld", ov->ov_Group, conn->co_ListBegNo);
+		logit(LOG_ERR, "corrupt overview entry for %s:%lld", ov->ov_Group, range->next);
 		continue;
 	    }
-	    OutputOverview(conn, r, oa->oa_Bytes, oa->oa_ArtSize, OA_LINES(oa));
+	    range->emit(range->context, range->next, r, oa->oa_Bytes,
+			oa->oa_ArtSize, OA_LINES(oa));
 	}
     }
 }
+#endif /* USE_OVER_MADVISE */
 
-/* Most overview records looked at in one pass before other work gets a turn. */
-#define OVERVIEW_PASS_RECORDS	10000
-
-/*
- * Hold the overview only for this pass. Return 0 if the group has no
- * readable overview, -1 for a pending write error, or 1 after a pass.
- * The caller finishes the response or continues from co_ListBegNo.
- */
 int
-ReadOverviewRange(Connection *conn)
+OverStoreReadRange(OverStoreRange *range)
 {
     OverInfo *ov;
-    int xpat_count = 0;
-    int nrec = 0;
 
-    if ((ov = GetOverInfo(conn->co_GroupName)) == NULL)
+    if ((ov = GetOverInfo(range->group)) == NULL)
 	return(0);
-    if (conn->co_TMBuf.mh_WError) {
-	PutOverInfo(ov);
-	return(-1);
-    }
 
-    while (conn->co_TMBuf.mh_Bytes < MBUF_HIWAT &&
-	    conn->co_ListBegNo <= conn->co_ListEndNo
-    ) {
-#ifndef USE_OVER_MADVISE
+    while (range->next <= range->last && range->canContinue(range->context)) {
+#ifdef USE_OVER_MADVISE
+	ScanMappedOverviewRange(ov, range);
+#else
 	int resLen;
 	int artSize;
 	int lines;
 	const char *res;
-	TimeRestrict *tr = NULL;
-#endif
 
-	/*
-	 * Bound the work done in one pass. A range of missing articles
-	 * produces no output, so the buffer test above never stops it and
-	 * a very wide range (xref-slave mode) would hold the process.
-	 */
-	if (++nrec > OVERVIEW_PASS_RECORDS) {
-	    FD_SET(conn->co_Desc->d_Fd, &WFds);
-	    break;
-	}
-	if (conn->co_ArtMode == COM_XPAT && ++xpat_count > 50) {
-	    FD_SET(conn->co_Desc->d_Fd, &WFds);
-	    break;
-	}
-#ifdef USE_OVER_MADVISE
-	OutputOverRange(ov, conn);
-#else
-	if (conn->co_ArtMode == COM_NEWNEWS)
-	    tr = &conn->co_TimeRestrict;
-	if ((res = GetOverRecord(ov, conn->co_ListBegNo, &resLen, &artSize, &lines, tr, NULL)) != NULL)
-	    OutputOverview(conn, res, resLen, artSize, lines);
-	++conn->co_ListBegNo;
-#endif	/* USE_OVER_MADVISE */
+	res = GetOverRecord(ov, range->next, &resLen, &artSize, &lines,
+			    range->timeRestrict, NULL);
+	if (res != NULL)
+	    range->emit(range->context, range->next, res, resLen, artSize, lines);
+	++range->next;
+#endif
     }
     PutOverInfo(ov);
     return(1);
