@@ -39,7 +39,19 @@ int IterInProgress(char *Hash, int iter);
 int ScanActive(int convert, int newOnly);
 int RescanActive(void);
 void CleanSpool(char *cleanDir);
-void scanDirectory(const char *dirpath, char *dirname, int *level);
+/*
+ * DirFrame - one directory of the path from the group home down to the
+ * directory being scanned, by (st_dev, st_ino) of its stat(): a symlink
+ * to a directory on that path (cd -> ., up -> ..) is a loop.
+ */
+typedef struct DirFrame {
+    dev_t		df_Dev;
+    ino_t		df_Ino;
+    const struct DirFrame *df_Up;
+} DirFrame;
+
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs);
 int DeleteFile(const char *dirPath, const char *name);
 int MoveGroupFile(char *path1, char *path2);
 void ProcessFile(const char *dirPath, const char *name);
@@ -593,11 +605,124 @@ FindGroupByHash(char *Hash, int iter, int hier)
     return(first);
 }
 
+/*
+ * LayoutDirName() - name is the name of a top-level directory of the group
+ * home that the layout (readergrouphash) can have made, as GFName() builds
+ * it (D-326):
+ *	crc		"%02x" of a byte: two lowercase hex digits
+ *	md5 "/N"	"%0Wx" of a bucket below N: W lowercase hex digits,
+ *			W the decimal digits of N-1 (at least 1), with a value
+ *			below N ("md5-32/1" makes only "0")
+ *	md5-32 "\N"	the first N characters of the base32 hash: [a-z0-5]
+ *	md5-64 "\N"	the first N characters of the base64 hash: [a-zA-Z0-9+-]
+ *			(N at most :B minus 1 and the 22 characters of the hash)
+ *	hierarchy	a group name component or the components joined by "."
+ *			(a one-character component is joined to the next:
+ *			"a.bcd"): entered only when it starts with a letter
+ *			or digit, so ".hidden" and the junk files of
+ *			dexpireover -R are not; "lost+found" is left alone (a
+ *			group "lost+found.x.y" is not expected).  A group name
+ *			component may also start with '+', '-' or '_' (lib
+ *			ValidGroupName() accepts them): such groups are not
+ *			cleaned, as on main (D-330)
+ * The length is the exact length of the layout's first level: a directory
+ * that is not ours, such as lost+found, can have the right characters.
+ */
+static int
+LayoutDirName(const char *name)
+{
+    const GroupHashType *m = &DOpts.ReaderGroupHashMethod;
+    static const char hexdigits[] = "0123456789abcdef";
+    static const char b32[] = "abcdefghijklmnopqrstuvwxyz012345";
+    static const char b64[] = "abcdefghijklmnopqrstuvwxyz0123456789"
+			      "ABCDEFGHIJKLMNOPQRSTUVWXYZ+-";
+    const char *alpha = "";
+    size_t len = strlen(name);
+    size_t want = 0;
+    unsigned long bound = 0;	/* numbered md5: buckets 0 .. bound-1 */
+
+    switch (m->gh_type) {
+	case HASHGRP_HIER:
+	    return(isalnum((unsigned char)name[0]) &&
+					strcmp(name, "lost+found") != 0);
+	case HASHGRP_CRC:
+	    want = 2;
+	    alpha = hexdigits;
+	    break;
+	case HASHGRP_32MD5:
+	case HASHGRP_64MD5:
+	    if (m->gh_dirlvl < 1 || m->gh_dirinfo[0] < 1)
+		return(0);
+	    if (m->gh_dirtype == HASHGRP_DIR_NUM) {
+		int c = m->gh_dirinfo[0];
+
+		alpha = hexdigits;
+		bound = (unsigned long)m->gh_dirinfo[0];
+		while (c > 0) {
+		    ++want;
+		    c = (c - 1) / 10;
+		}
+	    } else {
+		alpha = (m->gh_type == HASHGRP_64MD5) ? b64 : b32;
+		want = (size_t)m->gh_dirinfo[0];
+		if (m->gh_sigbytes > 0 && want > (size_t)m->gh_sigbytes - 1)
+		    want = (size_t)m->gh_sigbytes - 1;
+		if (want > 22)		/* the length of the md5 hash */
+		    want = 22;
+	    }
+	    break;
+	default:
+	    return(0);
+    }
+    if (len == 0 || len != want || strspn(name, alpha) != len)
+	return(0);
+    if (bound > 0) {
+	/* W hex digits can be more than the bucket count (W >= 2 for N > 10) */
+	char *end;
+	unsigned long v;
+
+	errno = 0;
+	v = strtoul(name, &end, 16);
+	if (errno != 0 || *end != 0 || v >= bound)
+	    return(0);
+    }
+    return(1);
+}
+
+/*
+ * OldDirName() - main's rule for the top-level directories of the group
+ * home: the first two characters are alphanumeric.  A symlink of such a
+ * name is followed, as on main (an admin can spread the overview over
+ * disks that way); a name that only LayoutDirName() accepts must be a
+ * real directory (D-326).
+ */
+static int
+OldDirName(const char *name)
+{
+    return(isalnum((unsigned char)name[0]) && isalnum((unsigned char)name[1]));
+}
+
+/*
+ * DirOnPath() - the directory st (of stat(), so a link's target) is one of
+ * dirs, the path from the group home down to the directory being scanned.
+ */
+static int
+DirOnPath(const DirFrame *dirs, const struct stat *st)
+{
+    for (; dirs != NULL; dirs = dirs->df_Up) {
+	if (dirs->df_Dev == st->st_dev && dirs->df_Ino == st->st_ino)
+	    return(1);
+    }
+    return(0);
+}
+
 void
 CleanSpool(char *cleanDir)
 {
     DIR *dir;
     int level = 0;
+    DirFrame home;
+    struct stat hst;
 
     if (VerboseOpt)
 	printf("Scanning group directories\n");
@@ -607,27 +732,73 @@ CleanSpool(char *cleanDir)
 				PatExpand(GroupHomePat), strerror(errno));
 	exit(1);
     }
+    /* the root of every path: a link back to the group home is a loop */
+    if (stat(".", &hst) != 0) {
+	fprintf(stderr, "Unable to stat(\"%s\"): %s\n",
+				PatExpand(GroupHomePat), strerror(errno));
+	exit(1);
+    }
+    home.df_Dev = hst.st_dev;
+    home.df_Ino = hst.st_ino;
+    home.df_Up = NULL;
     if ((dir = opendir(".")) != NULL) {
 	den_t *den;
 	struct stat st;
+	int isLink;
+	DirFrame top;
 
 	while ((den = readdir(dir)) != NULL) {
-	    if (isalnum((unsigned char)den->d_name[0]) &&
-		isalnum((unsigned char)den->d_name[1]) &&
-	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode)
+	    /*
+	     * Only a directory the layout can have made (D-326).  Not by
+	     * the first two characters: md5 "\1" and the hierarchy layout
+	     * ("a.bcd.efg" lives in "a.bcd/") have names that do not start
+	     * with two alphanumerics.  scanDirectory() removes every file
+	     * and entry of a directory that is not a group file, so a
+	     * directory that is not ours (lost+found) must not be entered.
+	     */
+	    if (!LayoutDirName(den->d_name) || lstat(den->d_name, &st) != 0)
+		continue;
+	    /*
+	     * A symlink is followed only for a name main followed: a name
+	     * that only the layout rule accepts ("a.bcd", md5 "\1") must
+	     * be a real directory, so that a link out of the group home
+	     * is not scanned (scanDirectory() removes what it does not
+	     * parse).
+	     */
+	    isLink = S_ISLNK(st.st_mode);
+	    if (isLink && !OldDirName(den->d_name)) {
+		if (VerboseOpt)
+		    printf("Skipping symlink %s/%s: followed only when the name starts with two alphanumerics\n", PatExpand(GroupHomePat), den->d_name);
+		continue;
+	    }
+	    if (isLink && stat(den->d_name, &st) != 0)
+		continue;
+	    if (S_ISDIR(st.st_mode) && DirOnPath(&home, &st)) {
+		if (VerboseOpt)
+		    printf("Skipping directory loop %s/%s: it is the group home\n", PatExpand(GroupHomePat), den->d_name);
+		continue;
+	    }
+	    if (S_ISDIR(st.st_mode)) {
+		top.df_Dev = st.st_dev;
+		top.df_Ino = st.st_ino;
+		top.df_Up = &home;
 		/*
-		 * We explicitly use the first char, because overview
-		 * sizes appear to be not evenly distributed wrt second
-		 * char.
+		 * Below a directory that main did not enter (a name only the
+		 * layout rule accepts), no symlink is followed, opened or
+		 * removed either (#515 r3, r4): main never scanned such a
+		 * tree, so a link out of it would be a new way to remove or
+		 * change files outside the group home.  The trees main
+		 * entered follow links as before.
 		 */
-	    ) {
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level);
+		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level,
+					!OldDirName(den->d_name), &top);
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the
 		 * remove should fail silently - at least we hope so!
+		 * Not a symlink: remove() would unlink the link itself.
 		 */
-		if (ForReal) {
+		if (ForReal && !isLink) {
 		    if (remove(den->d_name) == 0)
 			printf("Removed empty directory: %s/%s\n", PatExpand(GroupHomePat), den->d_name);
 		    else if (errno != ENOTEMPTY && errno != EEXIST) {
@@ -641,11 +812,22 @@ CleanSpool(char *cleanDir)
     }
 }
 
+/*
+ * scanDirectory() - scan dirpath/dirname for group files and remove the
+ * files of no group.  With noLinks every child that is a symlink, of any
+ * type and also a dangling one, is skipped: not followed, not opened, not
+ * removed (#515 r4).  Without noLinks child links are followed, as on
+ * main.  dirs is the path from the group home down to dirname itself: a
+ * child directory on it (a link such as cd -> . or up -> ..) is skipped,
+ * not scanned and not removed, as the recursion would not end there.
+ */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs)
 {
     DIR *dir2;
     char path[PATH_MAX];
+    char origpath[PATH_MAX];
     int n;
 
     n = snprintf(path, sizeof(path), "%s/%s", dirpath, dirname);
@@ -654,6 +836,15 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	return;
     }
 
+    /*
+     * Return to where we came from, not with chdir(".."): when dirname is
+     * a symlink, ".." of its target is not this directory, and the scan
+     * of the group home would go on there (as dexpireover does).
+     */
+    if (getcwd(origpath, sizeof(origpath)) == NULL) {
+	printf("Unable to getcwd(%s): %s\n", dirname, strerror(errno));
+	return;
+    }
     if (chdir(dirname) != 0) {
 	printf("Unable to chdir(%s)\n", dirname);
 	return;
@@ -662,23 +853,44 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
     if ((dir2 = opendir(".")) != NULL) {
 	den_t *den2;
 	struct stat st;
+	int isLink;
+	DirFrame sub;
 
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
-	    if (stat(den2->d_name, &st) != 0) {
+	    if (lstat(den2->d_name, &st) != 0) {
 		printf("Unable to stat(%s/%s)\n", dirname, den2->d_name);
 		continue;
 	    }
+	    isLink = S_ISLNK(st.st_mode);
+	    if (isLink && noLinks) {
+		if (VerboseOpt)
+		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with two alphanumerics\n", path, den2->d_name);
+		continue;
+	    }
+	    if (isLink && stat(den2->d_name, &st) != 0) {
+		printf("Unable to stat(%s/%s)\n", dirname, den2->d_name);
+		continue;
+	    }
+	    if (S_ISDIR(st.st_mode) && DirOnPath(dirs, &st)) {
+		if (VerboseOpt)
+		    printf("Skipping directory loop %s/%s: already on the path from the group home\n", path, den2->d_name);
+		continue;
+	    }
 	    if (S_ISDIR(st.st_mode)) {
+		sub.df_Dev = st.st_dev;
+		sub.df_Ino = st.st_ino;
+		sub.df_Up = dirs;
 		if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level);
+		    scanDirectory(path, den2->d_name, level, noLinks, &sub);
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the
 		 * remove should fail silently - at leat we hope so!
+		 * Not a symlink: remove() would unlink the link itself.
 		 */
-		if (ForReal) {
+		if (ForReal && !isLink) {
 		    if (remove(den2->d_name) == 0)
 			printf("Removed empty directory: %s/%s\n", dirpath, den2->d_name);
 		    else if (errno != ENOTEMPTY && errno != EEXIST) {
@@ -698,8 +910,8 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	}
 	closedir(dir2);
     }
-    if (chdir("..") < 0) {
-	fprintf(stderr, "Unable to chdir(..): %s\n", strerror(errno));
+    if (chdir(origpath) < 0) {
+	fprintf(stderr, "Unable to return with chdir(%s): %s\n", origpath, strerror(errno));
 	exit(1);
     }
 }

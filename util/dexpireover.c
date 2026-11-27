@@ -169,7 +169,19 @@ KPDB  *KDBActive;
 Group *GHash[GHSIZE];
 
 void ScanDirectories(void);
-void scanDirectory(const char *dirpath, char *dirname, int *level);
+/*
+ * DirFrame - one directory of the path from the group home down to the
+ * directory being scanned, by (st_dev, st_ino) of its stat(): a symlink
+ * to a directory on that path (cd -> ., up -> ..) is a loop.
+ */
+typedef struct DirFrame {
+    dev_t		df_Dev;
+    ino_t		df_Ino;
+    const struct DirFrame *df_Up;
+} DirFrame;
+
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs);
 void DeleteJunkFile(const char *dirPath, const char *name);
 void ProcessOverviewFile(const char *dirPath, const char *name, int type);
 int getFirstArtAge(Group *group, int fd, OverHead *oh);
@@ -191,6 +203,7 @@ static int rangeHasData(const OverArt *oa, long long n, artno_t base, int entrie
 static int gzipOnlyData(Group *group, const char *dirPath, artno_t startNo, artno_t endNo, int dataEntries);
 #endif
 static void groupGone(Group *group, const char *what);
+static int createTempFile(const char *path);
 static int writeActiveField(Group *group, const char *tok, const char *data);
 static int deleteStaleGroup(Group *group, int t);
 static int enterActiveRecord(int recOff, int recLen, int late);
@@ -771,6 +784,24 @@ expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd)
 }
 
 /*
+ * createTempFile() - create a temporary file of RewriteData() (the new
+ * over. file or a new data. file under its ".<name>"), opened read-write.
+ * Whatever is at path is unlinked first, a regular file left by an
+ * interrupted -R or a symlink, and the file is created with O_EXCL, so a
+ * symlink there is not followed and its target, wherever it points, is
+ * not truncated or written (#515 r5).  For a leftover regular file that
+ * is the same as O_TRUNC.  Returns the descriptor, or -1 with errno set
+ * (unlink() other than ENOENT, or open()).
+ */
+static int
+createTempFile(const char *path)
+{
+    if (unlink(path) < 0 && errno != ENOENT)
+	return(-1);
+    return(open(path, O_RDWR|O_CREAT|O_EXCL, 0644));
+}
+
+/*
  * groupGone() - the group's record left dactive.kp after the scan began
  * (a KP_LOCK read found none): stop working on the group and drop its
  * pending write-back.
@@ -865,11 +896,38 @@ deleteStaleGroup(Group *group, int t)
  * If a newsgroup for a file cannot be found, the file is removed
  */
 
+/*
+ * DirOnPath() - the directory st (of stat(), so a link's target) is one of
+ * dirs, the path from the group home down to the directory being scanned.
+ */
+static int
+DirOnPath(const DirFrame *dirs, const struct stat *st)
+{
+    for (; dirs != NULL; dirs = dirs->df_Up) {
+	if (dirs->df_Dev == st->st_dev && dirs->df_Ino == st->st_ino)
+	    return(1);
+    }
+    return(0);
+}
+
+/*
+ * EntryIsLink() - the entry name of the current directory is a symlink.
+ */
+static int
+EntryIsLink(const char *name)
+{
+    struct stat lst;
+
+    return(lstat(name, &lst) == 0 && S_ISLNK(lst.st_mode));
+}
+
 void
 ScanDirectories(void)
 {
     DIR *dir;
     int level = 0;
+    DirFrame home;
+    struct stat hst;
 
     if (VerboseOpt)
 	printf("Scanning group directories\n");
@@ -879,13 +937,41 @@ ScanDirectories(void)
 				PatExpand(GroupHomePat), strerror(errno));
 	exit(1);
     }
+    /* the root of every path: a link back to the group home is a loop */
+    if (stat(".", &hst) != 0) {
+	fprintf(stderr, "Unable to stat(\"%s\"): %s\n",
+				PatExpand(GroupHomePat), strerror(errno));
+	exit(1);
+    }
+    home.df_Dev = hst.st_dev;
+    home.df_Ino = hst.st_ino;
+    home.df_Up = NULL;
     if ((dir = opendir(".")) != NULL) {
 	den_t *den;
 	struct stat st;
+	DirFrame top;
 
 	while ((den = readdir(dir)) != NULL) {
-	    if (isalnum((unsigned char)den->d_name[0]) &&
-	    	stat(den->d_name, &st) == 0 && S_ISDIR(st.st_mode) &&
+	    /*
+	     * The first character of a layout directory is alphanumeric,
+	     * but for md5-64 "\N" it can also be '+' or '-' (the base64
+	     * alphabet of the hash): those directories were skipped (D-326).
+	     * Such a name must be a real directory (lstat()): a symlink of
+	     * it is not followed, so that a link out of the group home is
+	     * not scanned and its files removed as of no group.  An
+	     * alphanumeric name is followed with stat(), as before.
+	     */
+	    int signDir = DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_64MD5 &&
+		(den->d_name[0] == '+' || den->d_name[0] == '-');
+
+	    if (signDir && lstat(den->d_name, &st) == 0 && S_ISLNK(st.st_mode)) {
+		if (VerboseOpt > 0)
+		    printf("Skipping symlink %s/%s: followed only when the name starts with an alphanumeric\n", PatExpand(GroupHomePat), den->d_name);
+		continue;
+	    }
+	    if ((isalnum((unsigned char)den->d_name[0]) || signDir) &&
+	    	(signDir ? lstat(den->d_name, &st) : stat(den->d_name, &st)) == 0 &&
+		S_ISDIR(st.st_mode) &&
 		/*
 		 * We explicitly use the first char, because overview
 		 * sizes appear to be not evenly distributed wrt second
@@ -893,8 +979,22 @@ ScanDirectories(void)
 		 */
 		(ParallelCount ? ((GFIndex(den->d_name[0]) % ParallelCount) ==
 				      ParallelIdx) : 1)
-	    )
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level);
+	    ) {
+		if (DirOnPath(&home, &st)) {
+		    if (VerboseOpt > 0)
+			printf("Skipping directory loop %s/%s: it is the group home\n", PatExpand(GroupHomePat), den->d_name);
+		    continue;
+		}
+		top.df_Dev = st.st_dev;
+		top.df_Ino = st.st_ino;
+		top.df_Up = &home;
+		/*
+		 * Below a sign directory no symlink is followed or opened
+		 * (#515 r3, r4): main never entered those trees.  The
+		 * alphanumeric trees follow links as before.
+		 */
+		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level, signDir, &top);
+	    }
 	}
 	closedir(dir);
     }
@@ -920,8 +1020,19 @@ ScanDirectories(void)
 
 }
 
+/*
+ * scanDirectory() - expire the group files of dirpath/dirname and remove
+ * the files of no group.  With noLinks every child that is a symlink, of
+ * any type and also a dangling one, is skipped: not followed, not opened
+ * (an over file would be expired in the link's target), not removed
+ * (#515 r4).  Without noLinks child links are followed, as on main.  dirs
+ * is the path from the group home down to dirname itself: a child
+ * directory on it (a link such as cd -> . or up -> ..) is skipped, as
+ * the recursion would not end there.
+ */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
+						const DirFrame *dirs)
 {
     DIR *dir2;
     char path[PATH_MAX];
@@ -948,13 +1059,26 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	char tbuf[24];
 	int tint;
 	struct stat st;
+	DirFrame sub;
 
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
+	    if (noLinks && EntryIsLink(den2->d_name)) {
+		if (VerboseOpt > 0)
+		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with an alphanumeric\n", path, den2->d_name);
+		continue;
+	    }
 	    if (stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
-		if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level);
+		if (DirOnPath(dirs, &st)) {
+		    if (VerboseOpt > 0)
+			printf("Skipping directory loop %s/%s: already on the path from the group home\n", path, den2->d_name);
+		} else if (*level <= 2) {
+		    sub.df_Dev = st.st_dev;
+		    sub.df_Ino = st.st_ino;
+		    sub.df_Up = dirs;
+		    scanDirectory(path, den2->d_name, level, noLinks, &sub);
+		}
 	    } else if (overFileType(den2->d_name) == 1)
 		ProcessOverviewFile(path, den2->d_name, 1);
 	    if (MustExit)
@@ -969,7 +1093,9 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	    if (strncmp(den2->d_name, ".data.", 6) == 0 ||
 		strncmp(den2->d_name, ".d.", 3) == 0 ||
 		sscanf(den2->d_name, ".%23[^.]s.%d.d.", tbuf, &tint) == 2) {
-		DeleteJunkFile(path, den2->d_name);
+		/* a symlink was reported by the first pass */
+		if (!(noLinks && EntryIsLink(den2->d_name)))
+		    DeleteJunkFile(path, den2->d_name);
 		continue;
 	    }
 
@@ -982,6 +1108,7 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	     * group name component and never parses as "d.<n>.<group>").
 	     */
 	    if (overFileType(den2->d_name) == 2 &&
+		!(noLinks && EntryIsLink(den2->d_name)) &&
 		!(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		ProcessOverviewFile(path, den2->d_name, 2);
 	    if (MustExit)
@@ -2518,7 +2645,9 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
      * original files are all still there.  If that fails, or a new data.
      * file could not be written in full (ok is 0 already), the group stays
      * as it was: the index we would be left with is the old one, and its
-     * offsets do not fit the rewritten data. files.
+     * offsets do not fit the rewritten data. files.  The temporary name
+     * is created anew (createTempFile()): a symlink there is removed, not
+     * followed.
      */
 
     snprintf(ovPath1, sizeof(ovPath1), "%s/.%s", dirPath,
@@ -2551,7 +2680,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 	if (ok == 0) {
 	    printf("Rewrite of %s data files failed, group left as it was\n",
 							group->gr_GroupName);
-	} else if ((ovFd = open(ovPath1, O_RDWR|O_CREAT|O_TRUNC, 0644)) < 0) {
+	} else if ((ovFd = createTempFile(ovPath1)) < 0) {
 	    printf("Rewrite of %s over. file failed, group left as it was\n",
 							group->gr_GroupName);
 	    ok = 0;
@@ -2850,7 +2979,8 @@ rewriteDataFile(Group *group, const char *cacheBase, int cacheSize, const OverAr
 					&DOpts.ReaderGroupHashMethod));
 	if (DebugOpt > 1)
             printf("Creating: %s\n", path);
-	fc->fc_Fd = open(path, O_RDWR|O_CREAT|O_TRUNC, 0644);
+	/* created anew: a symlink at the name is removed, not followed */
+	fc->fc_Fd = createTempFile(path);
 	if (fc->fc_Fd == -1) {
 	    printf("Error opening %s: %s\n", path, strerror(errno));
 	    failed = 1;
