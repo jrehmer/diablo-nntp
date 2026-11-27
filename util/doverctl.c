@@ -721,6 +721,52 @@ DeleteFile(const char *dirPath, const char *name)
 
 
 /*
+ * DataFileStale() - the data file path (artBase, iteration iter) is outside
+ * the range of group, or is not aligned to its over file's slots.  OD_HARTS
+ * (the data entries of the over file) is a fudge to make 100% sure we do
+ * not delete a brand new data file.  A group that left the active file
+ * after the scan began is not judged: the file is not stale for it.
+ */
+static int
+DataFileStale(Group *group, artno_t artBase, int iter, const char *path)
+{
+    int recLen;
+    int dataEntries;
+    const char *ovpath;
+    const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
+                                                        KP_LOCK, &recLen);
+
+    if (rec == NULL) {
+	if (VerboseOpt)
+	    printf("group %s no longer in the active file, skipping %s\n",
+		group->gr_GroupName, path);
+	return(0);
+    }
+    /*
+     * Refresh the EndNo
+     */
+    group->gr_EndNo = strtoll(KPDBGetField(rec, recLen, "NE",
+							NULL, "-1"), NULL, 10);
+    KPDBUnlock(KDBActive, rec);
+
+    ovpath = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 0, iter,
+						&DOpts.ReaderGroupHashMethod);
+    dataEntries = getDataEntries(ovpath);
+    /* same criteria as dexpireover: also misaligned or empty ranges */
+    if (artBase + dataEntries <= group->gr_StartNo ||
+	artBase >= group->gr_EndNo + dataEntries ||
+	group->gr_StartNo > group->gr_EndNo ||
+	(artBase & (dataEntries - 1))
+    ) {
+	if (DebugOpt)
+	    printf("artBase=%lld, dataEntries=%d group->gr_StartNo=%lld group->gr_EndNo=%lld\n",
+			artBase, dataEntries, group->gr_StartNo, group->gr_EndNo);
+	return(1);
+    }
+    return(0);
+}
+
+/*
  * ProcessFile() - process over. and data. files.  All over. files
  *			   are processed first. 
  *
@@ -731,13 +777,13 @@ ProcessFile(const char *dirPath, const char *name)
 {
     artno_t artBase = -1;
     Group *group;
+    Group *groupZ = NULL;
     char path[PATH_MAX];
     char Hash[PATH_MAX];
+    char HashZ[PATH_MAX];
     int iter = 0;
     int type = 0;
     int hier;
-    int dataEntries;
-    const char *ovpath;
 
     snprintf(path, sizeof(path), "%s/%s", dirPath, name);
 
@@ -747,8 +793,9 @@ ProcessFile(const char *dirPath, const char *name)
     ++TotalFiles;
 
     bzero(Hash, sizeof(Hash));
+    bzero(HashZ, sizeof(HashZ));
 
-    if ((type = ExtractGroupHashInfo(name, Hash, &artBase, &iter)) == HASHGRP_NONE) {
+    if ((type = ExtractGroupHashInfoGz(name, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE) {
 	printf("Deleting unknown/stale file: %s/%s\n", dirPath, name);
 	DeleteFile(dirPath, name);
 	return;
@@ -759,16 +806,32 @@ ProcessFile(const char *dirPath, const char *name)
 					name, type, artBase, iter, Hash);
 
     hier = ((type & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
+    /*
+     * A hierarchy data file "d.<n>.X.gz" is the plain data file of group
+     * "X.gz" or the compressed one of group "X" (D-318): HashZ is "X".  The
+     * file is kept for as long as it is not stale for every one of the
+     * two groups that exist.  Either group may have been created since the
+     * scan, so a reading that is missing causes the rescan, also when the
+     * other one was found: the file must not be judged by one group alone
+     * while the other, created in between, is not known yet.
+     */
     group = FindGroupByHash(Hash, iter, hier);
-    if (group == NULL && RescanActive())
-	group = FindGroupByHash(Hash, iter, hier);	/* created since the scan */
-    if (group == NULL && IterInProgress(Hash, iter)) {
+    if (HashZ[0])
+	groupZ = FindGroupByHash(HashZ, iter, hier);
+    if ((group == NULL || (HashZ[0] && groupZ == NULL)) && RescanActive()) {
+	/* created since the scan: look up again what was missing */
+	if (group == NULL)
+	    group = FindGroupByHash(Hash, iter, hier);
+	if (HashZ[0] && groupZ == NULL)
+	    groupZ = FindGroupByHash(HashZ, iter, hier);
+    }
+    if (group == NULL && groupZ == NULL && IterInProgress(Hash, iter)) {
 	/* a known group is taking this iteration (D-285) */
 	if (VerboseOpt)
 	    printf("file of a group changing its iteration, left alone: %s\n", path);
 	return;
     }
-    if (group == NULL) {
+    if (group == NULL && groupZ == NULL) {
 	/*
 	 * If we gave a wildcard, we can't remove stale groups because
 	 * we do not have a full group list.
@@ -778,6 +841,10 @@ ProcessFile(const char *dirPath, const char *name)
 	printf("Group for over file not found, removing %s\n", path);
 	DeleteFile(dirPath, name);
 	return;
+    }
+    if (group == NULL) {
+	group = groupZ;
+	groupZ = NULL;
     }
 
     if (DebugOpt > 2)
@@ -813,44 +880,14 @@ ProcessFile(const char *dirPath, const char *name)
 	}
     } else if (type & HASHGRPTYPE_DATA) {
 	/*
-	 * data. file, modulo OD_HARTS.  OD_HARTS constant in second
-	 * part of conditional is a fudge to make 100% sure we do not
-	 * delete a brand new data file.
+	 * data. file, modulo OD_HARTS.
 	 */
-	int recLen;
-	const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
-                                                        KP_LOCK, &recLen);
-
-	/* the group left the active file after the scan began: skip it */
-	if (rec == NULL) {
-	    if (VerboseOpt)
-		printf("group %s no longer in the active file, skipping %s\n",
-		    group->gr_GroupName, path);
-	    return;
-	}
-	/*
-	 * Refresh the EndNo
-	 */
-	group->gr_EndNo = strtoll(KPDBGetField(rec, recLen, "NE",
-							NULL, "-1"), NULL, 10);
-	KPDBUnlock(KDBActive, rec);
-
-    	ovpath = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 0, iter,
-						&DOpts.ReaderGroupHashMethod);
-	dataEntries = getDataEntries(ovpath);
-	/* same criteria as dexpireover: also misaligned or empty ranges */
-	if (artBase + dataEntries <= group->gr_StartNo ||
-	    artBase >= group->gr_EndNo + dataEntries ||
-	    group->gr_StartNo > group->gr_EndNo ||
-	    (artBase & (dataEntries - 1))
-	) {
+	if (DataFileStale(group, artBase, iter, path) &&
+			(groupZ == NULL || DataFileStale(groupZ, artBase, iter, path))) {
 	    printf("Deleting stale overview data %s: %s\n",
 		group->gr_GroupName,
 		path
 	    );
-	    if (DebugOpt)
-		printf("artBase=%lld, dataEntries=%d group->gr_StartNo=%lld group->gr_EndNo=%lld\n",
-				artBase, dataEntries, group->gr_StartNo, group->gr_EndNo);
 	    DeleteFile(dirPath, name);
 	} 
     } else {

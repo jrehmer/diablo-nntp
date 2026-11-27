@@ -37,6 +37,7 @@ Prototype const char *GFHash(const char *group, GroupHashType *method);
 Prototype const char *GFName(const char *group, int ftype, artno_t artBase, int wantdir, int iter, GroupHashType *method);
 static void FindGroupDir(const char *group, char *path, size_t pathsize);
 Prototype int ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter);
+Prototype int ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter);
 Prototype char *GetHash(GroupHashType *Hash, char *hashStr);
 Prototype void SetCacheHash(struct CacheHash_t* ch, const char *group, int iter, GroupHashType *method);
 Prototype int CacheHashEqual(const struct CacheHash_t *a, const struct CacheHash_t *b);
@@ -736,12 +737,40 @@ FindGroupDir(const char *group, char *path, size_t pathsize)
 
 /*
  * Given a hashed newsgroup header filename, extract the components
- * and return hash type
+ * and return hash type.  The hash is returned as it stands in the name:
+ * for a hierarchy data file "d.<n>.<group>.gz" it is "<group>.gz", which is
+ * the name of the group of a plain data file when the group itself ends in
+ * ".gz".  ExtractGroupHashInfoGz() tells the two readings apart (D-318).
  */
 int
 ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter)
 {
+    return(ExtractGroupHashInfoGz(name, Hash, NULL, artBase, iter));
+}
+
+/*
+ * ExtractGroupHashInfoGz() - ExtractGroupHashInfo() for a caller that
+ * handles the ambiguity of hierarchy data names.  dreaderd and dexpireover
+ * name the compressed data file of a group by adding ".gz" to the name of
+ * its plain data file, and a group name may end in ".gz" itself, so a
+ * hierarchy data file "d.<n>.X.gz" is either the compressed data of group
+ * "X" or the plain data of group "X.gz" (and "d.<n>.X.gz.gz" the compressed
+ * data of "X.gz" or the plain data of "X.gz.gz", and so on).  The name
+ * cannot tell which, so for such a name Hash is "X.gz" (the plain reading,
+ * as ExtractGroupHashInfo() gives it) and HashZ is "X" (the compressed
+ * reading); the caller must take the file as belonging to whichever of the
+ * two groups exists and never remove it while either does.  For every other
+ * name HashZ is the empty string.  HashZ must hold as much as Hash, or be NULL
+ * for a caller that does not want the second reading.
+ */
+int
+ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter)
+{
     int b;
+    int type;
+
+    if (HashZ)
+	HashZ[0] = 0;
 
     /*
      * This is pure evil because we have too many overview file
@@ -796,11 +825,22 @@ ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter)
     if (sscanf(name, "o.%lld.%[^/]", artBase, Hash) == 2)
 	return(HASHGRP_HIER | HASHGRPTYPE_OVER);
     *iter = 0;
-    if (sscanf(name, "d.%lld.%[^/].gz", artBase, Hash) == 2)
-	return(HASHGRP_HIER | HASHGRPTYPE_DATA);
-    *iter = 0;
-    if (sscanf(name, "d.%lld.%[^/]", artBase, Hash) == 2)
-	return(HASHGRP_HIER | HASHGRPTYPE_DATA);
+    /*
+     * A trailing ".gz" cannot be told from a part of the group name (see
+     * above): "%[^/]" takes it, and a "d.%lld.%[^/].gz" pattern would
+     * return 2 as well, as the literal after a scanset is not counted
+     * (D-318).  Give both readings.
+     */
+    if (sscanf(name, "d.%lld.%[^/]", artBase, Hash) == 2) {
+	size_t len = strlen(Hash);
+
+	type = HASHGRP_HIER | HASHGRPTYPE_DATA;
+	if (HashZ && len > 3 && strcmp(Hash + len - 3, ".gz") == 0) {
+	    memcpy(HashZ, Hash, len - 3);
+	    HashZ[len - 3] = 0;
+	}
+	return(type);
+    }
     *iter = 0;
     return(HASHGRP_NONE);
 }

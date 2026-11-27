@@ -413,6 +413,9 @@ TestDnewslinkUnreadableIHAVE 0.04
 TestDoutqRunning 0.15
 TestDoverctlCleanCrcHashCollision 0.15
 TestDoverctlCleanGroupCreatedDuringClean 0.25
+TestDoverctlCleanHierarchyGz 0.15
+TestDoverctlCleanHierarchyGzCreatedDuringClean 0.30
+TestDoverctlCleanHierarchyGzGroupName 0.30
 TestDoverctlCleanIterChangeDuringClean 0.30
 TestDoverctlCleanMisalignedData 0.02
 TestDoverctlCleanRemovesUnknownEntries 0.02
