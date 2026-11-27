@@ -129,8 +129,8 @@ func TestDexpireoverCrcHashCollision(t *testing.T) {
 // hierarchy layout have no iteration, but the group's ITER stays in dactive.kp (crc and md5
 // names carry it, and a conversion back needs it). dexpireover -a looked a hierarchy file up
 // with the group's old ITER, reported "Group for over file not found" and removed the over file
-// of every group with ITER above 0 (the data files stay: dexpireover does not scan the data
-// names of the hierarchy layout).
+// of every group with ITER above 0 (the data files stayed: dexpireover did not scan the data
+// names of the hierarchy layout then; it does now, and the file in range stays).
 //
 // Input: e2e.test with ITER 1 and crc files over.0.<hash>.1 and data.256.<hash>.1 (articles 256
 // to 511, in the range 1..300); `doverctl convert crc hierarchy`, the site's readergrouphash
