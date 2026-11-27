@@ -33,6 +33,10 @@ void ConvertHash(const char *group, GroupHashType *srcHash, GroupHashType *dstHa
 int SetField(char **pptr, const char *str);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
 Group *FindGroupByHash(char *Hash, int iter);
+Group *FindGroupByName(const char *groupName);
+int IterInProgress(char *Hash, int iter);
+int ScanActive(int convert, int newOnly);
+int RescanActive(void);
 void CleanSpool(char *cleanDir);
 void scanDirectory(const char *dirpath, char *dirname, int *level);
 int DeleteFile(const char *dirPath, const char *name);
@@ -71,6 +75,7 @@ int BadGroups = 0;
 int RemovedFiles = 0;
 int Failures = 0;		/* moves and removals that failed: exit status 1 */
 int FileCopy = 0;
+int ActiveSeq = -1;		/* append count of dactive.kp when it was last scanned */
 
 void
 sigInt(int sigNo)
@@ -209,43 +214,7 @@ main(int ac, char **av)
      * scan dactive.kp
      */
 
-    {
-	int recLen;
-	int recOff;
-	int count = 0;
-
-	for (recOff = KPDBScanFirst(KDBActive, 0, &recLen);
-	     recOff;
-	     recOff = KPDBScanNext(KDBActive, recOff, 0, &recLen)
-	) {
-	    int groupLen;
-	    const char *rec = KPDBReadRecordAt(KDBActive, recOff, 0, NULL);
-	    const char *group = KPDBGetField(rec, recLen, NULL, &groupLen, NULL);
-	    artno_t begNo = strtoll(KPDBGetField(rec, recLen, "NB", NULL, "-1"), NULL, 10);
-	    artno_t endNo = strtoll(KPDBGetField(rec, recLen, "NE", NULL, "-1"), NULL, 10);
-	    int iter = (int)strtoul(KPDBGetField(rec, recLen, "ITER", NULL, "0"), NULL, 10);	/* written as %06d */
-
-	    if (group)
-		group = allocTmpCopy(group, groupLen);
-
-	    if (group == NULL)
-		continue;
-
-	    EnterGroup(group, begNo, endNo, 0, 0, iter, NULL);
-
-	    if (GroupMatch && WildCmp(GroupMatch, group) != 0)
-		continue;
-
-	    if (Action & ACT_CONVERT) {
-		ConvertHash(group, &SrcHash, &DstHash, iter, begNo, endNo);
-		if (++count % 1000 == 0)
-		    printf("Scanned %d groups\n", count);
-	    }
-
-	    if (MustExit)
-		break;
-	}
-    }
+    ScanActive(Action & ACT_CONVERT, 0);
 
     if (Action & ACT_CLEAN)
 	CleanSpool(CleanDir);
@@ -440,6 +409,129 @@ EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int ct
     return(group);
 }
 
+/*
+ * ScanActive() - read the groups of dactive.kp into GHash.  With newOnly
+ * only groups that are not in the table yet are entered (the rescan of
+ * RescanActive(): the groups already known keep their range).  Returns the
+ * number of groups entered.
+ */
+int
+ScanActive(int convert, int newOnly)
+{
+    int recLen;
+    int recOff;
+    int count = 0;
+    int entered = 0;
+    /*
+     * The append count is read before the scan: a group appended while it
+     * runs may be missed by it, and the count then still differs afterwards.
+     */
+    int seq = KPDBAppendCount(KDBActive);
+
+    for (recOff = KPDBScanFirst(KDBActive, 0, &recLen);
+	 recOff;
+	 recOff = KPDBScanNext(KDBActive, recOff, 0, &recLen)
+    ) {
+	int groupLen;
+	const char *rec = KPDBReadRecordAt(KDBActive, recOff, 0, NULL);
+	const char *group = KPDBGetField(rec, recLen, NULL, &groupLen, NULL);
+	artno_t begNo = strtoll(KPDBGetField(rec, recLen, "NB", NULL, "-1"), NULL, 10);
+	artno_t endNo = strtoll(KPDBGetField(rec, recLen, "NE", NULL, "-1"), NULL, 10);
+	int iter = (int)strtoul(KPDBGetField(rec, recLen, "ITER", NULL, "0"), NULL, 10);	/* written as %06d */
+
+	if (group)
+	    group = allocTmpCopy(group, groupLen);
+
+	if (group == NULL)
+	    continue;
+
+	if (newOnly && FindGroupByName(group) != NULL)
+	    continue;
+
+	EnterGroup(group, begNo, endNo, 0, 0, iter, NULL);
+	++entered;
+
+	if (GroupMatch && WildCmp(GroupMatch, group) != 0)
+	    continue;
+
+	if (convert) {
+	    ConvertHash(group, &SrcHash, &DstHash, iter, begNo, endNo);
+	    if (++count % 1000 == 0)
+		printf("Scanned %d groups\n", count);
+	}
+
+	if (MustExit)
+	    break;
+    }
+    ActiveSeq = seq;
+    return(entered);
+}
+
+/*
+ * RescanActive() - a file whose group is not in the table may belong to a
+ * group created since the scan at the start (a newgroup control, the
+ * admin): its overview must not be deleted.  A file name holds only a hash
+ * of the group name, so the group is looked up by entering the groups that
+ * were added since.  The active file only grows by appends, each of which
+ * bumps its append count, so the scan is repeated only when the count has
+ * changed since the last one (D-285).  Returns 1 when groups were entered.
+ */
+int
+RescanActive(void)
+{
+    if (KPDBAppendCount(KDBActive) == ActiveSeq)
+	return(0);
+    return(ScanActive(0, 1) > 0);
+}
+
+Group *
+FindGroupByName(const char *groupName)
+{
+    hash_t hv = hhash(GFHash(groupName, &DOpts.ReaderGroupHashMethod));
+    Group *group;
+
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_GroupName, groupName) == 0)
+	    break;
+    }
+    return(group);
+}
+
+/*
+ * IterInProgress() - the file of iteration iter for Hash belongs to no group
+ * in the table, but a group we know by Hash may be taking it right now.  A
+ * group whose hash is already used by another gets the next iteration: the
+ * writer (dreaderd, dcancel, dgrpctl) creates the files of iteration n and
+ * writes ITER=n into dactive.kp only afterwards, so a file of the group's
+ * current iteration or a higher one can be that group's, and an append count
+ * that has not changed yet does not show it.  Files of a lower iteration
+ * than the group has now stay stale (a group removed and created again).
+ * ITER is read from the live record, not from the table (D-285).
+ */
+int
+IterInProgress(char *Hash, int iter)
+{
+    Group *group;
+    hash_t hv = hhash(Hash);
+
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_Hash, Hash) == 0) {
+	    int recLen;
+	    int cur;
+	    const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
+							KP_LOCK, &recLen);
+
+	    if (rec == NULL)
+		continue;
+	    cur = (int)strtoul(KPDBGetField(rec, recLen, "ITER", NULL, "0"), NULL, 10);
+	    KPDBUnlock(KDBActive, rec);
+	    if (cur <= iter)
+		return(1);
+	}
+    }
+    return(0);
+}
+
 Group *
 FindGroupByHash(char *Hash, int iter)
 {
@@ -617,7 +709,16 @@ ProcessFile(const char *dirPath, const char *name)
 	printf("File: %s  type=%d  artBase=%lld  iter=%d  Hash=%s\n",
 					name, type, artBase, iter, Hash);
 
-    if ((group = FindGroupByHash(Hash, iter)) == NULL) {
+    group = FindGroupByHash(Hash, iter);
+    if (group == NULL && RescanActive())
+	group = FindGroupByHash(Hash, iter);	/* created since the scan */
+    if (group == NULL && IterInProgress(Hash, iter)) {
+	/* a known group is taking this iteration (D-285) */
+	if (VerboseOpt)
+	    printf("file of a group changing its iteration, left alone: %s\n", path);
+	return;
+    }
+    if (group == NULL) {
 	/*
 	 * If we gave a wildcard, we can't remove stale groups because
 	 * we do not have a full group list.

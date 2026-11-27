@@ -405,6 +405,8 @@ TestDnewslinkTermStalledPeer 6.12
 TestDnewslinkUnreadableAfterCheck 0.04
 TestDnewslinkUnreadableIHAVE 0.04
 TestDoutqRunning 0.15
+TestDoverctlCleanGroupCreatedDuringClean 0.25
+TestDoverctlCleanIterChangeDuringClean 0.30
 TestDoverctlCleanMisalignedData 0.02
 TestDoverctlCleanRemovesUnknownEntries 0.02
 TestDoverctlConvertCopyFailure 0.02
