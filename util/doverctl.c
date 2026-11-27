@@ -639,6 +639,9 @@ FindGroupByHash(char *Hash, int iter, int hier)
  *			component may also start with '+', '-' or '_' (lib
  *			ValidGroupName() accepts them): such groups are not
  *			cleaned, as on main (D-330)
+ *	hierarchy-full	the first component of the group name alone ("a" for
+ *			"a.b.c", "e2e" for "e2e.x.gz"), by the same first-
+ *			character rule as hierarchy
  * The length is the exact length of the layout's first level: a directory
  * that is not ours, such as lost+found, can have the right characters.
  */
