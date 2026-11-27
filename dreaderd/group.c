@@ -1289,7 +1289,9 @@ again:
 	    if (r == 0 && oh.oh_Version > OH_VERSION) {
 		logit(LOG_CRIT, "Incorrect overview version for %s (%s)",
 								group, path);
-		r = -1;
+		FreeOverInfo(ov);
+		zfree(&SysMemPool, path, pathSize);
+		return(NULL);
 	    }
 	    if (r == 0 &&
 		(off_t)st.st_size - (off_t)oh.oh_HeadSize < (off_t)sizeof(OverArt)) {
@@ -1314,7 +1316,18 @@ again:
 		if (fstat(ov->ov_OFd, &st) < 0)
 		    st.st_size = 0;
 		lseek(ov->ov_OFd, 0L, 0);
-		if (read(ov->ov_OFd, &oh, sizeof(oh)) != sizeof(oh) ||
+		r = (read(ov->ov_OFd, &oh, sizeof(oh)) != sizeof(oh));
+		/* Another writer may have installed a newer header while we waited. */
+		if (r == 0 && oh.oh_ByteOrder == OH_BYTEORDER &&
+		    oh.oh_Version > OH_VERSION) {
+		    logit(LOG_CRIT, "Incorrect overview version for %s (%s)",
+								    group, path);
+		    hflock(ov->ov_OFd, 0, XLOCK_UN);
+		    FreeOverInfo(ov);
+		    zfree(&SysMemPool, path, pathSize);
+		    return(NULL);
+		}
+		if (r != 0 ||
 		    oh.oh_ByteOrder != OH_BYTEORDER ||
 		    (off_t)st.st_size - (off_t)oh.oh_HeadSize < (off_t)sizeof(OverArt)
 		) {
