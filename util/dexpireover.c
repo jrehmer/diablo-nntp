@@ -169,7 +169,7 @@ KPDB  *KDBActive;
 Group *GHash[GHSIZE];
 
 void ScanDirectories(void);
-void scanDirectory(const char *dirpath, char *dirname, int *level);
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks);
 void DeleteJunkFile(const char *dirPath, const char *name);
 void ProcessOverviewFile(const char *dirPath, const char *name, int type);
 int getFirstArtAge(Group *group, int fd, OverHead *oh);
@@ -912,7 +912,12 @@ ScanDirectories(void)
 		(ParallelCount ? ((GFIndex(den->d_name[0]) % ParallelCount) ==
 				      ParallelIdx) : 1)
 	    )
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level);
+		/*
+		 * Below a sign directory a directory symlink is not followed
+		 * either (#515 r3): main never entered those trees.  The
+		 * alphanumeric trees follow links as before.
+		 */
+		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level, signDir);
 	}
 	closedir(dir);
     }
@@ -938,8 +943,15 @@ ScanDirectories(void)
 
 }
 
+/*
+ * scanDirectory() - expire the group files of dirpath/dirname and remove
+ * the files of no group.  With noLinks a child that is a symlink to a
+ * directory is skipped (not followed); a symlink to a regular file is
+ * handled as on main (a removal unlinks the link, not its target).
+ * Without noLinks child links are followed, as on main.
+ */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 {
     DIR *dir2;
     char path[PATH_MAX];
@@ -966,13 +978,18 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 	char tbuf[24];
 	int tint;
 	struct stat st;
+	struct stat lst;
 
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
 	    if (stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
-		if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level);
+		if (noLinks && lstat(den2->d_name, &lst) == 0 &&
+						S_ISLNK(lst.st_mode)) {
+		    if (VerboseOpt > 0)
+			printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with an alphanumeric\n", path, den2->d_name);
+		} else if (*level <= 2)
+		    scanDirectory(path, den2->d_name, level, noLinks);
 	    } else if (overFileType(den2->d_name) == 1)
 		ProcessOverviewFile(path, den2->d_name, 1);
 	    if (MustExit)

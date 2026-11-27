@@ -533,3 +533,185 @@ func TestDoverctlCleanMd5NumBuckets(t *testing.T) {
 		})
 	}
 }
+
+// cleanDirsTools are the two runs that scan the group home: `doverctl -v clean` and
+// `dexpireover -a -v`.
+var cleanDirsTools = []struct {
+	name string
+	args []string
+}{
+	{"doverctl", []string{"doverctl", "-v", "clean"}},
+	{"dexpireover", []string{"dexpireover", "-a", "-v"}},
+}
+
+// TestOverToolsMd564SignDirChildSymlink (D-326, the #515 r3 review): doverctl clean and
+// dexpireover -a now enter a top-level directory "+" or "-" of the group home (md5-64\1), which
+// main skipped, and since r2 such a name must be a real directory. Below it a child that is a
+// symlink to a directory is not followed either: main never scanned that tree, and both tools
+// remove every over or data file of no group in a directory they scan.
+//
+// Input: readergrouphash md5-64\1; the real directory "+" (or "-" when "+" is e2e.test's
+// directory) holds a data file of no group and the symlink "sub" to a directory outside the
+// group home that holds the over and data files of e2e.absent, a group not in the active file;
+// `doverctl -v clean` and `dexpireover -a -v` in a case each. Expected: the files of e2e.absent
+// are there, unchanged; "sub" is still a symlink to that directory; the tool reports
+// "Skipping symlink <path>/sub:"; the data file of no group in "+" is removed and reported (the
+// directory was scanned). **Fails** on d7ed0b9f (#515 r3) for both tools: the link is followed
+// and the files of e2e.absent are removed. On main the files and the link are kept (it skipped
+// "+"); it fails there for the data file of no group in "+" and the missing "Skipping symlink"
+// line.
+func TestOverToolsMd564SignDirChildSymlink(t *testing.T) {
+	for _, tool := range cleanDirsTools {
+		t.Run(tool.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": `md5-64\1`})
+			sign := "+"
+			if filepath.Dir(cleanDirsOver(t, s, "e2e.test")) == sign {
+				sign = "-"
+			}
+			d := filepath.Join(home, sign)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			stale := filepath.Join(d, "zzzzzzzzzzzzzzzzzzzzzz.0.d.64.256")
+			writeOver(t, stale, bytes.Repeat([]byte("x"), 10))
+
+			outside := t.TempDir()
+			absent := filepath.Base(cleanDirsOver(t, s, "e2e.absent"))
+			keep := []hierFile{
+				{filepath.Join(outside, absent), hierOverFile("e2e.absent", 1, 500)},
+				{filepath.Join(outside, cleanDirsMD5Data(t, absent, 256)), bytes.Repeat([]byte("x"), 10)},
+			}
+			hierWrite(t, keep)
+			link := filepath.Join(d, "sub")
+			if err := os.Symlink(outside, link); err != nil {
+				t.Fatal(err)
+			}
+
+			out, err := s.TryRun(tool.args[0], tool.args[1:]...)
+			if err != nil {
+				t.Errorf("%s: %v", strings.Join(tool.args, " "), err)
+			}
+
+			hierCheckKept(t, outside, keep)
+			cleanDirsIsLink(t, home, link, outside)
+			if !strings.Contains(out, "Skipping symlink "+link+":") {
+				t.Errorf("%s did not report that it skipped the symlink %s/sub", tool.name, sign)
+			}
+			hierCheckGone(t, home, out, []string{stale}, true)
+			if t.Failed() {
+				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}
+
+// TestDoverctlCleanNewNameDirChildSymlink (D-326, the #515 r3 review): below a top-level directory
+// that only the layout rule accepts (not two alphanumerics, which main required: a one-character
+// md5-32\1 directory, a hierarchy "a.bcd"), doverctl clean does not follow a child symlink to a
+// directory; main never entered such a tree.
+//
+// Input: md5-32\1 with the real directory "q" (or "r" when "q" is e2e.test's directory), and
+// hierarchy with the real directory "a.bcd"; each holds a data file of no group and the symlink
+// "sub" to a directory outside the group home that holds junk.txt and a data file of no group;
+// `doverctl -v clean`. Expected: both outside files are there, unchanged; "sub" is still a
+// symlink to that directory; clean reports "Skipping symlink <path>/sub:"; the data file of no
+// group in the top-level directory is removed and reported, and doverctl exits 0. **Fails** on
+// d7ed0b9f (#515 r3): the link is followed and both outside files are removed. On main the
+// outside files and the link are kept (the directory is not scanned); it fails there for the
+// data file of no group and the missing "Skipping symlink" line.
+func TestDoverctlCleanNewNameDirChildSymlink(t *testing.T) {
+	for _, tc := range []struct {
+		name, hash, dir, stale string
+	}{
+		{"md5-32-1", `md5-32\1`, "q", "zzzzzzzzzzzzzzzzzzzzzz.0.d.32.256"},
+		{"hierarchy", "hierarchy", "a.bcd", "d.256.a.bcd.nogroup"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, home := overSite(t, map[string]string{"readergrouphash": tc.hash})
+			if filepath.Dir(cleanDirsOver(t, s, "e2e.test")) == tc.dir {
+				tc.dir = "r"
+			}
+			d := filepath.Join(home, tc.dir)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			plain := bytes.Repeat([]byte("x"), 10)
+			stale := filepath.Join(d, tc.stale)
+			writeOver(t, stale, plain)
+			outside := t.TempDir()
+			keep := []hierFile{
+				{filepath.Join(outside, "junk.txt"), []byte("keep me")},
+				{filepath.Join(outside, tc.stale), plain},
+			}
+			hierWrite(t, keep)
+			link := filepath.Join(d, "sub")
+			if err := os.Symlink(outside, link); err != nil {
+				t.Fatal(err)
+			}
+
+			out := cleanDirsRun(t, s)
+
+			hierCheckKept(t, outside, keep)
+			cleanDirsIsLink(t, home, link, outside)
+			if !strings.Contains(out, "Skipping symlink "+link+":") {
+				t.Errorf("clean did not report that it skipped the symlink %s/sub", tc.dir)
+			}
+			hierCheckGone(t, home, out, []string{stale}, true)
+			if t.Failed() {
+				t.Logf("doverctl -v clean:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestOverToolsOldNameDirChildSymlink (D-326, the #515 r3 review, control): below a top-level
+// directory that main entered (crc: two lowercase hex digits), a child symlink to a directory is
+// still followed by doverctl clean and dexpireover -a, as on main (an admin can put
+// subdirectories on other disks that way).
+//
+// Input: readergrouphash crc; the real directory "ab" (or "cd" when "ab" is e2e.test's
+// directory) holds the symlink "sub" to a directory outside the group home that holds a data
+// file of no group; `doverctl -v clean` and `dexpireover -a -v` in a case each. Expected: the
+// data file is removed and reported by its path through the link; "sub" is still a symlink to
+// that directory, which is still there; no "Skipping symlink" line; the tool exits 0. Passes on
+// d7ed0b9f. On main dexpireover passes; doverctl follows the link and removes the file as well,
+// but exits 1: its scanDirectory() returned with chdir("..") to the parent of the link's target,
+// so remove("sub") and remove("ab") failed there (#515 r1, TestDoverctlCleanFollowsOldNameSymlink).
+func TestOverToolsOldNameDirChildSymlink(t *testing.T) {
+	for _, tool := range cleanDirsTools {
+		t.Run(tool.name, func(t *testing.T) {
+			s, home := overSite(t, nil)
+			name := "ab"
+			if filepath.Dir(cleanDirsOver(t, s, "e2e.test")) == name {
+				name = "cd"
+			}
+			d := filepath.Join(home, name)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			writeOver(t, filepath.Join(outside, "data.256.deadbeef.cafebabe"), bytes.Repeat([]byte("x"), 10))
+			link := filepath.Join(d, "sub")
+			if err := os.Symlink(outside, link); err != nil {
+				t.Fatal(err)
+			}
+
+			out, err := s.TryRun(tool.args[0], tool.args[1:]...)
+			if err != nil {
+				t.Errorf("%s: %v", strings.Join(tool.args, " "), err)
+			}
+
+			hierCheckGone(t, home, out, []string{filepath.Join(link, "data.256.deadbeef.cafebabe")}, true)
+			cleanDirsIsLink(t, home, link, outside)
+			if st, err := os.Stat(outside); err != nil || !st.IsDir() {
+				t.Errorf("%s, the target of the symlink %s/sub, was removed (%v)", outside, name, err)
+			}
+			if strings.Contains(out, "Skipping symlink ") {
+				t.Errorf("%s skipped a symlink", tool.name)
+			}
+			if t.Failed() {
+				t.Logf("%s:\n%s", strings.Join(tool.args, " "), out)
+			}
+		})
+	}
+}

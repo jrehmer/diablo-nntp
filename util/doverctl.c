@@ -39,7 +39,7 @@ int IterInProgress(char *Hash, int iter);
 int ScanActive(int convert, int newOnly);
 int RescanActive(void);
 void CleanSpool(char *cleanDir);
-void scanDirectory(const char *dirpath, char *dirname, int *level);
+void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks);
 int DeleteFile(const char *dirPath, const char *name);
 int MoveGroupFile(char *path1, char *path2);
 void ProcessFile(const char *dirPath, const char *name);
@@ -733,7 +733,15 @@ CleanSpool(char *cleanDir)
 	    if (isLink && stat(den->d_name, &st) != 0)
 		continue;
 	    if (S_ISDIR(st.st_mode)) {
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level);
+		/*
+		 * Below a directory that main did not enter (a name only the
+		 * layout rule accepts), a directory symlink is not followed
+		 * either (#515 r3): main never scanned such a tree, so a link
+		 * out of it would be a new way to remove files outside the
+		 * group home.  The trees main entered follow links as before.
+		 */
+		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level,
+					!OldDirName(den->d_name));
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the
@@ -754,8 +762,15 @@ CleanSpool(char *cleanDir)
     }
 }
 
+/*
+ * scanDirectory() - scan dirpath/dirname for group files and remove the
+ * files of no group.  With noLinks a child that is a symlink to a
+ * directory is skipped (not followed, not removed); a symlink to a regular
+ * file is handled as on main: DeleteFile() unlinks the link, not its
+ * target.  Without noLinks child links are followed, as on main.
+ */
 void
-scanDirectory(const char *dirpath, char *dirname, int *level)
+scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks)
 {
     DIR *dir2;
     char path[PATH_MAX];
@@ -795,9 +810,14 @@ scanDirectory(const char *dirpath, char *dirname, int *level)
 		printf("Unable to stat(%s/%s)\n", dirname, den2->d_name);
 		continue;
 	    }
+	    if (S_ISDIR(st.st_mode) && isLink && noLinks) {
+		if (VerboseOpt)
+		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with two alphanumerics\n", path, den2->d_name);
+		continue;
+	    }
 	    if (S_ISDIR(st.st_mode)) {
 		if (*level <= 2)
-		    scanDirectory(path, den2->d_name, level);
+		    scanDirectory(path, den2->d_name, level, noLinks);
 		/*
 		 * This is a bit of a hack, but we try to remove the
 		 * directory in case it is empty. If it is not empty, the
