@@ -35,7 +35,7 @@ Prototype void bhash(hash_t *h, const char *p, int len);
 Prototype int GFIndex(char c);
 Prototype const char *GFHash(const char *group, GroupHashType *method);
 Prototype const char *GFName(const char *group, int ftype, artno_t artBase, int wantdir, int iter, GroupHashType *method);
-static void FindGroupDir(const char *group, char *path, size_t pathsize);
+static void FindGroupDir(const char *group, char *path, size_t pathsize, int full);
 Prototype int ExtractGroupHashInfo(const char *name, char *Hash, artno_t *artBase, int *iter);
 Prototype int ExtractGroupHashInfoGz(const char *name, char *Hash, char *HashZ, artno_t *artBase, int *iter);
 Prototype char *GetHash(GroupHashType *Hash, char *hashStr);
@@ -447,6 +447,12 @@ GFIndex(char c)
  *	from the '.' separated components of the newsgroup name. This
  *	option can lead to a very uneven spread of newsgroups per directory.
  *
+ * hierarchy-full
+ *	As hierarchy, but every component except the last is a directory
+ *	(hierarchy joins a component of one character to the next one), so
+ *	the groups X and X.gz never have their files in one directory
+ *	(D-325).  The file names are the same as with hierarchy.
+ *
  */
 
 const char *
@@ -626,7 +632,8 @@ GFName(const char *group, int gftype, artno_t artBase, int wantdir, int iter, Gr
 		    break;
 	    }
 	    if (wantdir) {
-		FindGroupDir(group, groupPath, sizeof(groupPath));
+		FindGroupDir(group, groupPath, sizeof(groupPath),
+						method->gh_hierfull);
 		n = snprintf(GFBuf, sizeof(GFBuf), "%s%s.%lld.%s",
 						groupPath,
 						ftype,
@@ -706,8 +713,16 @@ CacheHitsUsable(int fd, const struct CacheHitHead *chh, int r)
 	st.st_size >= chh->chh_end);
 }
 
+/*
+ * FindGroupDir() - the directory of a group's files for the hierarchy
+ * layouts, made from the components of the name except the last, each
+ * followed by a '/'.  hierarchy (full 0) skips a component of one character
+ * or none and joins it to the next one ("a.b.c" -> "a.b/", "e2e.x.gz" ->
+ * "e2e/"); hierarchy-full (full 1) skips only empty components and makes a
+ * directory of every other one ("a.b.c" -> "a/b/", "e2e.x.gz" -> "e2e/x/").
+ */
 static void
-FindGroupDir(const char *group, char *path, size_t pathsize)
+FindGroupDir(const char *group, char *path, size_t pathsize, int full)
 {
     const char *p = group;
     const char *q = p;
@@ -719,7 +734,11 @@ FindGroupDir(const char *group, char *path, size_t pathsize)
     while ((p = strchr(p, '.')) != NULL) {
 	size_t component = (size_t)(p - q);
 
-	if (component <= 1) {
+	if (full && component == 0) {
+	    q = ++p;
+	    continue;
+	}
+	if (!full && component <= 1) {
 	    p++;
 	    continue;
 	}
@@ -866,7 +885,7 @@ GetHash(GroupHashType *Hash, char *hashStr)
 	    strcpy(hashStr, "md5-64");
 	    break;
 	case HASHGRP_HIER:
-	    strcpy(hashStr, "hierarchy");
+	    strcpy(hashStr, Hash->gh_hierfull ? "hierarchy-full" : "hierarchy");
 	    break;
 	default:
 	    strcpy(hashStr, "UNKNOWN\n");
