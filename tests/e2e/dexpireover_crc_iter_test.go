@@ -181,3 +181,74 @@ func TestDexpireoverHierarchyIter(t *testing.T) {
 		t.Logf("doverctl convert crc hierarchy:\n%s\ndexpireover -a -v:\n%s\ndoverctl convert hierarchy crc:\n%s", conv, out, back)
 	}
 }
+
+// TestDexpireoverWildEmptyGroup (D-313, the -w case of #508): with -w only the groups that match
+// the wildcard are loaded, so for the files of a populated group A whose name does not match,
+// the empty group B with the same crc hash and iteration 0 was the only candidate, and the
+// single candidate was taken without a look at the over file: A's data file was removed as
+// "stale overview data" (B's range is empty) and A's over file got "bad file header". The files
+// of a group that does not match are not for this run to touch.
+//
+// Input: the colliding pair of TestDexpireoverCrcHashCollision (A with over and data file, B
+// with none; the order in dactive.kp does not matter, only the group that matches is loaded), then `dexpireover -a -v -w <B>`. Expected: A's two files
+// are unchanged, and nothing is reported about them. Control: `-w <A>` keeps them too, and a
+// stale data file of a group that is not in the active file is not removed under -w.
+func TestDexpireoverWildEmptyGroup(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		wild string
+	}{
+		{"wild_empty_group", crcCollideB},
+		{"wild_populated_group", crcCollideA},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, home := overSite(t, nil)
+			dirA, hashA := groupFiles(t, s, crcCollideA)
+			dirB, hashB := groupFiles(t, s, crcCollideB)
+			if dirA != dirB || hashA != hashB {
+				t.Fatalf("test setup: %s and %s do not share a file name hash: %s/%s and %s/%s",
+					crcCollideA, crcCollideB, dirA, hashA, dirB, hashB)
+			}
+			s.Run(t, "dgrpctl", "newgroup", crcCollideB, "y")
+			s.Run(t, "dgrpctl", "newgroup", crcCollideA, "y")
+			s.Run(t, "dgrpctl", "adjust", crcCollideA, "NB", "=1")
+			s.Run(t, "dgrpctl", "adjust", crcCollideA, "NE", "=300")
+
+			if err := os.MkdirAll(filepath.Join(home, dirA), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			over := filepath.Join(home, dirA, "over.0."+hashA)
+			data := filepath.Join(home, dirA, "data.256."+hashA)
+			stale := filepath.Join(home, dirA, "data.512.00000000.00000000")
+			overBytes := dexpireoverOverFile(crcCollideA)
+			dataBytes := bytes.Repeat([]byte("x"), 10)
+			writeOver(t, over, overBytes)
+			writeOver(t, data, dataBytes)
+			writeOver(t, stale, dataBytes)
+
+			out := s.Run(t, "dexpireover", "-a", "-v", "-w", tc.wild)
+
+			for _, f := range []struct {
+				path string
+				want []byte
+			}{{over, overBytes}, {data, dataBytes}, {stale, dataBytes}} {
+				got, err := os.ReadFile(f.path)
+				if err != nil {
+					t.Errorf("%s was removed with -w %s: %v", filepath.Base(f.path), tc.wild, err)
+				} else if !bytes.Equal(got, f.want) {
+					t.Errorf("%s was changed with -w %s", filepath.Base(f.path), tc.wild)
+				}
+			}
+			for _, l := range strings.Split(out, "\n") {
+				for _, bad := range []string{"bad file header", "stale overview data", "not found, removing"} {
+					if strings.Contains(l, bad) {
+						t.Errorf("dexpireover reports: %s", l)
+					}
+				}
+			}
+			if t.Failed() {
+				t.Logf("dexpireover -a -v -w %s:\n%s", tc.wild, out)
+			}
+		})
+	}
+}

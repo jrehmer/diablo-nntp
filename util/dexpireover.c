@@ -1568,12 +1568,13 @@ currentIter(char *Hash, int iter)
 }
 
 /*
- * OverFileIsGroups() - the over file of iteration iter for group exists in
- * dirPath and its header names the group.  A header of version 1 has no name:
- * no group owns it by this.  (The same as in doverctl.)
+ * OverFileOwner() - who the over file of iteration iter for group in dirPath
+ * belongs to by its header: 1 = names group, 0 = no such file, an unreadable
+ * header or another group's name, -1 = a header of version 1, which has no
+ * name.
  */
 static int
-OverFileIsGroups(const Group *group, int iter, const char *dirPath)
+OverFileOwner(const Group *group, int iter, const char *dirPath)
 {
     char ovpath[PATH_MAX];
     OverHead oh;
@@ -1587,13 +1588,29 @@ OverFileIsGroups(const Group *group, int iter, const char *dirPath)
     if (n < 0 || (size_t)n >= sizeof(ovpath))
 	return(0);
     if ((fd = open(ovpath, O_RDONLY)) >= 0) {
-	r = (read(fd, &oh, sizeof(oh)) == sizeof(oh) &&
-	    oh.oh_Version > 1 && oh.oh_Version <= OH_VERSION &&
-	    oh.oh_ByteOrder == OH_BYTEORDER &&
-	    strncmp(oh.oh_Gname, group->gr_GroupName, sizeof(oh.oh_Gname)) == 0);
+	if (read(fd, &oh, sizeof(oh)) == sizeof(oh) &&
+	    oh.oh_Version >= 1 && oh.oh_Version <= OH_VERSION &&
+	    oh.oh_ByteOrder == OH_BYTEORDER) {
+	    if (oh.oh_Version == 1)
+		r = -1;
+	    else
+		r = (strncmp(oh.oh_Gname, group->gr_GroupName,
+						sizeof(oh.oh_Gname)) == 0);
+	}
 	close(fd);
     }
     return(r);
+}
+
+/*
+ * OverFileIsGroups() - the over file of iteration iter for group exists in
+ * dirPath and its header names the group.  A header of version 1 has no name:
+ * no group owns it by this.  (The same as in doverctl.)
+ */
+static int
+OverFileIsGroups(const Group *group, int iter, const char *dirPath)
+{
+    return(OverFileOwner(group, iter, dirPath) == 1);
 }
 
 /*
@@ -1605,7 +1622,13 @@ OverFileIsGroups(const Group *group, int iter, const char *dirPath)
  * (D-313); else the first, as before.  hier: the file name is a hierarchy
  * name, which has no iteration, so the group's ITER (it keeps the iteration
  * of its files for a conversion back to crc or md5) is not compared (D-314).
- * Same as in doverctl.
+ * With -w only the groups that match are loaded, so a file of a group that
+ * does not match can have a single candidate, the empty group that shares its
+ * hash: that one must own the over file (a header of version 1 has no name and
+ * leaves it as it was), else no group is returned and the file is left alone
+ * (ProcessOverviewFile() removes nothing under -w, D-313).  Hierarchy names
+ * are made of the group name, so they have no such twin and no header check.
+ * The rest is the same as in doverctl, which loads every group.
  */
 Group *
 FindGroupByHash(char *Hash, int iter, int hier, const char *dirPath)
@@ -1622,8 +1645,12 @@ FindGroupByHash(char *Hash, int iter, int hier, const char *dirPath)
 	    ++n;
 	}
     }
-    if (n < 2)
+    if (n < 2) {
+	if (n == 1 && Wild != NULL && !hier &&
+	    OverFileOwner(first, iter, dirPath) == 0)
+	    return(NULL);
 	return(first);
+    }
     for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
 	if (strcmp(group->gr_Hash, Hash) == 0 &&
 	    (hier || group->gr_Iter == iter) &&
