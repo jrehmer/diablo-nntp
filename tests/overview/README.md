@@ -92,4 +92,57 @@ and building article-number prefixes. It excludes database opening, the
 input loader, NNTP formatting beyond the stored rows, and socket output.
 Expect later passes to benefit from cached pages. Compare byte counts or
 hash captured `range` output to check that two trials served equal data.
-The reported percentiles use the lower rank of each sorted sample position.
+The reader's reported percentiles use the lower rank of each sorted sample position.
+
+## Benchmark a single writer
+
+`ovwriter` loads the arrival-ordered rows from `generate` into a disposable
+database. All rows for one article must be adjacent. A batch limit counts
+articles, so multiple memberships of one article stay together. Article
+numbers come from the TSV number column, and the stored Xref field is
+copied verbatim. Each committed batch publishes the membership rows and
+advances each group's high-water mark. Exact replays keep the same rows.
+An article can occupy several numbers in the same group. A different
+article at an occupied (group, number), a conflicting payload, or an invalid
+input row rolls back the current batch. Even a full batch is rolled back if
+the next row is invalid, because that row could belong to its last article.
+
+The writer also needs SQLite's UPSERT support, introduced in SQLite 3.24.
+Run the standalone writer check and then benchmark fresh databases:
+
+```sh
+make -C tests/overview check-writer
+cd tests/overview
+scratch=$(mktemp -d)
+python3 shadow_test.py generate "$scratch/fixture" 250000
+python3 writer_test.py bench ./ovwriter "$scratch/fixture/rows.tsv" "$scratch"
+```
+
+On FreeBSD, use the same include and link paths as for the reader check:
+
+```sh
+make -C tests/overview CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib check-writer
+```
+
+The benchmark defaults to three trials of 16, 128 and 1024 articles per
+transaction. It rotates their order and creates and removes a fresh
+database for each trial. Each trial reports input and stored row counts,
+ingest duration, p95 commit latency, the largest observed WAL size after a
+commit, final checkpoint time, and database size. The writer checks that
+its connection uses WAL with `synchronous=FULL` and configures automatic
+checkpoints at 4096 pages. The writer's p95 uses the nearest rank. Commit
+latency includes a checkpoint when SQLite runs one during that commit.
+
+To keep a database for inspection, initialize a fresh one and pass the
+same arrival-ordered fixture. Query it after the writer exits and its
+final checkpoint has completed:
+
+```sh
+python3 writer_test.py init "$scratch/writer.sqlite"
+./ovwriter "$scratch/writer.sqlite" 128 "$scratch/fixture/rows.tsv"
+./ovshadow "$scratch/writer.sqlite" range fixture.g000 1 20
+```
+
+The writer benchmark measures overview and membership data. Header
+tails, local number allocation, simultaneous readers, expiry and daemon
+integration are separate workloads.
