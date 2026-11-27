@@ -210,6 +210,9 @@ static int enterActiveRecord(int recOff, int recLen, int late);
 static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
 static int overFileType(const char *name);
+static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
+static int tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz, const char *want);
+static int tempRewriteName(const char *dirPath, const char *name);
 static int dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries);
 static int gzNameTaken(Group *group, const char *path, artno_t artBase, int hier, char *why, size_t whySize);
 static void expireOverArt(int fd, off_t pos, const hash_t *mh, int rcvd);
@@ -1056,8 +1059,6 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 
     if ((dir2 = opendir(".")) != NULL) {
 	den_t *den2;
-	char tbuf[24];
-	int tint;
 	struct stat st;
 	DirFrame sub;
 
@@ -1090,11 +1091,13 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	     * delete junk files from previously interrupted
 	     * dexpireover -R
 	     */
-	    if (strncmp(den2->d_name, ".data.", 6) == 0 ||
-		strncmp(den2->d_name, ".d.", 3) == 0 ||
-		sscanf(den2->d_name, ".%23[^.]s.%d.d.", tbuf, &tint) == 2) {
-		/* a symlink was reported by the first pass */
-		if (!(noLinks && EntryIsLink(den2->d_name)))
+	    if (tempRewriteName(path, den2->d_name)) {
+		/*
+		 * a symlink was reported by the first pass; a directory
+		 * is not a temporary file, whatever its name
+		 */
+		if (!(noLinks && EntryIsLink(den2->d_name)) &&
+		    !(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		    DeleteJunkFile(path, den2->d_name);
 		continue;
 	    }
@@ -1144,6 +1147,119 @@ overFileType(const char *name)
     if (ghtype & HASHGRPTYPE_OVER)
 	return(1);
     return((ghtype & HASHGRPTYPE_DATA) ? 2 : 0);
+}
+
+/*
+ * tempNameIs() - want (a path below the group home) is the over or data file
+ * name GFName() gives group (gftype, artBase, iter), in its directory, with
+ * ".gz" added when gz, and nothing more.
+ */
+static int
+tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz,
+							const char *want)
+{
+    const char *gf = GFName(group, gftype, artBase, 1, iter,
+					&DOpts.ReaderGroupHashMethod);
+    size_t len = strlen(gf);
+
+    if (strncmp(gf, want, len) != 0)
+	return(0);
+    return(strcmp(want + len, gz ? ".gz" : "") == 0);
+}
+
+/*
+ * tempRewriteName() - name, in the directory dirPath below the group home,
+ * is a temporary file of dexpireover: a '.' followed by exactly the name of
+ * an over or data file of the configured layout in that directory, as
+ * RewriteData() and rewriteDataFile() create them (createTempFile(),
+ * "." + GFName()), or by a data file name and ".gz", as diablo_minigzip()
+ * writes the compressed copy of a data file:
+ *
+ *	crc		.over.<n>.<hash>[.<iter>]
+ *			.data.<n>.<hash>[.<iter>][.gz]
+ *	md5-32, md5-64	.<hash>.<iter>.o.<32|64>.<n>
+ *			.<hash>.<iter>.d.<32|64>.<n>[.gz]
+ *	hierarchy(-full) .o.<n>.<group>
+ *			.d.<n>.<group>[.gz]
+ *
+ * An interrupted -R or -z leaves them behind (D-333: the md5 data and the
+ * over temporaries of every layout were not matched before).  The name after
+ * the '.' is parsed (ExtractGroupHashInfoGz()) and GFName() is asked for the
+ * name of the file it reads as; only when that is the whole name, and the
+ * directory is the one GFName() puts the file in, is it a temporary file.
+ * The parse alone is not enough: it ignores what follows the fields it
+ * reads (an admin's ".over.0.<hash>.backup" reads as an over file), and a
+ * hierarchy name takes any rest as part of the group name
+ * (".o.0.<group>~" or ".o.0.<group>.orig" reads as the over file of the
+ * group "<group>~" or "<group>.orig", which can have the same directory).
+ * So the group must be in the group table, in every layout (#519 r2): the
+ * name GFName() gives is built from the name of a loaded group whose hash
+ * (for hierarchy: the group name) is the one read, and both readings of a
+ * hierarchy ".gz" name are tried (D-318).  A temporary file of a group that
+ * is not in the table (removed from the active file, or not selected with
+ * -w) is left.  No group file name starts with '.', so the group's own
+ * files are never taken.
+ */
+static int
+tempRewriteName(const char *dirPath, const char *name)
+{
+    char home[PATH_MAX];
+    char want[PATH_MAX];
+    char Hash[PATH_MAX];
+    char HashZ[PATH_MAX];
+    artno_t artBase = -1;
+    int iter = 0;
+    int ghtype;
+    int gftype;
+    int n;
+    size_t homeLen;
+
+    if (name[0] != '.')
+	return(0);
+    Hash[0] = 0;
+    if ((ghtype = ExtractGroupHashInfoGz(name + 1, Hash, HashZ, &artBase, &iter)) == HASHGRP_NONE)
+	return(0);
+    gftype = (ghtype & HASHGRPTYPE_OVER) ? GRPFTYPE_OVER : GRPFTYPE_DATA;
+
+    /* the path GFName() gives with wantdir 1: "<dir below home>/<name>" */
+    n = snprintf(home, sizeof(home), "%s", PatExpand(GroupHomePat));
+    if (n < 0 || (size_t)n >= sizeof(home))
+	return(0);
+    homeLen = (size_t)n;
+    if (strncmp(dirPath, home, homeLen) != 0 || dirPath[homeLen] != '/')
+	return(0);
+    n = snprintf(want, sizeof(want), "%s/%s", dirPath + homeLen + 1, name + 1);
+    if (n < 0 || (size_t)n >= sizeof(want))
+	return(0);
+
+    if ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER) {
+	/* no iteration in the name; "d.<n>.X.gz" is X.gz's plain or X's .gz */
+	if (tempOfGroup(Hash, gftype, artBase, 0, 0, want))
+	    return(1);
+	return(HashZ[0] != 0 && tempOfGroup(HashZ, gftype, artBase, 0, 1, want));
+    }
+    if (tempOfGroup(Hash, gftype, artBase, iter, 0, want))
+	return(1);
+    return(gftype == GRPFTYPE_DATA && tempOfGroup(Hash, gftype, artBase, iter, 1, want));
+}
+
+/*
+ * tempOfGroup() - a group in the table has the hash Hash (gr_Hash, GFHash():
+ * for hierarchy the group name) and tempNameIs() its file want.
+ */
+static int
+tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz,
+							const char *want)
+{
+    hash_t hv = hhash(Hash);
+    Group *group;
+
+    for (group = GHash[hv.h1 & GHMASK]; group; group = group->gr_Next) {
+	if (strcmp(group->gr_Hash, Hash) == 0 &&
+	    tempNameIs(group->gr_GroupName, gftype, artBase, iter, gz, want))
+	    return(1);
+    }
+    return(0);
 }
 
 void

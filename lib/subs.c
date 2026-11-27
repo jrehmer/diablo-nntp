@@ -1094,12 +1094,39 @@ MoveFile(char *from, char *to)
     int to_fd;
     static char buffer[32768];
     int rlen;
+    struct stat from_st;
+    struct stat to_st;
 
     if ((from_fd = open(from, O_RDONLY, 0)) < 0) {
 	printf("ERROR: Unable to open input file: %s\n", from);
 	return(-1);
     }
-    if ((to_fd = open(to, O_CREAT | O_TRUNC | O_WRONLY, 0644)) < 0) {
+    /*
+     * The file is already at its new name (#519 r2): the two names are one
+     * path, or one file (the same inode: two methods that give a group the
+     * same path, such as md5-32:30\1 and md5-32:40\1, or a hard link).  As
+     * rename() does then, nothing is done and the move succeeds; unlinking
+     * the destination or truncating it would remove the only copy.  A
+     * symlink at the name is not this file (lstat()), it is replaced below.
+     */
+    if (strcmp(from, to) == 0 ||
+	(fstat(from_fd, &from_st) == 0 && lstat(to, &to_st) == 0 &&
+	 from_st.st_dev == to_st.st_dev && from_st.st_ino == to_st.st_ino)) {
+	close(from_fd);
+	return(0);
+    }
+    /*
+     * The output file is created anew (D-332): whatever is at its name, a
+     * file of an interrupted run or a symlink, is unlinked first, and the
+     * open uses O_EXCL, so a symlink there is not followed and its target,
+     * wherever it points, is not truncated or written.  Unlike O_TRUNC on
+     * a file already there, the new file has mode 0644 (less the umask) and
+     * the caller as owner, a hard link at the name is left with the old
+     * contents, and the directory must be writable.  As createTempFile()
+     * in dexpireover.
+     */
+    if ((unlink(to) < 0 && errno != ENOENT) ||
+	(to_fd = open(to, O_CREAT | O_EXCL | O_WRONLY, 0644)) < 0) {
 	printf("ERROR: Unable to create output file: %s\n", to);
 	close(from_fd);
 	return(-1);
