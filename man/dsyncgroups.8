@@ -84,9 +84,8 @@ a 'list active' on a remote server. i.e:
 .PP
 groupname artend artbegin modstatus
 .PP
-Reading stops at a line with only a ".", as it does for a list from a
-remote host.  A file that has no such line, or has more after the first one,
-is used as it is up to that line, but -D deletes nothing with it (see -D).
+A line with only a "." is not a group.  -D deletes nothing unless the last
+line of the file that is not blank is such a line (see -D).
 .PP
 .B \-f/F file.kp
 Specify the local KP database to work on.  The uppercase -F will create the
@@ -132,10 +131,11 @@ the local KP database.  Groups outside a wildcard specification are not
 effected.
 Nothing is deleted when a line of the list was skipped because it was over
 4095 bytes: the list is incomplete, and the line may have named a local group.
-With -G, groups are deleted only when the file ends with a line with only a
-".", with nothing after it, so that a file that was cut short does not delete
-the groups it no longer names; otherwise a note is printed, and the other
-options (creating groups, updating them) work as before.
+With -G, groups are deleted only when the last line of the file that is not
+blank is a line with only a "." (and the file was read without error), so
+that a file that was cut short does not delete the groups it no longer names;
+otherwise a note is printed, and the other options (creating groups, updating
+them) work as before.
 .PP
 .B \-N[B][E,X]
 Specifies that the article begin and end range in the local KP database be
