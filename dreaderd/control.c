@@ -966,11 +966,21 @@ CtlNewGroup(Connection *conn, Control *ctl, const char **cmd, const char *body, 
      * record (and lock that).
      */
 
-    if ((rec = KPDBReadRecord(KDBActive, cmd[1], KP_LOCK, &recLen)) == NULL) {
-	KPDBWrite(KDBActive, cmd[1], "NB", "0000000001", KP_LOCK);
-	KPDBWrite(KDBActive, cmd[1], "NE", "0000000000", KP_LOCK_CONTINUE);
-	isNew = 1;
-    } else {
+    rec = KPDBReadRecord(KDBActive, cmd[1], KP_LOCK, &recLen);
+    if (rec == NULL) {
+	/*
+	 * Create if absent (D-254): the group may have been made, and
+	 * numbered, since the read above.  Then it is the existing group
+	 * below (locked): NB and NE stay.
+	 */
+	if (KPDBCreate(KDBActive, cmd[1], "NB", "0000000001", KP_LOCK) == 0) {
+	    KPDBWrite(KDBActive, cmd[1], "NE", "0000000000", KP_LOCK_CONTINUE);
+	    isNew = 1;
+	} else {
+	    rec = KPDBReadRecord(KDBActive, cmd[1], 0, &recLen);
+	}
+    }
+    if (rec != NULL) {
 	if (KPDBGetField(rec, recLen, "CTS", NULL, NULL) != NULL)
 	    hasCts = 1;
     }
@@ -1718,8 +1728,10 @@ CgNextLine(const char *body, int bodyLen, int *pi, char *line, char *group, char
 
 /*
  * A complete record for a group that did not exist, as CtlNewGroup() makes it.
+ * Returns 1 when it made the record, and 0 when the group exists by now (made,
+ * and perhaps numbered, since the caller looked): that one is left as it is.
  */
-static void
+static int
 CgCreate(const char *group, char flags, const char *description)
 {
     char tsBuf[64];
@@ -1728,13 +1740,17 @@ CgCreate(const char *group, char flags, const char *description)
     fl[0] = flags;
     fl[1] = 0;
     sprintf(tsBuf, "%08x", (int)time(NULL));
-    KPDBWrite(KDBActive, group, "NB", "0000000001", KP_LOCK);
+    if (KPDBCreate(KDBActive, group, "NB", "0000000001", KP_LOCK) != 0) {
+	KPDBWrite(KDBActive, group, NULL, NULL, KP_UNLOCK);
+	return(0);
+    }
     KPDBWrite(KDBActive, group, "NE", "0000000000", KP_LOCK_CONTINUE);
     if (description[0])
 	KPDBWriteEncode(KDBActive, group, "GD", description, KP_LOCK_CONTINUE);
     KPDBWrite(KDBActive, group, "CTS", tsBuf, KP_LOCK_CONTINUE);
     KPDBWrite(KDBActive, group, "LMTS", tsBuf, KP_LOCK_CONTINUE);
     KPDBWrite(KDBActive, group, "S", fl, KP_UNLOCK);
+    return(1);
 }
 
 /*
@@ -2007,9 +2023,12 @@ CgCheck(Control *ctl, const char *body, int bodyLen, const char *include, const 
 	    continue;			/* logged below */
 	} else if (rec == NULL) {
 	    if (doit) {
-		CgCreate(g, ents[i].ce_Flags, ents[i].ce_Desc);
-		if (ctl->ct_LogFo)
-		    fprintf(ctl->ct_LogFo, ">> Checkgroups: Added group %s flags=%c\n", g, ents[i].ce_Flags);
+		if (CgCreate(g, ents[i].ce_Flags, ents[i].ce_Desc)) {
+		    if (ctl->ct_LogFo)
+			fprintf(ctl->ct_LogFo, ">> Checkgroups: Added group %s flags=%c\n", g, ents[i].ce_Flags);
+		} else if (ctl->ct_LogFo) {
+		    fprintf(ctl->ct_LogFo, ">> Checkgroups: Group %s was made meanwhile, left as it is\n", g);
+		}
 	    } else if (ctl->ct_LogFo) {
 		fprintf(ctl->ct_LogFo, "dgrpctl newgroup %s %c \"\" \"%s\"\n", g, ents[i].ce_Flags, ents[i].ce_Desc);
 	    }

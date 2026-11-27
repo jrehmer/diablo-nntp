@@ -692,6 +692,20 @@ main(int ac, char **av)
 		} else if (group->gr_State & (GRF_MODIFIED | GRF_NEW)) {
 		    if (group->gr_State & GRF_NEW) {
 			printf("Creating %s", group->gr_GroupName);
+			/*
+			 * Create if absent (D-254): a group that was not there
+			 * at the scan may have been made, and numbered, since.
+			 * Then it is left as it is.
+			 */
+			if (ForReal) {
+			    char newBuf[32];
+
+			    snprintf(newBuf, sizeof(newBuf), "%010lld", (long long)group->gr_StartNo);
+			    if (KPDBCreate(KDBActive, group->gr_GroupName, "NB", newBuf, 0) != 0) {
+				printf(": made meanwhile, left as it is\n");
+				continue;
+			    }
+			}
 		    } else {
 			printf("Updating %s", group->gr_GroupName);
 		    }
