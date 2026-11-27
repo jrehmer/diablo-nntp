@@ -202,9 +202,12 @@ fcntl64(int fd, int cmd, ...)
 // groupCreateOutPauseSource: with GROUPCREATE_PAUSE=<prefix>, the file <prefix>.arm and
 // GROUPCREATE_PAUSE_ON=<text>, the first printf() whose format contains the text writes
 // <prefix>.held and waits for <prefix>.go (60 s at most), as the shim above does. A program
-// that prints after each step of its work (dsyncgroups -v) stops between two steps.
+// that prints after each step of its work (dsyncgroups -v) stops between two steps. A build
+// with _FORTIFY_SOURCE (the default of Ubuntu's gcc at -O2) calls __printf_chk(flag, fmt, ...)
+// for the same line, so that is taken too.
 const groupCreateOutPauseSource = `#define _GNU_SOURCE
 #define __EXTENSIONS__
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -212,34 +215,54 @@ const groupCreateOutPauseSource = `#define _GNU_SOURCE
 #include <string.h>
 #include <unistd.h>
 
-int
-printf(const char *fmt, ...)
+static void
+pause_on(const char *fmt)
 {
     const char *p = getenv("GROUPCREATE_PAUSE");
     const char *on = getenv("GROUPCREATE_PAUSE_ON");
+    char name[4200], pid[32];
+    int h, i;
+
+    if (p == NULL || on == NULL || strstr(fmt, on) == NULL)
+	return;
+    snprintf(name, sizeof(name), "%s.arm", p);
+    if (access(name, F_OK) != 0)
+	return;
+    snprintf(name, sizeof(name), "%s.held", p);
+    h = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
+    if (h < 0)
+	return;
+    snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
+    (void)write(h, pid, strlen(pid));
+    close(h);
+    snprintf(name, sizeof(name), "%s.go", p);
+    for (i = 0; i < 3000 && access(name, F_OK) != 0; i++)
+	usleep(20000);
+}
+
+int
+printf(const char *fmt, ...)
+{
     va_list ap;
     int r;
 
-    if (p != NULL && on != NULL && strstr(fmt, on) != NULL) {
-	char name[4200], pid[32];
-	int h, i;
-
-	snprintf(name, sizeof(name), "%s.arm", p);
-	if (access(name, F_OK) == 0) {
-	    snprintf(name, sizeof(name), "%s.held", p);
-	    h = open(name, O_WRONLY|O_CREAT|O_EXCL, 0644);
-	    if (h >= 0) {
-		snprintf(pid, sizeof(pid), "%d\n", (int)getpid());
-		(void)write(h, pid, strlen(pid));
-		close(h);
-		snprintf(name, sizeof(name), "%s.go", p);
-		for (i = 0; i < 3000 && access(name, F_OK) != 0; i++)
-		    usleep(20000);
-	    }
-	}
-    }
+    pause_on(fmt);
     va_start(ap, fmt);
     r = vprintf(fmt, ap);
+    va_end(ap);
+    return r;
+}
+
+int
+__printf_chk(int flag, const char *fmt, ...)
+{
+    int (*chk)(int, const char *, va_list) = (int (*)(int, const char *, va_list))dlsym(RTLD_NEXT, "__vprintf_chk");
+    va_list ap;
+    int r;
+
+    pause_on(fmt);
+    va_start(ap, fmt);
+    r = chk ? chk(flag, fmt, ap) : vprintf(fmt, ap);
     va_end(ap);
     return r;
 }
@@ -522,7 +545,9 @@ func TestGroupCreateDsyncgroupsLock(t *testing.T) {
 		aDone <- result{string(out), err}
 	}()
 	if !r.waitHeld(60 * time.Second) {
-		t.Fatal("dsyncgroups did not get to the write of NE of the new group (no .held file)")
+		r.release()
+		a := <-aDone
+		t.Fatalf("dsyncgroups did not get to the write of NE of the new group (no .held file); it ended with %v and printed:\n%s", a.err, a.out)
 	}
 	if f := kpFields(t, s, "e2e.lock"); f == nil || f["NB"] != "0000000001" || f["NE"] != "0000000000" || f["NX"] != "" {
 		t.Fatalf("the held group has %v, want NB and NE and no NX", f)
