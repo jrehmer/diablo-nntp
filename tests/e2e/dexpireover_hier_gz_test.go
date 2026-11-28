@@ -232,7 +232,9 @@ func TestDexpireoverHierarchyDataStale(t *testing.T) {
 // As doverctl clean does (TestDoverctlCleanHierarchyGzGroupName), dexpireover looks up both and
 // keeps the file unless it is stale for every group that exists. The names e2e.foo and e2e.d.foo
 // are tried: with the second one dexpireover (before the fix) scanned the files by the ".d." in
-// the name and looked them up as the group "e2e.d.foo.gz" only.
+// the name and looked them up as the group "e2e.d.foo.gz" only. Here X and X.gz have different
+// directories, so the directory of the file tells (D-336): a reading counts only in the
+// directory of its group.
 //
 // Input: "readergrouphash hierarchy", the groups X and X.gz (range 1..300 each) in three
 // combinations: both, only X, only X.gz; each existing group with its over file and its data file
@@ -241,7 +243,9 @@ func TestDexpireoverHierarchyDataStale(t *testing.T) {
 // e2e/d.foo below e2e). Files to go, in
 // the directory of X: d.1024.X.gz (outside the range of both groups) and d.256.e2e.nogroup.gz
 // (no such group). `dexpireover -a -v`. Expected: all files of existing groups are there,
-// unchanged, nothing is reported about them; the two others are removed and reported.
+// unchanged, nothing is reported about them; the two others are removed and reported: d.1024.X.gz
+// as stale for X, and in only_X.gz, where X does not exist and the directory is not that of
+// X.gz, as the file of no group (before the D-336 fix: as stale for X.gz).
 func TestDexpireoverHierarchyGzGroupName(t *testing.T) {
 	for _, base := range []string{"e2e.foo", "e2e.d.foo"} {
 		for _, tc := range []struct {
@@ -283,10 +287,11 @@ func TestDexpireoverHierarchyGzGroupName(t *testing.T) {
 				out := s.Run(t, "dexpireover", "-a", "-v")
 
 				hierCheckKept(t, home, keep)
-				hierCheckGone(t, home, out, []string{stale}, false)
+				hierCheckGone(t, home, out, []string{stale}, !tc.hasX)
 				hierCheckGone(t, home, out, []string{noGroup}, true)
 				for _, l := range strings.Split(out, "\n") {
-					if strings.Contains(l, "not found, removing") && !strings.HasSuffix(l, noGroup) {
+					if strings.Contains(l, "not found, removing") && !strings.HasSuffix(l, noGroup) &&
+						!(!tc.hasX && strings.HasSuffix(l, stale)) {
 						t.Errorf("dexpireover removed a file of an existing group: %s", l)
 					}
 				}
@@ -299,95 +304,140 @@ func TestDexpireoverHierarchyGzGroupName(t *testing.T) {
 }
 
 // TestDexpireoverHierarchyGzOneReadingCovers (D-318): d.1024.<X>.gz is stale for one of the two
-// groups X and X.gz (outside its range) and in range of the other: it is kept, as the other
-// group's file may be this one. Before the fix, dexpireover judged the file by the group X.gz
-// alone (the name as it stands), so with the range of X.gz not covering 1024 the compressed data
-// of X was removed. The name e2e.d.foo is the one scanned before the fix.
+// groups X and X.gz (outside its range) and in range of the other. When both groups have their
+// files in the directory of the file (same_dir: e2e.x and e2e.x.gz, both in e2e/ with plain
+// hierarchy, D-325), it is kept, as the other group's file may be this one. Before the D-318
+// fix, dexpireover judged the file by the group X.gz alone (the name as it stands), so with the
+// range of X.gz not covering 1024 the compressed data of X was removed. When the directories
+// differ (other_dirs: e2e.d.foo in e2e/, e2e.d.foo.gz in e2e/d.foo/; the name e2e.d.foo is the one
+// scanned before #511), the file in e2e/ is X's alone (D-336): kept when X covers 1024, removed as
+// stale for X when only X.gz does (before the D-336 fix it was kept).
 //
-// Input: "readergrouphash hierarchy", the groups e2e.d.foo and e2e.d.foo.gz with their over files,
-// one with the range 1..300 and the other 1..1100 (and an over file of 2048 slots), both ways
-// round; the file d.1024.e2e.d.foo.gz in the directory of e2e.d.foo, and d.2048.e2e.d.foo.gz,
-// which is outside both ranges; `dexpireover -a -v`. Expected: d.1024 is there, unchanged, and
-// not reported; d.2048 is removed and reported.
+// Input: "readergrouphash hierarchy", the groups X and X.gz with their over files, one with the
+// range 1..300 and the other 1..1100 (and an over file of 2048 slots), both ways round; the file
+// d.1024.X.gz in the directory of X, and d.2048.X.gz, which is outside both ranges;
+// `dexpireover -a -v`. Expected: d.1024 is there, unchanged, and not reported (other_dirs
+// X.gz_covers: removed with "Deleting stale overview data for e2e.d.foo"); d.2048 is removed and
+// reported.
 func TestDexpireoverHierarchyGzOneReadingCovers(t *testing.T) {
-	const x, z = "e2e.d.foo", "e2e.d.foo.gz"
-	for _, tc := range []struct {
-		name           string
-		neX, neZ       string
-		slotsX, slotsZ int
-	}{
-		{"X.gz_covers", "300", "1100", 500, 2048},
-		{"X_covers", "1100", "300", 2048, 500},
+	for _, pair := range []struct{ name, x string }{
+		{"same_dir", "e2e.x"},
+		{"other_dirs", "e2e.d.foo"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
-			dirX := hierGroupDir(t, s, home, x)
-			dirZ := hierGroupDir(t, s, home, z)
-			hierGroupRange(t, s, x, "1", tc.neX)
-			hierGroupRange(t, s, z, "1", tc.neZ)
-			plain := bytes.Repeat([]byte("x"), 10)
-			keep := []hierFile{
-				{filepath.Join(home, dirX, "o.0."+x), hierOverFile(x, 1, tc.slotsX)},
-				{filepath.Join(home, dirZ, "o.0."+z), hierOverFile(z, 1, tc.slotsZ)},
-				{filepath.Join(home, dirX, "d.1024."+x+".gz"), plain},
-			}
-			hierWrite(t, keep)
-			stale := filepath.Join(home, dirX, "d.2048."+x+".gz")
-			writeOver(t, stale, plain)
+		for _, tc := range []struct {
+			name           string
+			neX, neZ       string
+			slotsX, slotsZ int
+		}{
+			{"X.gz_covers", "300", "1100", 500, 2048},
+			{"X_covers", "1100", "300", 2048, 500},
+		} {
+			t.Run(pair.name+"/"+tc.name, func(t *testing.T) {
+				x, z := pair.x, pair.x+".gz"
+				s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+				dirX := hierGroupDir(t, s, home, x)
+				dirZ := hierGroupDir(t, s, home, z)
+				if (dirX == dirZ) != (pair.name == "same_dir") {
+					t.Fatalf("directories of %s and %s: %q and %q", x, z, dirX, dirZ)
+				}
+				hierGroupRange(t, s, x, "1", tc.neX)
+				hierGroupRange(t, s, z, "1", tc.neZ)
+				plain := bytes.Repeat([]byte("x"), 10)
+				keep := []hierFile{
+					{filepath.Join(home, dirX, "o.0."+x), hierOverFile(x, 1, tc.slotsX)},
+					{filepath.Join(home, dirZ, "o.0."+z), hierOverFile(z, 1, tc.slotsZ)},
+				}
+				covered := filepath.Join(home, dirX, "d.1024."+x+".gz")
+				stale := []string{filepath.Join(home, dirX, "d.2048."+x+".gz")}
+				if pair.name == "other_dirs" && tc.name == "X.gz_covers" {
+					stale = append(stale, covered)
+				} else {
+					keep = append(keep, hierFile{covered, plain})
+				}
+				hierWrite(t, keep)
+				for _, f := range stale {
+					writeOver(t, f, plain)
+				}
 
-			out := s.Run(t, "dexpireover", "-a", "-v")
+				out := s.Run(t, "dexpireover", "-a", "-v")
 
-			hierCheckKept(t, home, keep)
-			hierCheckGone(t, home, out, []string{stale}, false)
-			hierNoBadReport(t, out, []string{stale})
-			if t.Failed() {
-				t.Logf("dexpireover -a -v:\n%s", out)
-			}
-		})
+				hierCheckKept(t, home, keep)
+				hierCheckGone(t, home, out, stale, false)
+				hierNoBadReport(t, out, stale)
+				if t.Failed() {
+					t.Logf("dexpireover -a -v:\n%s", out)
+				}
+			})
+		}
 	}
 }
 
 // TestDexpireoverHierarchyGzWild (D-318): with -w only the groups that match are loaded, so of
 // the two groups a ".gz" data file may belong to, one may exist without being loaded. The file
-// is then not judged by the loaded one alone.
+// is then not judged by the loaded one alone, when both groups have their files in the
+// directory of the file (same_dir: e2e.x and e2e.x.gz in e2e/ with plain hierarchy). The
+// directory of a group follows from its name, so it is known without loading the group: when the
+// other group's directory is another one and its over file is there (other_dirs: e2e.foo in
+// e2e/, e2e.foo.gz in e2e/foo/), the file is X's alone and judged by X also with -w (D-336).
 //
-// Input: as TestDexpireoverHierarchyGzOneReadingCovers, e2e.foo with the range 1..300 and
-// e2e.foo.gz with 1..1100; d.1024.e2e.foo.gz (outside the range of e2e.foo only) and
-// d.2048.e2e.foo.gz (outside both), in the directory of e2e.foo. `dexpireover -a -v -w e2e.foo`
-// (e2e.foo.gz is not loaded): both files are there, and -v says d.1024 is left alone; then
-// `-w 'e2e.foo*'` (both loaded): d.1024 is kept, d.2048 is removed and reported.
+// Input: as TestDexpireoverHierarchyGzOneReadingCovers, X with the range 1..300 and X.gz with
+// 1..1100; d.1024.X.gz (outside the range of X only) and d.2048.X.gz (outside both), in the
+// directory of X. `dexpireover -a -v -w X` (X.gz is not loaded): same_dir: both files are there,
+// and -v says d.1024 is left alone; then `-w 'X*'` (both loaded): d.1024 is kept, d.2048 is
+// removed and reported. other_dirs: the first run already removes both, as stale for X (before
+// the D-336 fix: both left, as in same_dir).
 func TestDexpireoverHierarchyGzWild(t *testing.T) {
-	const x, z = "e2e.foo", "e2e.foo.gz"
-	s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
-	dirX := hierGroupDir(t, s, home, x)
-	dirZ := hierGroupDir(t, s, home, z)
-	hierGroupRange(t, s, x, "1", "300")
-	hierGroupRange(t, s, z, "1", "1100")
-	plain := bytes.Repeat([]byte("x"), 10)
-	keep := []hierFile{
-		{filepath.Join(home, dirX, "o.0."+x), hierOverFile(x, 1, 500)},
-		{filepath.Join(home, dirZ, "o.0."+z), hierOverFile(z, 1, 2048)},
-		{filepath.Join(home, dirX, "d.1024."+x+".gz"), plain},
-	}
-	hierWrite(t, keep)
-	stale := filepath.Join(home, dirX, "d.2048."+x+".gz")
-	writeOver(t, stale, plain)
+	for _, pair := range []struct{ name, x string }{
+		{"same_dir", "e2e.x"},
+		{"other_dirs", "e2e.foo"},
+	} {
+		t.Run(pair.name, func(t *testing.T) {
+			x, z := pair.x, pair.x+".gz"
+			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+			dirX := hierGroupDir(t, s, home, x)
+			dirZ := hierGroupDir(t, s, home, z)
+			if (dirX == dirZ) != (pair.name == "same_dir") {
+				t.Fatalf("directories of %s and %s: %q and %q", x, z, dirX, dirZ)
+			}
+			hierGroupRange(t, s, x, "1", "300")
+			hierGroupRange(t, s, z, "1", "1100")
+			plain := bytes.Repeat([]byte("x"), 10)
+			keep := []hierFile{
+				{filepath.Join(home, dirX, "o.0."+x), hierOverFile(x, 1, 500)},
+				{filepath.Join(home, dirZ, "o.0."+z), hierOverFile(z, 1, 2048)},
+			}
+			covered := filepath.Join(home, dirX, "d.1024."+x+".gz")
+			stale := filepath.Join(home, dirX, "d.2048."+x+".gz")
+			hierWrite(t, keep)
+			writeOver(t, covered, plain)
+			writeOver(t, stale, plain)
 
-	one := s.Run(t, "dexpireover", "-a", "-v", "-w", x)
+			one := s.Run(t, "dexpireover", "-a", "-v", "-w", x)
 
-	hierCheckKept(t, home, append(keep, hierFile{stale, plain}))
-	hierNoBadReport(t, one, nil)
-	if !strings.Contains(one, "left alone: "+keep[2].path) {
-		t.Errorf("dexpireover -w %s does not say that it left %s alone", x, keep[2].path)
-	}
+			if pair.name == "other_dirs" {
+				hierCheckKept(t, home, keep)
+				hierCheckGone(t, home, one, []string{covered, stale}, false)
+				hierNoBadReport(t, one, []string{covered, stale})
+				if t.Failed() {
+					t.Logf("dexpireover -a -v -w %s:\n%s", x, one)
+				}
+				return
+			}
+			hierCheckKept(t, home, append(keep, hierFile{covered, plain}, hierFile{stale, plain}))
+			hierNoBadReport(t, one, nil)
+			if !strings.Contains(one, "left alone: "+covered) {
+				t.Errorf("dexpireover -w %s does not say that it left %s alone", x, covered)
+			}
 
-	both := s.Run(t, "dexpireover", "-a", "-v", "-w", x+"*")
+			both := s.Run(t, "dexpireover", "-a", "-v", "-w", x+"*")
 
-	hierCheckKept(t, home, keep)
-	hierCheckGone(t, home, both, []string{stale}, false)
-	hierNoBadReport(t, both, []string{stale})
-	if t.Failed() {
-		t.Logf("dexpireover -a -v -w %s:\n%s\ndexpireover -a -v -w %s*:\n%s", x, one, x, both)
+			hierCheckKept(t, home, append(keep, hierFile{covered, plain}))
+			hierCheckGone(t, home, both, []string{stale}, false)
+			hierNoBadReport(t, both, []string{stale})
+			if t.Failed() {
+				t.Logf("dexpireover -a -v -w %s:\n%s\ndexpireover -a -v -w %s*:\n%s", x, one, x, both)
+			}
+		})
 	}
 }
 
@@ -631,10 +681,14 @@ func TestDexpireoverHierarchyCompressGzName(t *testing.T) {
 //   - e64: range 1..300; d.0, d.64 and d.128 stay; d.100 and d.1024 go;
 //   - e1024: range 1500..1800; d.1024 (the oldest live articles) and d.2048 stay; d.0 and d.3072
 //     go;
+//   - gz_same_dir: e2e.x (256 entries) and e2e.x.gz (4 entries), both in e2e/ with plain
+//     hierarchy (D-325): d.4.e2e.x.gz is the compressed data of e2e.x (stale there, 4 is no
+//     multiple of 256) and the plain data of e2e.x.gz (in range), so it stays, which needs the
+//     over file of e2e.x.gz; d.1024.e2e.x.gz goes;
 //   - gz_other_dir: e2e.foo (256 entries) and e2e.foo.gz (4 entries, its files in e2e/foo/):
-//     d.4.e2e.foo.gz in e2e/ is the compressed data of e2e.foo (stale there, 4 is no multiple of
-//     256) and the plain data of e2e.foo.gz (in range), so it stays, which needs the over file
-//     of e2e.foo.gz, in another directory than the file; d.1024.e2e.foo.gz goes.
+//     d.4.e2e.foo.gz in e2e/ is the compressed data of e2e.foo only (the plain data of
+//     e2e.foo.gz would be in e2e/foo/, D-336), stale there, so it goes with d.1024.e2e.foo.gz
+//     (before the D-336 fix it was kept as e2e.foo.gz's, whose over file was read from e2e/foo/).
 //
 // Fails on 8a146aa8 for every case but the control files.
 func TestDexpireoverHierarchyDataEntries(t *testing.T) {
@@ -676,32 +730,47 @@ func TestDexpireoverHierarchyDataEntries(t *testing.T) {
 			}
 		})
 	}
-	t.Run("gz_other_dir", func(t *testing.T) {
-		const x, z = "e2e.foo", "e2e.foo.gz"
-		s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
-		s.WriteFile(t, "dexpire.ctl", "e2e.*:x30\n")
-		dirX := hierGroupDir(t, s, home, x)
-		dirZ := hierGroupDir(t, s, home, z)
-		hierGroupRange(t, s, x, "1", "300")
-		hierGroupRange(t, s, z, "1", "300")
-		keep := []hierFile{
-			{filepath.Join(home, dirX, "o.0."+x), hierOverFileDE(x, 1, 500, 256)},
-			{filepath.Join(home, dirZ, "o.0."+z), hierOverFileDE(z, 1, 500, 4)},
-			{filepath.Join(home, dirX, "d.4."+x+".gz"), plain},
-		}
-		hierWrite(t, keep)
-		stale := filepath.Join(home, dirX, "d.1024."+x+".gz")
-		writeOver(t, stale, plain)
+	for _, pair := range []struct{ name, x string }{
+		{"gz_same_dir", "e2e.x"},
+		{"gz_other_dir", "e2e.foo"},
+	} {
+		t.Run(pair.name, func(t *testing.T) {
+			x, z := pair.x, pair.x+".gz"
+			s, home := overSite(t, map[string]string{"readergrouphash": "hierarchy"})
+			s.WriteFile(t, "dexpire.ctl", "e2e.*:x30\n")
+			dirX := hierGroupDir(t, s, home, x)
+			dirZ := hierGroupDir(t, s, home, z)
+			if (dirX == dirZ) != (pair.name == "gz_same_dir") {
+				t.Fatalf("directories of %s and %s: %q and %q", x, z, dirX, dirZ)
+			}
+			hierGroupRange(t, s, x, "1", "300")
+			hierGroupRange(t, s, z, "1", "300")
+			keep := []hierFile{
+				{filepath.Join(home, dirX, "o.0."+x), hierOverFileDE(x, 1, 500, 256)},
+				{filepath.Join(home, dirZ, "o.0."+z), hierOverFileDE(z, 1, 500, 4)},
+			}
+			four := filepath.Join(home, dirX, "d.4."+x+".gz")
+			stale := []string{filepath.Join(home, dirX, "d.1024."+x+".gz")}
+			if pair.name == "gz_same_dir" {
+				keep = append(keep, hierFile{four, plain})
+			} else {
+				stale = append(stale, four)
+			}
+			hierWrite(t, keep)
+			for _, f := range stale {
+				writeOver(t, f, plain)
+			}
 
-		out := s.Run(t, "dexpireover", "-a", "-v")
+			out := s.Run(t, "dexpireover", "-a", "-v")
 
-		hierCheckKept(t, home, keep)
-		hierCheckGone(t, home, out, []string{stale}, false)
-		hierNoBadReport(t, out, []string{stale})
-		if t.Failed() {
-			t.Logf("dexpireover -a -v:\n%s", out)
-		}
-	})
+			hierCheckKept(t, home, keep)
+			hierCheckGone(t, home, out, stale, false)
+			hierNoBadReport(t, out, stale)
+			if t.Failed() {
+				t.Logf("dexpireover -a -v:\n%s", out)
+			}
+		})
+	}
 }
 
 // TestDexpireoverCrcDataEntries: the crc layout reads the data entries of the over file by

@@ -309,15 +309,15 @@ func hfxAge(t *testing.T, path string, arts []int, rcvd time.Time) {
 // the over file and the data files of the bases 4, 8 and 12 there, the data files unchanged;
 // nothing else reported (not found, bad, stale, unknown, failed). After a restart GROUP gives
 // 211 8 5 12 and OVER 5-12 the lines of before. With hierarchy-full the file e2e/x/d.0.e2e.x.gz
-// (the plain data of e2e.x.gz) also reads as the compressed data of e2e.x, whose directory is
-// e2e/ (D-318 keeps it while it is in the range of either; the directory is not compared,
-// D-336): when the scan reaches e2e/x/ before e2e.x's over file in e2e/ is expired, the file is
-// kept for that run and a second `dexpireover -a -v` removes it. Which of the two happens depends
-// on the order readdir() gives the entries of e2e/ (the subdirectory x and the over file
-// o.0.e2e.x): on the Debian test VM (ext4) the file was always kept by the first run, on AlmaLinux
-// 9 and 10 (go-while's #522 review) always removed. The order cannot be chosen by the test
-// without changing what it runs, so it accepts both and logs which happened;
-// TestDexpireoverHierarchyFullRemovedGroup shows the D-336 effect on every host.
+// (the plain data of e2e.x.gz) also reads as the compressed data of e2e.x (D-318), but it is not
+// in e2e.x's directory e2e/, so it is judged by e2e.x.gz alone (D-336) and removed by the first
+// run, whatever order readdir() gives the entries of e2e/ (the subdirectory x and the over file
+// o.0.e2e.x). Before the fix the directory was not compared and the file was kept while it was
+// in the range of either group: kept by the first run when the scan reached e2e/x/ before
+// e2e.x's over file was expired, removed when the over file came first. That order depends on the
+// file system of the test's temporary directory (go-while's #522 review: xfs or ext4): kept on
+// the Debian test VM (/tmp is tmpfs there), removed on AlmaLinux 9 and 10; this test accepted
+// both. Now it must be removed by the first run.
 func TestDexpireoverHierarchyFullExpire(t *testing.T) {
 	for _, layout := range []string{"hierarchy-full", "hierarchy"} {
 		t.Run(layout, func(t *testing.T) {
@@ -338,21 +338,8 @@ func TestDexpireoverHierarchyFullExpire(t *testing.T) {
 
 			out := h.run(t, "-a", "-v")
 
-			late := ""
-			if layout == "hierarchy-full" {
-				// see the comment of the test: kept by the reading of e2e.x in this run
-				if f := h.dataOf("e2e.x.gz", 0); hfxExists(f) {
-					late = f
-					t.Logf("%s was kept by the first run (the scan reached e2e/x/ before e2e.x was expired)", h.rel(f))
-				}
-			}
-			var goneNow []string
-			for _, f := range gone {
-				if f != late {
-					goneNow = append(goneNow, f)
-				}
-			}
-			h.checkGone(t, out, "Deleting stale overview data for ", goneNow)
+			// with hierarchy-full also e2e/x/d.0.e2e.x.gz, by the first run (D-336)
+			h.checkGone(t, out, "Deleting stale overview data for ", gone)
 			h.checkKept(t, "after dexpireover -a", snap)
 			h.checkReports(t, out, allowed)
 			for _, g := range h.groups {
@@ -366,15 +353,6 @@ func TestDexpireoverHierarchyFullExpire(t *testing.T) {
 			}
 			if t.Failed() {
 				t.Logf("dexpireover -a -v:\n%s", out)
-			}
-			if late != "" {
-				out2 := h.run(t, "-a", "-v")
-				h.checkGone(t, out2, "Deleting stale overview data for ", []string{late})
-				h.checkKept(t, "after the second dexpireover -a", snap)
-				h.checkReports(t, out2, map[string]string{late: "Deleting stale overview data for "})
-				if t.Failed() {
-					t.Logf("second dexpireover -a -v:\n%s", out2)
-				}
 			}
 
 			restartReader(t, h.s)
@@ -653,10 +631,12 @@ func TestDexpireoverHierarchyFullCompress(t *testing.T) {
 // removed, each with "Group for over file not found, removing <path>"; every file of the other
 // groups is there and the data files are unchanged, nothing else is reported; after a restart
 // GROUP of a removed group gives 411 and OVER 1-12 of every other group is as before. The
-// directories are not removed (dexpireover has no rmdir: x/yz/ stays, empty; logged). Not
-// checked, logged: in gz_group the data files e2e/x/d.<n>.e2e.x.gz also read as the compressed
-// data of e2e.x, which exists and has the articles 1-12, so they are kept (the directory e2e/x/
-// is not that of e2e.x, but it is not compared: D-336); only the over file goes.
+// directories are not removed (dexpireover has no rmdir: x/yz/ stays, empty; logged). In
+// gz_group the data files e2e/x/d.<n>.e2e.x.gz also read as the compressed data of e2e.x, which
+// exists and has the articles 1-12, but e2e/x/ is not e2e.x's directory (e2e/), so they are not
+// e2e.x's and are removed with the over file (D-336; before the fix the directory was not
+// compared and they were kept while e2e.x had articles in their bases); e2e.x's files in e2e/
+// are kept unchanged.
 func TestDexpireoverHierarchyFullRemovedGroup(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -673,22 +653,17 @@ func TestDexpireoverHierarchyFullRemovedGroup(t *testing.T) {
 				removed[g] = true
 				h.s.Run(t, "dgrpctl", "rmgroup", g)
 			}
-			var gzData []string // gz_group: the data files of e2e.x.gz, see the comment of the test
 			for _, g := range h.groups {
 				if removed[g] {
 					gone = append(gone, h.over(g))
-					if g == "e2e.x.gz" {
-						gzData = h.data(g)
-					} else {
-						gone = append(gone, h.data(g)...)
-					}
+					gone = append(gone, h.data(g)...)
 					continue
 				}
 				keepFiles = append(keepFiles, h.data(g)...)
 			}
 			snap := hfxSnapshot(t, keepFiles)
 			allowed := map[string]string{}
-			for _, f := range append(append([]string{}, gone...), gzData...) {
+			for _, f := range gone {
 				allowed[f] = "Group for over file not found, removing "
 			}
 
@@ -701,9 +676,6 @@ func TestDexpireoverHierarchyFullRemovedGroup(t *testing.T) {
 				if !removed[g] && !hfxExists(h.over(g)) {
 					t.Errorf("the over file %s is gone", h.rel(h.over(g)))
 				}
-			}
-			for _, f := range gzData {
-				t.Logf("D-336: %s after dexpireover -a: there %v", h.rel(f), hfxExists(f))
 			}
 			for _, g := range tc.removed {
 				d := h.dirs[g]

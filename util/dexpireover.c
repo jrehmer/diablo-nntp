@@ -209,6 +209,7 @@ static int deleteStaleGroup(Group *group, int t);
 static int enterActiveRecord(int recOff, int recLen, int late);
 static int rescanActive(void);
 static int currentIter(char *Hash, int iter);
+static int hierFileInDir(const char *name, const char *dirPath);
 static int overFileType(const char *name);
 static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
 static int tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz, const char *want);
@@ -1302,13 +1303,14 @@ void
 ProcessOverviewFile(const char *dirPath, const char *name, int type)
 {
     artno_t artBase = -1;
-    Group *group;
+    Group *group = NULL;
     Group *groupZ = NULL;
     char path[PATH_MAX];
     char Hash[PATH_MAX];
     char HashZ[PATH_MAX];
     int iter = 0;
     int hier;
+    int otherDir = 0;
     int ghtype;
     OverHead oh;
 
@@ -1340,10 +1342,30 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
      * scan, so a reading that is missing causes the rescan, also when the
      * other one was found.
      */
-    group = FindGroupByHash(Hash, iter, hier, dirPath);
-    if (HashZ[0])
-	groupZ = FindGroupByHash(HashZ, iter, hier, dirPath);
-    if ((group == NULL || (HashZ[0] && groupZ == NULL)) &&
+    /*
+     * A hierarchy name is the file of a group only in the group's directory
+     * (D-336): a reading whose group has its files in another directory is
+     * dropped, so "d.<n>.X.gz" in the directory of X alone is X's compressed
+     * data, and in that of X.gz alone X.gz's plain data.  When both readings
+     * are of the directory (plain hierarchy: e2e.x and e2e.x.gz in e2e/),
+     * both stay (D-318).  A file of neither is the file of no group.
+     */
+    if (hier) {
+	int inDir = hierFileInDir(Hash, dirPath);
+	int inDirZ = HashZ[0] && hierFileInDir(HashZ, dirPath);
+
+	if (!inDir && inDirZ)
+	    snprintf(Hash, sizeof(Hash), "%s", HashZ);
+	if (!inDir || !inDirZ)
+	    HashZ[0] = 0;
+	otherDir = !inDir && !inDirZ;
+    }
+    if (!otherDir) {
+	group = FindGroupByHash(Hash, iter, hier, dirPath);
+	if (HashZ[0])
+	    groupZ = FindGroupByHash(HashZ, iter, hier, dirPath);
+    }
+    if (!otherDir && (group == NULL || (HashZ[0] && groupZ == NULL)) &&
 	Wild == NULL && rescanActive() > 0) {
 	if (group == NULL)
 	    group = FindGroupByHash(Hash, iter, hier, dirPath);
@@ -1357,7 +1379,12 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 	 * we do not have a full group list.
 	 */
 
-	if (Wild == NULL && currentIter(Hash, iter)) {
+	/*
+	 * Not for a hierarchy name: it has no iteration, and FindGroupByHash()
+	 * finds any group of the name, so currentIter() could only find the
+	 * group of a file in another directory (D-336), which no ITER changes.
+	 */
+	if (Wild == NULL && !hier && currentIter(Hash, iter)) {
 	    if (VerboseOpt)
 		printf("file of a group recreated or changing its iteration, left alone: %s\n", path);
 	} else if (Wild == NULL) {
@@ -1811,6 +1838,22 @@ dataFileStale(Group *group, artno_t artBase, const char *path, int *dataEntries)
 				&DOpts.ReaderGroupHashMethod));
     n = snprintf(ovpath, sizeof(ovpath), "%s/%s", PatExpand(GroupHomePat),
 								ovname);
+    /*
+     * No over file there, but the file was taken as the group's in another
+     * directory (hierFileInDir(), D-336: dreaderd may still write that
+     * directory, of the layout before a switch): the over file beside the
+     * data file has the data entries, as in doverctl, which looks in the
+     * directory of the file.
+     */
+    if (n >= 0 && (size_t)n < sizeof(ovpath) && access(ovpath, F_OK) != 0) {
+	const char *slash = strrchr(path, '/');
+
+	if (slash != NULL)
+	    n = snprintf(ovpath, sizeof(ovpath), "%.*s/%s",
+			(int)(slash - path), path,
+			GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 0,
+				group->gr_Iter, &DOpts.ReaderGroupHashMethod));
+    }
     if (n < 0 || (size_t)n >= sizeof(ovpath))
 	de = OD_HARTS;
     else
@@ -2024,6 +2067,95 @@ OverFileOwner(const Group *group, int iter, const char *dirPath)
 }
 
 /*
+ * hierFileInDir() - a hierarchy file in dirPath can be a file of the group
+ * name (D-336).  A hierarchy name holds the whole group name, but hierarchy
+ * and hierarchy-full put the files of many groups in different directories
+ * (e2e.x.gz: e2e/ or e2e/x/, a.b.c: a.b/ or a/b/), and the two readings of a
+ * data name "d.<n>.X.gz" (the plain data of X.gz, the compressed data of X,
+ * D-318) are in different directories unless X has a last component of one
+ * character and plain hierarchy is used (e2e.x and e2e.x.gz share e2e/,
+ * D-325; e2e.foo and e2e.foo.gz have e2e/ and e2e/foo/).  dreaderd opens a
+ * group's files only in the directory GFName() (wantdir 1) gives the group,
+ * so a file in another one is not the group's: a copy left by a switch
+ * between the two layouts made by editing readergrouphash, or the plain
+ * data of X.gz read as the compressed data of X.  The directory depends on
+ * the name and the layout only (not on the file type, base or iteration),
+ * so it is known also for a group that is not loaded (-w) or does not
+ * exist.  The directory below the group home is compared as
+ * tempRewriteName() does: dirPath as scanDirectory() built it from the
+ * names it read, links not resolved (a linked top-level directory "e2e" ->
+ * elsewhere is "e2e").  0 only when that is certain; 1 (as before) when
+ *   - dirPath is the group's directory, or the same directory by stat() (a
+ *     link below the group home, a file system that ignores case);
+ *   - dirPath is not below the group home, or a path is too long;
+ *   - there is no over file of the group in its own directory: dreaderd
+ *     reads readergrouphash only when it starts, so one started before the
+ *     config was changed still writes the files in the directory of the
+ *     old layout, and this file may be its live one.  Such files are
+ *     treated as before (expired in place) until the group's own over file
+ *     exists (dataFileStale() then reads the data entries from the over
+ *     file beside the data file).
+ */
+static int
+hierFileInDir(const char *name, const char *dirPath)
+{
+    char home[PATH_MAX];
+    char gf[PATH_MAX];
+    char path[PATH_MAX];
+    const char *rel;
+    const char *slash;
+    struct stat st1;
+    struct stat st2;
+    size_t homeLen;
+    size_t dirLen;
+    int n;
+
+    n = snprintf(home, sizeof(home), "%s", PatExpand(GroupHomePat));
+    if (n < 0 || (size_t)n >= sizeof(home))
+	return(1);
+    homeLen = (size_t)n;
+    if (strncmp(dirPath, home, homeLen) != 0)
+	return(1);
+    if (dirPath[homeLen] == 0)
+	rel = "";
+    else if (dirPath[homeLen] == '/')
+	rel = dirPath + homeLen + 1;
+    else
+	return(1);
+    n = snprintf(gf, sizeof(gf), "%s", GFName(name, GRPFTYPE_OVER, 0, 1, 0,
+					&DOpts.ReaderGroupHashMethod));
+    if (n < 0 || (size_t)n >= sizeof(gf))
+	return(1);
+    slash = strrchr(gf, '/');
+    dirLen = slash ? (size_t)(slash - gf) : 0;
+    if (strlen(rel) == dirLen && strncmp(rel, gf, dirLen) == 0)
+	return(1);
+
+    /* the group's directory by another path */
+    n = snprintf(path, sizeof(path), "%s/%.*s", home, (int)dirLen, gf);
+    if (n < 0 || (size_t)n >= sizeof(path))
+	return(1);
+    if (stat(dirPath, &st1) == 0 && stat(path, &st2) == 0 &&
+	st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino)
+	return(1);
+
+    /* the group's over file is in its own directory, so that one is used */
+    n = snprintf(path, sizeof(path), "%s/%s", home, gf);
+    if (n < 0 || (size_t)n >= sizeof(path))
+	return(1);
+    if (stat(path, &st2) != 0 || !S_ISREG(st2.st_mode)) {
+	if (VerboseOpt && FindGroupByHash((char *)name, 0, 1, dirPath) != NULL)
+	    printf("file of %s in %s taken as the group's: it has no over file in its own directory yet (%s)\n",
+							name, dirPath, path);
+	return(1);
+    }
+    if (VerboseOpt > 1)
+	printf("files named for %s in %s are not that group's: its directory is %.*s\n",
+						name, dirPath, (int)dirLen, gf);
+    return(0);
+}
+
+/*
  * FindGroupByHash() - the group a file in dirPath belongs to.  The hash in a
  * file name does not tell groups apart whose names have the same hash: the
  * iteration does, but a group that has no over file yet has iteration 0 like
@@ -2039,7 +2171,8 @@ OverFileOwner(const Group *group, int iter, const char *dirPath)
  * (ProcessOverviewFile() removes nothing under -w, D-313, D-322).  A header of
  * version 1 has no name, so it does not tell that the owner is not loaded:
  * the first candidate is taken as before.  Hierarchy names are made of the
- * group name, so they have no such twin and no header check.
+ * group name, so they have no such twin and no header check (the directory
+ * is checked before, hierFileInDir(), D-336).
  * The rest is the same as in doverctl, which loads every group.
  */
 Group *
