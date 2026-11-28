@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -776,6 +777,118 @@ func TestDoverctlCleanOtherLayoutCombinedFlags(t *testing.T) {
 		}
 		if !hfxExists(f) {
 			t.Errorf("doverctl -v clean -n removed %s: not a dry run", f)
+		}
+	})
+}
+
+// coPairSite is the spool of TestDoverctlCleanOtherLayoutRemoveFails: readergrouphash hierarchy,
+// groups e2e.x and e2e.x.gz (both in e2e/), dexpire.ctl "*:x30:e4", 6 articles to e2e.x.gz only,
+// dreaderd stopped, then 38 copies of e2e/d.4.e2e.x.gz as d.12 ... d.160 (bases past e2e.x.gz's
+// range, made after the over file so that readdir() returns some of them before it), and
+// readergrouphash changed to hierarchy-full without a restart (e2e.x.gz has no files in e2e/x/).
+// Returns the site, the group home, e2e.x.gz's old over file, its d.0 and the data files that
+// are stale for both groups once that over file is gone (d.4 and the copies).
+func coPairSite(t *testing.T) (s *Site, home, over, d0 string, stale []string) {
+	t.Helper()
+	groups := []string{"e2e.x", "e2e.x.gz"}
+	st := fakeserver.NewStore()
+	for _, g := range groups {
+		st.AddGroup(g, "clean -o pair test group")
+	}
+	spool := fakeserver.New(t, fakeserver.Options{Store: st})
+	s = NewReaderSite(t, ReaderOptions{Spool: spool, Groups: groups,
+		Config: map[string]string{"readergrouphash": "hierarchy"},
+		Files:  map[string]string{"dexpire.ctl": "*:x30:e4\n"}})
+	home = strings.TrimSpace(s.Run(t, "dpath", "group"))
+	swFeed(t, s, st, []string{"e2e.x.gz"}, swArts, "pair")
+	readOver(t, s, "e2e.x.gz", swArts)
+	s.Proc.Stop()
+	old := swOldFiles(home, "e2e.x.gz", "hierarchy")
+	snap := hfxSnapshot(t, old)
+	stale = []string{old[2]}
+	for k := 3; k <= 40; k++ {
+		f := filepath.Join(home, "e2e", fmt.Sprintf("d.%d.e2e.x.gz", 4*k))
+		writeOver(t, f, snap[old[2]])
+		stale = append(stale, f)
+	}
+	swSwitch(t, s, "hierarchy", "hierarchy-full", groups)
+	return s, home, old[0], old[1], stale
+}
+
+// TestDoverctlCleanOtherLayoutRemoveFails: chatgpt-1's Medium on 7a1547d4 (#527 r2). clean -o
+// judges e2e/d.<n>.e2e.x.gz (e2e.x.gz's file in its directory of the other layout, and the name
+// of e2e.x's compressed data in e2e.x's own directory) by both readings only once e2e.x.gz's old
+// over file there is gone. r2 took it as gone whenever e2e.x.gz was selected, also when its
+// removal failed and before the over file was reached at all (one readdir() pass), so data files
+// that the kept old index still covers could be removed.
+//
+// Input: coPairSite. Subtests, each on a spool of its own:
+//   - fails: remove() and unlink() of o.0.e2e.x.gz fail with EPERM (a preloaded library);
+//     `doverctl -v clean -o` exits 1 with "Unable to remove <home>/e2e/o.0.e2e.x.gz"; every file
+//     is there unchanged, and each of d.0, d.4 and the 38 copies has the "left alone" line;
+//   - works: `doverctl -v -n clean -o` and then `doverctl -v clean -o` both exit 0 with
+//     "Removing file of e2e.x.gz ..." for the over file and "Deleting stale overview data
+//     e2e.x.gz: <path>" for d.4 and each copy; -n changes nothing, the run removes exactly those
+//     (d.0 kept). The copies that readdir() returns before the over file show that the result
+//     does not depend on the order (the over files of a directory are taken first).
+//
+// On 7a1547d4 `fails` removes d.4 and the 38 copies. With one readdir() pass the copies returned
+// before the over file are left alone in `works`. Skipped (fails) where LD_PRELOAD shims do not
+// run.
+func TestDoverctlCleanOtherLayoutRemoveFails(t *testing.T) {
+	t.Run("fails", func(t *testing.T) {
+		so := preloadShim(t, "removefail", tlRemoveFailSource)
+		s, home, over, d0, stale := coPairSite(t)
+		snap := swFiles(t, home)
+		base := s.Env
+		s.Env = append(slices.Clone(base), lockFaultEnv(so), "REMOVEFAIL_NAME=o.0.e2e.x.gz")
+		out, err := s.TryRun("doverctl", "-v", "clean", "-o")
+		s.Env = base
+		t.Logf("doverctl -v clean -o, the removal of %s failing: %v\n%s", over, err, out)
+		if err == nil {
+			t.Errorf("doverctl -v clean -o: exit 0, want 1")
+		}
+		if !hfxExists(over) || !strings.Contains(out, "Unable to remove "+over+": ") {
+			t.Fatalf("the removal of %s did not fail: the shim did not work", over)
+		}
+		for _, f := range append([]string{d0}, stale...) {
+			if l := "file of e2e.x.gz" + swAloneLine + f + "\n"; !strings.Contains(out, l) {
+				t.Errorf("no %q", strings.TrimSpace(l))
+			}
+		}
+		if strings.Contains(out, "Deleting") {
+			t.Errorf("doverctl -v clean -o removes data files although %s stays", over)
+		}
+		coCheckFiles(t, "doverctl -v clean -o", home, snap, nil)
+	})
+	t.Run("works", func(t *testing.T) {
+		s, home, over, _, stale := coPairSite(t)
+		snap := swFiles(t, home)
+		want := []string{"Removing file of e2e.x.gz" + coRemoveLine + over}
+		for _, f := range stale {
+			want = append(want, "Deleting stale overview data e2e.x.gz: "+f)
+		}
+		for _, args := range [][]string{{"-v", "-n", "clean", "-o"}, {"-v", "clean", "-o"}} {
+			what := "doverctl " + strings.Join(args, " ")
+			out, err := s.TryRun("doverctl", args...)
+			if err != nil {
+				t.Errorf("%s: %v", what, err)
+			}
+			missing := 0
+			for _, l := range want {
+				if n := strings.Count(out, l+"\n"); n != 1 {
+					t.Errorf("%s: %d times %q, want once", what, n, l)
+					missing++
+				}
+			}
+			if missing > 0 || t.Failed() {
+				t.Logf("%s:\n%s", what, out)
+			}
+			if args[1] == "-n" {
+				coCheckFiles(t, what, home, snap, nil)
+			} else {
+				coCheckFiles(t, what, home, snap, append([]string{over}, stale...))
+			}
 		}
 	})
 }

@@ -72,6 +72,9 @@ static int TopGone(const char *name);
 static int TopOverIrregular(const Group *group, int iter, char *bad, size_t size);
 static int ReaderRunning(char *why, size_t size);
 static Group *CleanOtherGroup(const char *name);
+static int OverName(const char *name);
+static void OtherGoneAdd(const char *name);
+static int OtherGone(const char *name);
 static void CleanOtherCheck(void);
 int getDataEntries(const char *path);
 
@@ -1326,6 +1329,24 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	int isLink;
 	DirFrame sub;
 
+	/*
+	 * Two passes, as in CleanTop(): first the regular files with an over
+	 * file name, then everything else, so that a data file is judged
+	 * after the over files of its directory whatever order readdir()
+	 * gives (clean -o, OtherGone(); #527 r2).  The first pass reports
+	 * nothing it skips: the second does.
+	 */
+	while ((den2 = readdir(dir2)) != NULL) {
+	    if (!OverName(den2->d_name) || lstat(den2->d_name, &st) != 0)
+		continue;
+	    if (S_ISLNK(st.st_mode) && (noLinks || stat(den2->d_name, &st) != 0))
+		continue;
+	    if (S_ISREG(st.st_mode))
+		ProcessFile(path, den2->d_name, 0);
+	    if (MustExit)
+		exit(1);
+	}
+	rewinddir(dir2);
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
@@ -1369,7 +1390,8 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 		    }
 		}
 	    } else if (S_ISREG(st.st_mode)) {
-		ProcessFile(path, den2->d_name, 0);
+		if (!OverName(den2->d_name))	/* over files: the first pass */
+		    ProcessFile(path, den2->d_name, 0);
 	    } else {
 		if (VerboseOpt)
 		    printf("Removing unknown file: %s/%s\n", dirname, den2->d_name);
@@ -1550,19 +1572,24 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    other = HashZ;
 	/*
 	 * With clean -o dreaderd is stopped (main()), so no writer of the
-	 * other layout is left: the over file there of a group this run
-	 * removes the files of (CleanOtherGroup(): also -w) is a leftover
-	 * that goes (-n: would go), and the file is judged as without it, by
-	 * both readings (D-337).  A group -w leaves out keeps its over file
-	 * there, and so the D-336 rule (#527 r1, M1).
+	 * other layout is left once the over file there of a group this run
+	 * removes the files of (CleanOtherGroup(): also -w) is gone: the file
+	 * is then judged as without it, by both readings (D-337).  Gone is a
+	 * fact, not a prediction (#527 r2): its removal worked (-n: would
+	 * have been made), OtherGone(); scanDirectory() and CleanTop() take
+	 * the over files of a directory first.  A failed removal, or a group
+	 * -w leaves out, keeps the over file there, and so the D-336 rule.
 	 */
 	if (other != NULL && HashZ[0] &&
-	    (other == Hash ? cZ : c) == HIERDIR_IN &&
-	    (CleanOtherGroup(other) != NULL || !HierOtherOver(other))) {
-	    /* no writer of the other layout: both readings, D-318 */
-	    assumed = CleanOtherGroup(other);
-	    c = cZ = HIERDIR_IN;
-	    other = NULL;
+	    (other == Hash ? cZ : c) == HIERDIR_IN) {
+	    Group *og = CleanOtherGroup(other);
+
+	    if ((og != NULL && OtherGone(og->gr_GroupName)) || !HierOtherOver(other)) {
+		/* no writer of the other layout: both readings, D-318 */
+		assumed = og;
+		c = cZ = HIERDIR_IN;
+		other = NULL;
+	    }
 	}
 	if (other != NULL) {
 	    Group *og = CleanOtherGroup(other);
@@ -1570,14 +1597,19 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    /*
 	     * clean -o (D-337): the file of a group in the active file in its
 	     * directory of the other hierarchy layout, whose other reading
-	     * (D-318) is not of the configured layout (that case is above),
-	     * is a leftover of a switch made by editing readergrouphash.
+	     * (D-318) is not of the configured layout, is a leftover of a
+	     * switch made by editing readergrouphash.  When the other reading
+	     * is of the configured layout and the over file is not gone (the
+	     * case above), the file stays, as without -o.
 	     */
-	    if (og != NULL) {
+	    if (og != NULL &&
+		!(HashZ[0] && (other == Hash ? cZ : c) == HIERDIR_IN)) {
 		CleanOtherCheck();
 		printf("Removing file of %s in the directory of the other hierarchy layout: %s\n",
 							og->gr_GroupName, path);
-		DeleteFile(dirPath, name);
+		/* DeleteFile() gives 0 with -n: -n reports what a run would do */
+		if (DeleteFile(dirPath, name) == 0 && (type & HASHGRPTYPE_OVER))
+		    OtherGoneAdd(og->gr_GroupName);
 		return;
 	    }
 	    if (VerboseOpt)
@@ -1740,6 +1772,57 @@ ProcessFile(const char *dirPath, const char *name, int top)
     } else {
 	printf("Bad Error: Unknown HASHGRPTYPE\n");
     }
+}
+
+/*
+ * OtherGone - the groups whose over file in their directory of the other
+ * hierarchy layout this clean -o run removed (with -n: would have
+ * removed), the evidence by which a data file there that is also a file
+ * of the configured layout is judged by both readings (D-337, #527 r2).
+ */
+static char **OtherGoneList;
+static int OtherGoneCount;
+
+static void
+OtherGoneAdd(const char *name)
+{
+    char **n;
+
+    if (OtherGone(name))
+	return;
+    if ((n = realloc(OtherGoneList, (OtherGoneCount + 1) * sizeof(*OtherGoneList))) == NULL)
+	return;			/* the file then stays: no harm */
+    OtherGoneList = n;
+    if ((OtherGoneList[OtherGoneCount] = strdup(name)) != NULL)
+	++OtherGoneCount;
+}
+
+static int
+OtherGone(const char *name)
+{
+    int i;
+
+    for (i = 0; i < OtherGoneCount; ++i) {
+	if (strcmp(OtherGoneList[i], name) == 0)
+	    return(1);
+    }
+    return(0);
+}
+
+/*
+ * OverName() - name parses as an over file name of the configured layout
+ * (scanDirectory()'s first pass).
+ */
+static int
+OverName(const char *name)
+{
+    char Hash[PATH_MAX];
+    artno_t artBase = -1;
+    int iter = 0;
+    int type = ExtractGroupHashInfo(name, DOpts.ReaderGroupHashMethod.gh_type,
+						Hash, &artBase, &iter);
+
+    return(type != HASHGRP_NONE && (type & HASHGRPTYPE_OVER) != 0);
 }
 
 /*
