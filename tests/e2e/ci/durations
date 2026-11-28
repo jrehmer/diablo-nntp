@@ -450,6 +450,13 @@ TestDoverctlCleanMd5NumBuckets 0.30
 TestDoverctlCleanMd5OneCharDirs 0.15
 TestDoverctlCleanMisalignedData 0.02
 TestDoverctlCleanNewNameDirChildSymlink 0.09
+TestDoverctlCleanOtherLayout 4.50
+TestDoverctlCleanOtherLayoutCombinedFlags 2.00
+TestDoverctlCleanOtherLayoutCrc 0.50
+TestDoverctlCleanOtherLayoutRemoveFails 1.10
+TestDoverctlCleanOtherLayoutRunning 2.70
+TestDoverctlCleanOtherLayoutStartDuringRun 2.10
+TestDoverctlCleanOtherLayoutWildPair 0.30
 TestDoverctlCleanRemovesUnknownEntries 0.02
 TestDoverctlCleanSkipsNewNameSymlink 0.30
 TestDoverctlConvertCopyFailure 0.02

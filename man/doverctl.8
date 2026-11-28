@@ -13,6 +13,9 @@ doverctl \- Perform functions on the overview directory and file structure
 [
 .B \-v
 ]
+[
+.B \-o
+]
 .B clean|convert
 [
 .B srchash dsthash
@@ -95,6 +98,37 @@ By default, doverctl uses the rename() library call for speed, but this
 is unlikely to work across filesystem boundaries. If your spool is split
 across filesystems, you will need to use this option to to force a
 file copy, instead of a rename.
+.PP
+.B \-o
+With
+.B clean
+only: also remove the over and data files that a group in the active
+file has in its directory of the other hierarchy layout.  After
+readergrouphash is changed between hierarchy and hierarchy-full by
+editing diablo.config, many groups have another directory (e2e.x.gz:
+e2e/ or e2e/x/, a.b.c: a.b/ or a/b/, x.y: the top of the group home or
+x/), and their files in the old directory stay: clean and dexpireover
+leave them alone, as a dreaderd started before the change may still
+write them, and dexpireover does not move the first article number of
+such a group while it has an over file there.  A data file whose name is
+also that of a file of the configured layout (with hierarchy, X and X.gz
+share a directory: d.<n>.X.gz) is not removed but judged by both groups.
+Nothing else changes; with
+.B \-w
+only the files of the matching groups are removed, and
+.B \-n
+lists them.  dreaderd must be stopped, and must stay stopped until doverctl
+has finished: doverctl refuses (exit 1, nothing done) while dreaderd's pid
+file (dreaderd.pid in path_log) names a live process or its control socket
+(dreader_socket) accepts a connection, and when readergrouphash is not
+hierarchy or hierarchy-full.  This check is no lock: it is made again
+before each removal, and a dreaderd started during the run stops doverctl
+(exit 1) with the files not yet removed left in place.  It cannot see a
+dreaderd on another host that shares the spool (NFS) or one started with
+another diablo.config, and removing dreaderd's pid file and socket by hand
+defeats it.  The removed files are the overview of the old layout: after
+clean -o, switching readergrouphash back leaves OVER of every moved group
+empty, so run it only when you will not switch back.
 .PP
 WARNING: Be very careful running this utility - you can easily lose your
 entire header DB. Ensure that you set the new hash method in diablo.config
