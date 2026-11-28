@@ -117,10 +117,18 @@ Nothing else changes; with
 .B \-w
 only the files of the matching groups are removed, and
 .B \-n
-lists them.  dreaderd must be stopped: doverctl refuses (exit 1, nothing
-done) while dreaderd's pid file (dreaderd.pid in path_log) names a live
-process or its control socket (dreader_socket) accepts a connection, and
-when readergrouphash is not hierarchy or hierarchy-full.
+lists them.  dreaderd must be stopped, and must stay stopped until doverctl
+has finished: doverctl refuses (exit 1, nothing done) while dreaderd's pid
+file (dreaderd.pid in path_log) names a live process or its control socket
+(dreader_socket) accepts a connection, and when readergrouphash is not
+hierarchy or hierarchy-full.  This check is no lock: it is made again
+before each removal, and a dreaderd started during the run stops doverctl
+(exit 1) with the files not yet removed left in place.  It cannot see a
+dreaderd on another host that shares the spool (NFS) or one started with
+another diablo.config, and removing dreaderd's pid file and socket by hand
+defeats it.  The removed files are the overview of the old layout: after
+clean -o, switching readergrouphash back leaves OVER of every moved group
+empty, so run it only when you will not switch back.
 .PP
 WARNING: Be very careful running this utility - you can easily lose your
 entire header DB. Ensure that you set the new hash method in diablo.config

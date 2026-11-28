@@ -71,6 +71,8 @@ static void TopGoneAdd(const char *name);
 static int TopGone(const char *name);
 static int TopOverIrregular(const Group *group, int iter, char *bad, size_t size);
 static int ReaderRunning(char *why, size_t size);
+static Group *CleanOtherGroup(const char *name);
+static void CleanOtherCheck(void);
 int getDataEntries(const char *path);
 
 #define	ACT_CONVERT	0x01
@@ -128,7 +130,9 @@ Usage(char *progname)
     printf("            -o         clean: also remove the files of the groups in the\n");
     printf("                          directory of the other hierarchy layout, left\n");
     printf("                          by a switch between hierarchy and hierarchy-full\n");
-    printf("                          (refused while dreaderd runs)\n");
+    printf("                          (dreaderd must stay stopped for the whole run;\n");
+    printf("                          refused, or stopped, when it seems to run;\n");
+    printf("                          the switch cannot be undone after it)\n");
     printf("\n");
     printf("           action is one of\n");
     printf("\tclean				delete unused files\n");
@@ -191,6 +195,26 @@ main(int ac, char **av)
 	    continue;
 	}
 	ptr += 2;
+	/*
+	 * A letter that takes no value must stand alone, and the value of
+	 * -d and -v must be a number: "-on" was -o without the dry run -n,
+	 * "-vo" -v0 without -o (#527 r1, go-while's F1).
+	 */
+	if (ptr[-1] != 0 && *ptr != 0 && strchr("mnoV", ptr[-1]) != NULL) {
+	    fprintf(stderr, "Unknown option: %s (-%c takes no value; give each option on its own)\n",
+							ptr - 2, ptr[-1]);
+	    Usage(av[0]);
+	}
+	if ((ptr[-1] == 'd' || ptr[-1] == 'v') && *ptr != 0) {
+	    char *end;
+
+	    (void)strtol(ptr, &end, 0);
+	    if (*end != 0) {
+		fprintf(stderr, "Unknown option: %s (the value of -%c is a number)\n",
+							ptr - 2, ptr[-1]);
+		Usage(av[0]);
+	    }
+	}
 	switch(ptr[-1]) {
 	case 'C':           /* parsed by LoadDiabloConfig */
 	    if (*ptr == 0)
@@ -234,7 +258,10 @@ main(int ac, char **av)
      * hierarchy layout are left alone by clean and dexpireover, as a
      * dreaderd started before readergrouphash was changed may still write
      * them (D-336).  They are removed only with dreaderd stopped, and
-     * before anything is touched.
+     * before anything is touched.  The admin keeps dreaderd stopped for
+     * the whole run: the check is no lock (dreaderd removes its pid file
+     * and socket when it starts), so it is asked again before each
+     * removal (CleanOtherCheck()), which leaves a window of one file.
      */
     if (CleanOther) {
 	char why[PATH_MAX + 128];
@@ -942,7 +969,14 @@ CleanSpool(char *cleanDir)
     int level = 0;
     DirFrame home;
     struct stat hst;
+    /*
+     * A copy: PatExpand() returns a static buffer, which every later
+     * PatExpand() overwrites (clean -o: ReaderRunning() before each
+     * removal), and scanDirectory() keeps its dirpath across the scan.
+     */
+    char homePath[PATH_MAX];
 
+    snprintf(homePath, sizeof(homePath), "%s", PatExpand(GroupHomePat));
     if (VerboseOpt)
 	printf("Scanning group directories\n");
 
@@ -1009,7 +1043,7 @@ CleanSpool(char *cleanDir)
 		 * change files outside the group home.  The trees main
 		 * entered follow links as before.
 		 */
-		scanDirectory(PatExpand(GroupHomePat), den->d_name, &level,
+		scanDirectory(homePath, den->d_name, &level,
 					!OldDirName(den->d_name), &top);
 		/*
 		 * This is a bit of a hack, but we try to remove the
@@ -1060,12 +1094,13 @@ CleanSpool(char *cleanDir)
 static void
 CleanTop(void)
 {
-    const char *home = PatExpand(GroupHomePat);
+    char home[PATH_MAX];	/* a copy: see CleanSpool() */
     DIR *dir;
     den_t *den;
     struct stat st;
     int pass;
 
+    snprintf(home, sizeof(home), "%s", PatExpand(GroupHomePat));
     if ((dir = opendir(".")) == NULL) {
 	printf("Unable to open %s: %s\n", home, strerror(errno));
 	++Failures;
@@ -1372,14 +1407,20 @@ DeleteFile(const char *dirPath, const char *name)
  * the range of group, or is not aligned to its over file's slots.  OD_HARTS
  * (the data entries of the over file) is a fudge to make 100% sure we do
  * not delete a brand new data file.  A group that left the active file
- * after the scan began is not judged: the file is not stale for it.
+ * after the scan began is not judged: the file is not stale for it.  The
+ * over file is the one of the group's name in the current directory, the
+ * data file's; with ownDir (clean -o, a reading in the directory of the
+ * other hierarchy layout whose over file there this run removes, D-337 r2)
+ * the one in the group's directory of the configured layout, so that the
+ * result does not depend on whether readdir() gave the old over file first.
  */
 static int
-DataFileStale(Group *group, artno_t artBase, int iter, const char *path)
+DataFileStale(Group *group, artno_t artBase, int iter, const char *path, int ownDir)
 {
     int recLen;
     int dataEntries;
     const char *ovpath;
+    char ownPath[PATH_MAX];
     const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
                                                         KP_LOCK, &recLen);
 
@@ -1398,6 +1439,14 @@ DataFileStale(Group *group, artno_t artBase, int iter, const char *path)
 
     ovpath = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 0, iter,
 						&DOpts.ReaderGroupHashMethod);
+    if (ownDir) {
+	int n = snprintf(ownPath, sizeof(ownPath), "%s/%s", PatExpand(GroupHomePat),
+			GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 1, iter,
+					&DOpts.ReaderGroupHashMethod));
+	if (n < 0 || (size_t)n >= sizeof(ownPath))
+	    return(0);		/* not judged: kept */
+	ovpath = ownPath;
+    }
     dataEntries = getDataEntries(ovpath);
     /* same criteria as dexpireover: also misaligned or empty ranges */
     if (artBase + dataEntries <= group->gr_StartNo ||
@@ -1432,6 +1481,7 @@ ProcessFile(const char *dirPath, const char *name, int top)
     int type = 0;
     int hier;
     int otherDir = 0;
+    Group *assumed = NULL;	/* clean -o: its over file of the other layout taken as gone */
 
     snprintf(path, sizeof(path), "%s/%s", dirPath, name);
 
@@ -1500,29 +1550,31 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    other = HashZ;
 	/*
 	 * With clean -o dreaderd is stopped (main()), so no writer of the
-	 * other layout is left: the over file there is a leftover that this
-	 * run removes (-n: would remove), and the file is judged as without
-	 * it, by both readings (D-337).
+	 * other layout is left: the over file there of a group this run
+	 * removes the files of (CleanOtherGroup(): also -w) is a leftover
+	 * that goes (-n: would go), and the file is judged as without it, by
+	 * both readings (D-337).  A group -w leaves out keeps its over file
+	 * there, and so the D-336 rule (#527 r1, M1).
 	 */
 	if (other != NULL && HashZ[0] &&
 	    (other == Hash ? cZ : c) == HIERDIR_IN &&
-	    (CleanOther || !HierOtherOver(other))) {
+	    (CleanOtherGroup(other) != NULL || !HierOtherOver(other))) {
 	    /* no writer of the other layout: both readings, D-318 */
+	    assumed = CleanOtherGroup(other);
 	    c = cZ = HIERDIR_IN;
 	    other = NULL;
 	}
 	if (other != NULL) {
-	    Group *og = CleanOther ? FindGroupByHash((char *)other, 0, 1) : NULL;
+	    Group *og = CleanOtherGroup(other);
 
 	    /*
 	     * clean -o (D-337): the file of a group in the active file in its
 	     * directory of the other hierarchy layout, whose other reading
 	     * (D-318) is not of the configured layout (that case is above),
 	     * is a leftover of a switch made by editing readergrouphash.
-	     * -w: only the files of the groups it matches.
 	     */
-	    if (og != NULL &&
-		(GroupMatch == NULL || WildCmp(GroupMatch, og->gr_GroupName) == 0)) {
+	    if (og != NULL) {
+		CleanOtherCheck();
 		printf("Removing file of %s in the directory of the other hierarchy layout: %s\n",
 							og->gr_GroupName, path);
 		DeleteFile(dirPath, name);
@@ -1674,8 +1726,11 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	/*
 	 * data. file, modulo OD_HARTS.
 	 */
-	if (DataFileStale(group, artBase, iter, path) &&
-			(groupZ == NULL || DataFileStale(groupZ, artBase, iter, path))) {
+	if (DataFileStale(group, artBase, iter, path, group == assumed) &&
+			(groupZ == NULL ||
+			 DataFileStale(groupZ, artBase, iter, path, groupZ == assumed))) {
+	    if (assumed != NULL)
+		CleanOtherCheck();
 	    printf("Deleting stale overview data %s: %s\n",
 		group->gr_GroupName,
 		path
@@ -1684,6 +1739,45 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	} 
     } else {
 	printf("Bad Error: Unknown HASHGRPTYPE\n");
+    }
+}
+
+/*
+ * CleanOtherGroup() - with clean -o, the group of the hierarchy name whose
+ * files in its directory of the other hierarchy layout this run removes:
+ * in the active file and, with -w, matched by it (D-337).  NULL otherwise.
+ */
+static Group *
+CleanOtherGroup(const char *name)
+{
+    Group *group;
+
+    if (!CleanOther || (group = FindGroupByHash((char *)name, 0, 1)) == NULL)
+	return(NULL);
+    if (GroupMatch != NULL && WildCmp(GroupMatch, group->gr_GroupName) != 0)
+	return(NULL);
+    return(group);
+}
+
+/*
+ * CleanOtherCheck() - clean -o: right before each removal that relies on
+ * dreaderd being stopped, ask ReaderRunning() again (#527 r1, M2).  The
+ * check in main() is an observation, not a lock: a dreaderd started during
+ * the run (dreaderd removes its old pid file and socket and makes new ones)
+ * may write the files of the other layout again, so the run stops at once,
+ * exit 1, and at most the one file whose removal was already under way when
+ * dreaderd started is gone.  It costs an open() of the pid file and a
+ * connect() per file.
+ */
+static void
+CleanOtherCheck(void)
+{
+    char why[PATH_MAX + 128];
+
+    if (ReaderRunning(why, sizeof(why))) {
+	fprintf(stderr, "clean -o: dreaderd may be running (%s): stopped, %d files removed before; stop dreaderd and run it again\n",
+							why, RemovedFiles);
+	exit(1);
     }
 }
 

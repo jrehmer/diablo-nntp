@@ -2,8 +2,10 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -226,7 +228,9 @@ func coCheckLink(t *testing.T, what, home string) {
 //   - `doverctl -v -n clean -o`: one line "Removing file of <group> in the directory of the
 //     other hierarchy layout: <path>" for each of the old over file, d.0 and d.4 of the moved
 //     groups (coLeftovers), no other removal; nothing changed;
-//   - `doverctl -v -w a.b.c clean -o`: only a.b.c's three old files removed (with the line);
+//   - `doverctl -v -w a.b.c clean -o`: only a.b.c's three old files removed (with the line); the
+//     other old files each with the "left alone" line, with hierarchy_to_full also
+//     e2e/d.0.e2e.x.gz and e2e/d.4.e2e.x.gz (e2e.x.gz's old over file stays, #527 r1 M1);
 //   - `doverctl -v clean -o`: the old files of the other groups removed (with the line), every
 //     other file unchanged (the files of the configured layout, the lookalikes, the symlink, and
 //     with hierarchy_to_full e2e/d.0.e2e.x.gz and e2e/d.4.e2e.x.gz, also e2e.x's compressed data
@@ -299,7 +303,8 @@ func TestDoverctlCleanOtherLayout(t *testing.T) {
 			if err != nil {
 				t.Errorf("doverctl -v -w a.b.c clean -o: %v", err)
 			}
-			coCheckRemoved(t, "doverctl -v -w a.b.c clean -o", out, abc, rest, true)
+			// kept: e2e.x.gz, which -w leaves out, keeps its old over file (M1 of r1)
+			coCheckRemoved(t, "doverctl -v -w a.b.c clean -o", out, abc, append(append([]string{}, rest...), kept...), true)
 			coCheckFiles(t, "doverctl -v -w a.b.c clean -o", home, snap, abc)
 			if t.Failed() {
 				t.Logf("doverctl -v -w a.b.c clean -o:\n%s", out)
@@ -481,4 +486,296 @@ func TestDoverctlCleanOtherLayoutCrc(t *testing.T) {
 	}
 	t.Logf("doverctl -o convert crc md5-32/16: %v\n%s", err, out)
 	coCheckFiles(t, "doverctl -o convert", home, snap, nil)
+}
+
+// TestDoverctlCleanOtherLayoutWildPair: chatgpt-1's M1 on bd164322 (#527 r1). With plain
+// hierarchy e2e.x and e2e.x.gz share e2e/, so after the switch to hierarchy-full the old
+// e2e/d.<n>.e2e.x.gz is e2e.x.gz's file in its directory of the other layout and also the name
+// of e2e.x's compressed data in e2e.x's own directory. clean -o judges it by both groups as if
+// e2e.x.gz's old over file were gone, because the same run removes it; but with -w leaving
+// e2e.x.gz out that over file stays, so the D-336 rule must hold: the file is left alone.
+//
+// Input: readergrouphash hierarchy, groups e2e.x and e2e.x.gz, dexpire.ctl "*:x30:e4", 6 articles
+// to e2e.x.gz only (e2e/o.0.e2e.x.gz, d.0, d.4; e2e.x has none), dreaderd stopped, a copy of
+// d.4 as e2e/d.16.e2e.x.gz (a base past e2e.x.gz's range), readergrouphash changed to
+// hierarchy-full, dreaderd not started again (e2e.x.gz has no files in e2e/x/). Expected:
+//   - `doverctl -v -w e2e.x clean -o` (e2e.x.gz left out): exit 0, the four old files of
+//     e2e.x.gz there unchanged, each with "file of e2e.x.gz in the directory of the other
+//     hierarchy layout, left alone", no removal;
+//   - `doverctl -v -n -w 'e2e.x*' clean -o`: the same lines as the run below, nothing removed
+//     (with -n the old over file stays, so this shows that it is not what the data files are
+//     judged by);
+//   - `doverctl -v -w 'e2e.x*' clean -o` (both groups): e2e/o.0.e2e.x.gz removed with the
+//     "Removing file of e2e.x.gz ..." line; e2e/d.4.e2e.x.gz and e2e/d.16.e2e.x.gz, stale for
+//     both groups, removed with "Deleting stale overview data e2e.x.gz: <path>"; e2e/d.0 kept.
+//     e2e.x has no articles; e2e.x.gz's reading is judged by its over file of the configured
+//     layout (e2e/x/o.0.e2e.x.gz, missing: the default 256 entries per data file make base 4
+//     misaligned and keep base 0), not by the old one in e2e/, whether readdir() gives the old
+//     over file before the data files or after them (r2).
+//
+// On bd164322 the first run removes e2e/d.16.e2e.x.gz ("Deleting stale overview data") although
+// e2e.x.gz's old over file stays. On main 297b8ed4 the second run removes nothing (-o ignored).
+func TestDoverctlCleanOtherLayoutWildPair(t *testing.T) {
+	groups := []string{"e2e.x", "e2e.x.gz"}
+	st := fakeserver.NewStore()
+	for _, g := range groups {
+		st.AddGroup(g, "clean -o pair test group")
+	}
+	spool := fakeserver.New(t, fakeserver.Options{Store: st})
+	s := NewReaderSite(t, ReaderOptions{Spool: spool, Groups: groups,
+		Config: map[string]string{"readergrouphash": "hierarchy"},
+		Files:  map[string]string{"dexpire.ctl": "*:x30:e4\n"}})
+	home := strings.TrimSpace(s.Run(t, "dpath", "group"))
+	swFeed(t, s, st, []string{"e2e.x.gz"}, swArts, "pair")
+	readOver(t, s, "e2e.x.gz", swArts)
+	s.Proc.Stop()
+	old := swOldFiles(home, "e2e.x.gz", "hierarchy")
+	for _, f := range old {
+		if !hfxExists(f) {
+			t.Fatalf("after the feed: %s is missing", f)
+		}
+	}
+	// a data file of a base past e2e.x.gz's range (an old one): stale for both groups
+	d16 := filepath.Join(home, "e2e", "d.16.e2e.x.gz")
+	writeOver(t, d16, hfxSnapshot(t, old[2:])[old[2]])
+	swSwitch(t, s, "hierarchy", "hierarchy-full", groups)
+	snap := swFiles(t, home)
+
+	out, err := s.TryRun("doverctl", "-v", "-w", "e2e.x", "clean", "-o")
+	if err != nil {
+		t.Errorf("doverctl -v -w e2e.x clean -o: %v", err)
+	}
+	coCheckRemoved(t, "doverctl -v -w e2e.x clean -o", out, nil, append(append([]string{}, old...), d16), true)
+	coCheckFiles(t, "doverctl -v -w e2e.x clean -o", home, snap, nil)
+	t.Logf("doverctl -v -w e2e.x clean -o: %v\n%s", err, out)
+
+	overLine := "Removing file of e2e.x.gz" + coRemoveLine + old[0]
+	var lines []string
+	for _, f := range []string{old[2], d16} {
+		lines = append(lines, "Deleting stale overview data e2e.x.gz: "+f)
+	}
+	for _, args := range [][]string{{"-v", "-n", "-w", "e2e.x*", "clean", "-o"}, {"-v", "-w", "e2e.x*", "clean", "-o"}} {
+		what := "doverctl " + strings.Join(args, " ")
+		out, err = s.TryRun("doverctl", args...)
+		if err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+		t.Logf("%s: %v\n%s", what, err, out)
+		for _, l := range append(lines, overLine) {
+			if n := strings.Count(out, l+"\n"); n != 1 {
+				t.Errorf("%s: %d times %q, want once", what, n, l)
+			}
+		}
+		if args[1] == "-n" {
+			coCheckFiles(t, what, home, snap, nil)
+		} else {
+			coCheckFiles(t, what, home, snap, []string{old[0], old[2], d16})
+		}
+	}
+}
+
+// coRemoveGateSource is a preloaded library for TestDoverctlCleanOtherLayoutStartDuringRun: the
+// first remove() or unlink() of a path that contains $REMOVEGATE_MATCH makes the file
+// $REMOVEGATE_HELD and waits (at most 30 s) until $REMOVEGATE_GO exists, then removes the path.
+const coRemoveGateSource = `#define _GNU_SOURCE
+#define __EXTENSIONS__
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+static int held;
+
+static void
+gate(const char *path)
+{
+    const char *m = getenv("REMOVEGATE_MATCH");
+    const char *h = getenv("REMOVEGATE_HELD");
+    const char *g = getenv("REMOVEGATE_GO");
+    int fd;
+    int i;
+
+    if (held || m == NULL || h == NULL || g == NULL || strstr(path, m) == NULL)
+	return;
+    held = 1;
+    if ((fd = open(h, O_WRONLY | O_CREAT, 0644)) >= 0)
+	close(fd);
+    for (i = 0; i < 3000 && access(g, F_OK) != 0; ++i)
+	usleep(10000);
+}
+
+int
+remove(const char *path)
+{
+    static int (*real)(const char *);
+
+    if (real == NULL)
+	real = (int (*)(const char *))dlsym(RTLD_NEXT, "remove");
+    gate(path);
+    return real(path);
+}
+
+int
+unlink(const char *path)
+{
+    static int (*real)(const char *);
+
+    if (real == NULL)
+	real = (int (*)(const char *))dlsym(RTLD_NEXT, "unlink");
+    gate(path);
+    return real(path);
+}
+`
+
+// TestDoverctlCleanOtherLayoutStartDuringRun: chatgpt-1's M2 on bd164322 (#527 r1). The check of
+// main() is no lock: dreaderd removes its pid file and socket when it starts, so one started
+// during a clean -o run can write the files of the other layout again before they are removed.
+// clean -o asks again right before each removal and stops at once.
+//
+// Input: the coSite of hierarchy_to_full, dreaderd stopped (15 leftovers); `doverctl -v clean -o`
+// run with a preloaded library that holds its first removal below the group home (after the
+// re-check for that file passed) until the test has started dreaderd again (pid file and socket
+// up). Expected: doverctl exits 1 with "clean -o: dreaderd may be running (<pid file> names the
+// live process <pid>; ...): stopped, 1 files removed before; stop dreaderd and run it again";
+// exactly one "Removing file of" line and exactly one of the leftovers gone, the others there
+// unchanged. On bd164322 (one check at the start) every leftover is removed and the exit status
+// is 0. Skipped where LD_PRELOAD shims do not run.
+func TestDoverctlCleanOtherLayoutStartDuringRun(t *testing.T) {
+	so := preloadShim(t, "removegate", coRemoveGateSource)
+	s, home, _, _ := coSite(t, "hierarchy", "hierarchy-full")
+	s.Proc.Stop()
+	remove, _ := coLeftovers(t, home, "hierarchy", "hierarchy-full")
+	snap := hfxSnapshot(t, remove)
+	gates := t.TempDir()
+	held, goFile := filepath.Join(gates, "held"), filepath.Join(gates, "go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(s.Bin, "doverctl"), "-v", "clean", "-o")
+	cmd.Dir = s.Dir
+	cmd.Env = append(append(os.Environ(), s.Env...), lockFaultEnv(so),
+		"REMOVEGATE_MATCH="+home+"/", "REMOVEGATE_HELD="+held, "REMOVEGATE_GO="+goFile)
+	var b bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &b, &b
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	testkit.WaitFor(t, 20*time.Second, "doverctl clean -o holds its first removal", func() bool {
+		return hfxExists(held)
+	})
+	restartReader(t, s)
+	pid := readMainPid(t, s)
+	writeOver(t, goFile, nil)
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(45 * time.Second):
+		t.Fatalf("doverctl clean -o did not finish; output:\n%s", b.String())
+	}
+	out := b.String()
+	t.Logf("doverctl -v clean -o, dreaderd (pid %d) started during the run: %v\n%s", pid, err, out)
+	if err == nil {
+		t.Errorf("doverctl -v clean -o: exit 0, want 1")
+	}
+	want := "clean -o: dreaderd may be running (" + filepath.Join(s.Dir, "log", "dreaderd.pid") +
+		" names the live process " + strconv.Itoa(pid) + ";"
+	if !strings.Contains(out, want) || !strings.Contains(out, "): stopped, 1 files removed before; stop dreaderd and run it again\n") {
+		t.Errorf("doverctl -v clean -o: no stop with %q", want)
+	}
+	if n := strings.Count(out, "Removing file of "); n != 1 {
+		t.Errorf("doverctl -v clean -o: %d \"Removing file of\" lines, want 1", n)
+	}
+	var gone []string
+	for _, f := range remove {
+		got, err := os.ReadFile(f)
+		switch {
+		case err != nil:
+			gone = append(gone, strings.TrimPrefix(f, home+"/"))
+		case !bytes.Equal(got, snap[f]):
+			t.Errorf("%s was changed", strings.TrimPrefix(f, home+"/"))
+		}
+	}
+	if len(gone) != 1 {
+		t.Errorf("leftovers gone %q, want exactly one", gone)
+	}
+}
+
+// TestDoverctlCleanOtherLayoutCombinedFlags: go-while's F1 on bd164322 (#527 r1). The parser
+// read only the first letter of an option of a letter that takes no value and dropped the rest:
+// `-on` was -o without the dry run -n, so `doverctl -on clean` removed every leftover. A letter
+// that takes no value (m, n, o, V) must now stand alone, and the value of -v and -d must be a
+// number.
+//
+// Input: the coSite of hierarchy_to_full, dreaderd stopped. Subtests, each on the same spool:
+//   - refused: `doverctl -on clean`, `doverctl clean -on`, `doverctl -no clean`, `doverctl -ov
+//     clean`, `doverctl -vo clean` each exit 1 with "Unknown option: <arg>", print no
+//     "Removing" or "Deleting" line, and change no file;
+//   - split: `doverctl -o -n -v clean` exits 0 with the 13 "Removing file of" lines of the
+//     leftovers and changes no file (a dry run);
+//   - clean_n: a copy of a.b.c's over file as a/b/o.0.a.b.zz (a group not in the active file);
+//     `doverctl -v clean -n` exits 0 with "Group for over file not found, removing <path>" and
+//     keeps it (on main 297b8ed4 `-n` after clean was taken as the unused directory argument and
+//     the clean was real: the file was removed).
+//
+// On bd164322 -on, clean -on and -ov remove the 13 leftovers (exit 0), -no and -vo exit 0.
+func TestDoverctlCleanOtherLayoutCombinedFlags(t *testing.T) {
+	s, home, _, _ := coSite(t, "hierarchy", "hierarchy-full")
+	s.Proc.Stop()
+	remove, _ := coLeftovers(t, home, "hierarchy", "hierarchy-full")
+	snap := swFiles(t, home)
+
+	t.Run("refused", func(t *testing.T) {
+		for _, args := range [][]string{{"-on", "clean"}, {"clean", "-on"}, {"-no", "clean"}, {"-ov", "clean"}, {"-vo", "clean"}} {
+			what := "doverctl " + strings.Join(args, " ")
+			out, err := s.TryRun("doverctl", args...)
+			t.Logf("%s: %v\n%s", what, err, out)
+			bad := args[0]
+			if bad == "clean" {
+				bad = args[1]
+			}
+			if err == nil {
+				t.Errorf("%s: exit 0, want 1", what)
+			}
+			if !strings.Contains(out, "Unknown option: "+bad+" (") {
+				t.Errorf("%s: no \"Unknown option: %s\"", what, bad)
+			}
+			if strings.Contains(out, "Removing") || strings.Contains(out, "Deleting") {
+				t.Errorf("%s removes files", what)
+			}
+			coCheckFiles(t, what, home, snap, nil)
+		}
+	})
+	t.Run("split", func(t *testing.T) {
+		out, err := s.TryRun("doverctl", "-o", "-n", "-v", "clean")
+		if err != nil {
+			t.Errorf("doverctl -o -n -v clean: %v", err)
+		}
+		coCheckRemoved(t, "doverctl -o -n -v clean", out, remove, nil, false)
+		coCheckFiles(t, "doverctl -o -n -v clean", home, snap, nil)
+		if t.Failed() {
+			t.Logf("doverctl -o -n -v clean:\n%s", out)
+		}
+	})
+	t.Run("clean_n", func(t *testing.T) {
+		b, err := os.ReadFile(filepath.Join(home, swRel("a.b.c", "hierarchy-full")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := filepath.Join(home, "a", "b", "o.0.a.b.zz")
+		writeOver(t, f, b)
+		out, err := s.TryRun("doverctl", "-v", "clean", "-n")
+		t.Logf("doverctl -v clean -n: %v\n%s", err, out)
+		if err != nil {
+			t.Errorf("doverctl -v clean -n: %v", err)
+		}
+		if !strings.Contains(out, "Group for over file not found, removing "+f+"\n") {
+			t.Errorf("doverctl -v clean -n: no \"Group for over file not found, removing %s\"", f)
+		}
+		if !hfxExists(f) {
+			t.Errorf("doverctl -v clean -n removed %s: not a dry run", f)
+		}
+	})
 }
