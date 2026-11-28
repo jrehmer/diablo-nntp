@@ -188,7 +188,8 @@ static int hierName(const char *name);
 static int topRegular(const char *path, const char *name, int say);
 static void topGoneAdd(const char *name);
 static int topGone(const char *name);
-static int topGzPair(const Group *group, const char *dirPath, char *pair, size_t size);
+static int gzPairShared(const Group *group, char *pair, size_t size);
+static int activeHas(const char *name);
 static int dataRegular(const Group *group, const char *dirPath, artno_t startNo, artno_t endNo, int dataEntries, int top, char *bad, size_t size);
 static int dataOpen(const char *path);
 static int topOverIrregular(const Group *group, char *bad, size_t size);
@@ -1049,8 +1050,8 @@ ScanDirectories(void)
      * character and the same name plus .gz share the top (x and x.gz:
      * FindGroupDir() skips the component "x" of x.gz), so "d.<n>.x.gz" is
      * x's compressed name and x.gz's plain data (D-325): -R rewrites
-     * neither of them there (topGzPair()); the D-318 rule judges the file
-     * by both, as in a subdirectory.  Other groups at the top have X.gz in
+     * neither of them, as in a subdirectory (gzPairShared()); the D-318
+     * rule judges the file by both.  Other groups at the top have X.gz in
      * a directory of its own (x.y.gz in x.y/, junk.gz in junk/).  crc and
      * md5 put no file there, so their top is not looked at.  The two passes of
      * scanDirectory() run on the group home itself (scanFiles(), top 1):
@@ -1263,28 +1264,33 @@ topRegular(const char *path, const char *name, int say)
 }
 
 /*
- * topGzPair() - group X has its files at the top of the group home and its
- * compressed data name there ("d.<n>.X.gz") is the plain data file of the
- * group X.gz in either hierarchy layout, and X.gz exists; or group X.gz has
- * its files at the top and its plain data name there is X's compressed data
- * in either layout, and X exists (D-325, D-338).  With plain hierarchy that
- * is a group X of one component of one character ("x" and "x.gz":
- * FindGroupDir() skips the component "x" of x.gz, so both are at the top),
- * and with hierarchy-full x after a switch from plain hierarchy, whose
- * x.gz files of the old layout are still at the top (go-while's R2-F1).
- * For the other layout the other group must have an over file in its
- * directory of that layout (hierOtherOver(), D-336: a leftover of the
- * switch or a dreaderd still on the old setting); in a spool never
- * switched (hierarchy-full: x at the top, x.gz in x/) both are rewritten.
- * RewriteData() of x removes both names "d.<n>.x" and "d.<n>.x.gz" in its
- * directory, which emptied OVER of x.gz; RewriteData() of x.gz reads
- * "d.<n>.x.gz" as its plain data although it may be x's compressed data.
- * Main never touched the top, so with -R neither group is rewritten there
- * (in a subdirectory, e2e.x and e2e.x.gz in e2e/, D-325 is unchanged).  The
- * other group's name goes in pair.
+ * gzPairShared() - group X's compressed data name in its directory
+ * ("<dir>/d.<n>.X.gz") is the plain data file of the group X.gz in either
+ * hierarchy layout, and X.gz is in the active file; or group X.gz's plain
+ * data name in its directory is X's compressed data in either layout, and X
+ * is in the active file (D-325).  The active file itself is asked
+ * (activeHas()), not the groups loaded: -w loads only the selected ones,
+ * and hierGroupKnown() says yes to any name then, so every X of a
+ * one-character last component (comp.lang.c) would be taken for a pair.
+ * With plain hierarchy such an X and X.gz share a directory:
+ * FindGroupDir() skips X's last component in the name X.gz, so both have
+ * their files in one directory (e2e.x and e2e.x.gz in e2e/, o.1.2 and
+ * o.1.2.gz in o.1/, x and x.gz at the top, D-338).  With hierarchy-full X
+ * after a switch from plain hierarchy, whose X.gz files of the old layout
+ * are still in X's directory (go-while's R2-F1 on #524, at the top and in
+ * a subdirectory).  For the other layout the other group must have an over
+ * file in its directory of that layout (hierOtherOver(), D-336: a leftover
+ * of the switch or a dreaderd still on the old setting); in a spool never
+ * switched (hierarchy-full: x at the top and x.gz in x/, e2e.x in e2e/ and
+ * e2e.x.gz in e2e/x/) both are rewritten.  RewriteData() of X removes both
+ * names "d.<n>.X" and "d.<n>.X.gz" in its directory, which emptied OVER of
+ * X.gz; RewriteData() of X.gz reads "d.<n>.X.gz" as its plain data although
+ * it may be X's compressed data.  So with -R neither group is rewritten.
+ * The paths compared are those of GFName() below the group home, so a
+ * group anywhere is judged alike.  The other group's name goes in pair.
  */
 static int
-topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
+gzPairShared(const Group *group, char *pair, size_t size)
 {
     const char *g = group->gr_GroupName;
     size_t len = strlen(g);
@@ -1294,6 +1300,8 @@ topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
     int i;
     int n;
 
+    if (DOpts.ReaderGroupHashMethod.gh_type != HASHGRP_HIER)
+	return(0);			/* crc and md5 names hold a hash */
     m[0] = DOpts.ReaderGroupHashMethod;
     m[1] = DOpts.ReaderGroupHashMethod;
     m[1].gh_hierfull = !m[1].gh_hierfull;
@@ -1306,8 +1314,7 @@ topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
 	(size_t)n < sizeof(other)) {
 	for (i = 0; i < 2; ++i) {
 	    if (strcmp(mine, GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i])) == 0 &&
-		(i == 0 || hierOtherOver(other)) &&
-		hierGroupKnown(other, dirPath)) {
+		(i == 0 || hierOtherOver(other)) && activeHas(other)) {
 		snprintf(pair, size, "%s", other);
 		return(1);
 	    }
@@ -1324,8 +1331,7 @@ topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
 	    n = snprintf(z, sizeof(z), "%s.gz",
 			GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i]));
 	    if (n > 0 && (size_t)n < sizeof(z) && strcmp(mine, z) == 0 &&
-		(i == 0 || hierOtherOver(other)) &&
-		hierGroupKnown(other, dirPath)) {
+		(i == 0 || hierOtherOver(other)) && activeHas(other)) {
 		snprintf(pair, size, "%s", other);
 		return(1);
 	    }
@@ -1939,9 +1945,10 @@ again:
 #endif
 
 		/*
-		 * -R (D-338): a group at the top of the group home is not
-		 * rewritten when it shares the top with X or X.gz (topGzPair(),
-		 * D-325; main never touched the top), and no group is when one
+		 * -R: a group is not rewritten when it shares its data file
+		 * names with X or X.gz (gzPairShared(), D-325: the rewrite of one
+		 * would remove or misread the other's data; D-338 did this at
+		 * the top only, now in every directory), and no group is when one
 		 * of the data file names of its range is there but no regular
 		 * file (dataRegular(): a FIFO would block RewriteData()'s open(),
 		 * on main too; at the top also a link, which would be read and
@@ -1952,10 +1959,11 @@ again:
 		if (rewrite) {
 		    char why[PATH_MAX];
 
-		    if (top && topGzPair(group, dirPath, why, sizeof(why))) {
+		    if (gzPairShared(group, why, sizeof(why))) {
 			if (VerboseOpt)
-			    printf("%s: not rewritten: the group %s has its files in the same directory, the top of the group home (D-325)\n",
-						group->gr_GroupName, why);
+			    printf("%s: not rewritten: the group %s has its files in the same directory%s (D-325)\n",
+						group->gr_GroupName, why,
+						top ? ", the top of the group home" : "");
 			rewrite = 0;
 		    } else if (!dataRegular(group, dirPath, group->gr_StartNo,
 				group->gr_EndNo, OldDataEntries, top, why, sizeof(why))) {
@@ -2586,6 +2594,23 @@ hierDirClass(const char *name, const char *dirPath)
 	printf("files named for %s in %s are not that group's: not its directory in either hierarchy layout\n",
 							name, dirPath);
     return(HIERDIR_OFF);
+}
+
+/*
+ * activeHas() - the group name is in the active file now (read from the
+ * file, so also a group that -w did not load or that was created since the
+ * scan).
+ */
+static int
+activeHas(const char *name)
+{
+    int recLen;
+    const char *rec = KPDBReadRecord(KDBActive, name, KP_LOCK, &recLen);
+
+    if (rec == NULL)
+	return(0);
+    KPDBUnlock(KDBActive, rec);
+    return(1);
 }
 
 /*

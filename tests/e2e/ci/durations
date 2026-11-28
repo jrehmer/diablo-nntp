@@ -275,6 +275,7 @@ TestDexpireoverCrcDataEntries 0.05
 TestDexpireoverCrcHashCollision 0.15
 TestDexpireoverGroupRemovedBeforeWriteBack 0.05
 TestDexpireoverGroupRemovedDuringResize 0.04
+TestDexpireoverGzPairDirectory 2.50
 TestDexpireoverHeaderOnlyOver 0.02
 TestDexpireoverHierarchyCompress 0.10
 TestDexpireoverHierarchyCompressGzName 0.50
