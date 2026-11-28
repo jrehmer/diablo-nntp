@@ -41,7 +41,7 @@ const (
 
 // swTopGroups have their files at the top of the group home in plain hierarchy (a component
 // of one character is joined to the next, and the last is no directory), which neither tool
-// scans (R2-F3 of the #523 r2 reviews).
+// scanned before D-338 (R2-F3 of the #523 r2 reviews).
 var swTopGroups = []struct{ name, hier, full string }{
 	{"x.y", "", "x"},
 	{"a.b", "", "a"},
@@ -337,8 +337,8 @@ func TestOverToolsHierarchyFullSwitchLeftovers(t *testing.T) {
 // switch the other way. The tools must lose nothing of the files the old dreaderd uses, and
 // dexpireover must not move the first article number (NB) of such a group by what its over file
 // of the configured layout lacks. x.y and a.b have their files at the top of the group home in
-// plain hierarchy, which the scan does not enter (R2-F3 of the #523 r2 reviews): their NB is
-// kept by the over file found there, not by the scan.
+// plain hierarchy, which the scan did not enter before D-338 (R2-F3 of the #523 r2 reviews):
+// their NB is kept by the over file found there, not by the scan.
 //
 // Input: groups e2e.test, e2e.x.gz, a.b.c, o.1.2, x.y and a.b; readergrouphash hierarchy,
 // dexpire.ctl "*:x30:e4", 6 articles crossposted to all, OVER 1-6 of each read, dreaderd stopped

@@ -182,8 +182,18 @@ typedef struct DirFrame {
 
 void scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 						const DirFrame *dirs);
+static void scanFiles(const char *path, int *level, int noLinks,
+					const DirFrame *dirs, int top);
+static int hierName(const char *name);
+static int topRegular(const char *path, const char *name, int say);
+static void topGoneAdd(const char *name);
+static int topGone(const char *name);
+static int topGzPair(const Group *group, const char *dirPath, char *pair, size_t size);
+static int dataRegular(const Group *group, const char *dirPath, artno_t startNo, artno_t endNo, int dataEntries, int top, char *bad, size_t size);
+static int dataOpen(const char *path);
+static int topOverIrregular(const Group *group, char *bad, size_t size);
 void DeleteJunkFile(const char *dirPath, const char *name);
-void ProcessOverviewFile(const char *dirPath, const char *name, int type);
+void ProcessOverviewFile(const char *dirPath, const char *name, int type, int top);
 int getFirstArtAge(Group *group, int fd, OverHead *oh);
 char *allocTmpCopy(const char *buf, int bufLen);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
@@ -217,6 +227,7 @@ static int hierDirOf(const char *name, GroupHashType *method, char *dir, size_t 
 static int hierDirClass(const char *name, const char *dirPath);
 static int hierGroupKnown(const char *name, const char *dirPath);
 static int hierOtherOver(const char *name);
+static int overNamesGroup(const char *path, const char *name);
 static int overFileType(const char *name);
 static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
 static int tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz, const char *want);
@@ -650,8 +661,9 @@ main(int ac, char **av)
 		 * dreaderd started before readergrouphash was changed: its
 		 * first article number is not moved by what the files of the
 		 * configured layout lack (D-337).  Asked of the file, not of
-		 * the scan, which does not see the files at the top of the
-		 * group home (x.y in plain hierarchy).
+		 * the scan: a worker of -p meets only some directories, and
+		 * the over file of the other layout may be in one it does not
+		 * scan (x.y: the top in plain hierarchy, x/ in hierarchy-full).
 		 */
 		if ((group->gr_State & (GRF_MODIFIED | GRF_EDITEDBEG)) ==
 				(GRF_MODIFIED | GRF_EDITEDBEG) &&
@@ -1027,6 +1039,31 @@ ScanDirectories(void)
 	closedir(dir);
     }
 
+    /*
+     * The files at the top of the group home (D-338): the hierarchy layouts
+     * put there the files of a group whose directory (FindGroupDir()) is
+     * empty: with plain hierarchy a group of two components whose first
+     * has one character or none (x.y, a.b, x.yz: a one-character component
+     * is joined to the next, and the last is no directory), with both a
+     * group of one component (junk).  With plain hierarchy a group of one
+     * character and the same name plus .gz share the top (x and x.gz:
+     * FindGroupDir() skips the component "x" of x.gz), so "d.<n>.x.gz" is
+     * x's compressed name and x.gz's plain data (D-325): -R rewrites
+     * neither of them there (topGzPair()); the D-318 rule judges the file
+     * by both, as in a subdirectory.  Other groups at the top have X.gz in
+     * a directory of its own (x.y.gz in x.y/, junk.gz in junk/).  crc and
+     * md5 put no file there, so their top is not looked at.  The two passes of
+     * scanDirectory() run on the group home itself (scanFiles(), top 1):
+     * no directory is entered again, and only the hierarchy names of groups
+     * whose directory is the top are acted on (ProcessOverviewFile()).
+     * With -p only worker 0 does it (ParallelIdx is 0 without -p too): a
+     * group's files of the configured layout are all in its one directory,
+     * so no other worker meets a file of these groups, and every worker but
+     * one would open, resize and expire them again.
+     */
+    if (DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_HIER && ParallelIdx == 0)
+	scanFiles(PatExpand(GroupHomePat), &level, 0, &home, 1);
+
     printf("Scanned %d files, %d were bad, %d/%d indexes resized successfully\n",
 	GoodGroups + BadGroups, 
 	BadGroups, 
@@ -1062,7 +1099,6 @@ void
 scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 						const DirFrame *dirs)
 {
-    DIR *dir2;
     char path[PATH_MAX];
     char origpath[PATH_MAX];
     int n;
@@ -1082,6 +1118,35 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	return;
     }
 
+    scanFiles(path, level, noLinks, dirs, 0);
+
+    if (chdir(origpath) != 0) {
+	printf("FATAL: Unable to return with chdir(%s)\n", dirname);
+	exit(1);
+    }
+}
+
+/*
+ * scanFiles() - the two passes over the entries of the current directory,
+ * whose path is path: first the over files (and, unless top, the
+ * subdirectories, by scanDirectory()), then the temporary files of an
+ * interrupted -R or -z and the data files, so that a group's over file is
+ * expired before its data files are judged.  top: the current directory is
+ * the group home itself (D-338); its subdirectories were scanned already
+ * and are not entered, and of the other entries only the hierarchy names
+ * (hierName()) and the temporary names tempRewriteName() accepts are
+ * looked at; ProcessOverviewFile() acts on them only for groups whose
+ * directory is the top.  Everything else there (an admin's files, a
+ * directory named like a data file) is left as it is, unreported.
+ * *level is never incremented, so the depth below the group home has no
+ * limit (as on main).
+ */
+static void
+scanFiles(const char *path, int *level, int noLinks, const DirFrame *dirs,
+								int top)
+{
+    DIR *dir2;
+
     if ((dir2 = opendir(".")) != NULL) {
 	den_t *den2;
 	struct stat st;
@@ -1090,13 +1155,19 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	while ((den2 = readdir(dir2)) != NULL) {
 	    if (strcmp(den2->d_name, ".") == 0 || strcmp(den2->d_name, "..") == 0)
 		continue;
+	    if (top && !hierName(den2->d_name))
+		continue;
+	    if (top && !topRegular(path, den2->d_name, 1))
+		continue;
 	    if (noLinks && EntryIsLink(den2->d_name)) {
 		if (VerboseOpt > 0)
 		    printf("Skipping symlink %s/%s: not followed below a top-level directory whose name does not start with an alphanumeric\n", path, den2->d_name);
 		continue;
 	    }
 	    if (stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)) {
-		if (DirOnPath(dirs, &st)) {
+		if (top) {
+		    /* scanned by ScanDirectories() or not ours */
+		} else if (DirOnPath(dirs, &st)) {
 		    if (VerboseOpt > 0)
 			printf("Skipping directory loop %s/%s: already on the path from the group home\n", path, den2->d_name);
 		} else if (*level <= 2) {
@@ -1106,7 +1177,7 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 		    scanDirectory(path, den2->d_name, level, noLinks, &sub);
 		}
 	    } else if (overFileType(den2->d_name) == 1)
-		ProcessOverviewFile(path, den2->d_name, 1);
+		ProcessOverviewFile(path, den2->d_name, 1, top);
 	    if (MustExit)
 		exit(1);
 	}
@@ -1119,8 +1190,11 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	    if (tempRewriteName(path, den2->d_name)) {
 		/*
 		 * a symlink was reported by the first pass; a directory
-		 * is not a temporary file, whatever its name
+		 * is not a temporary file, whatever its name; at the top
+		 * only a regular file, no link (D-338)
 		 */
+		if (top && !topRegular(path, den2->d_name, 1))
+		    continue;
 		if (!(noLinks && EntryIsLink(den2->d_name)) &&
 		    !(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
 		    DeleteJunkFile(path, den2->d_name);
@@ -1135,19 +1209,242 @@ scanDirectory(const char *dirpath, char *dirname, int *level, int noLinks,
 	     * gave it can read as one (a real hierarchy directory is a
 	     * group name component and never parses as "d.<n>.<group>").
 	     */
-	    if (overFileType(den2->d_name) == 2 &&
+	    if ((!top || (hierName(den2->d_name) &&
+			  topRegular(path, den2->d_name, 0))) &&
+		overFileType(den2->d_name) == 2 &&
 		!(noLinks && EntryIsLink(den2->d_name)) &&
 		!(stat(den2->d_name, &st) == 0 && S_ISDIR(st.st_mode)))
-		ProcessOverviewFile(path, den2->d_name, 2);
+		ProcessOverviewFile(path, den2->d_name, 2, top);
 	    if (MustExit)
 		exit(1);
 	}
 	closedir(dir2);
     }
-    if (chdir(origpath) != 0) {
-	printf("FATAL: Unable to return with chdir(%s)\n", dirname);
-	exit(1);
+}
+
+/*
+ * hierName() - name parses as a hierarchy over or data file name (in the
+ * configured layout's order, D-335), not as a crc or md5 one.
+ */
+static int
+hierName(const char *name)
+{
+    char Hash[PATH_MAX];
+    artno_t artBase = -1;
+    int iter = 0;
+    int ghtype = ExtractGroupHashInfo(name, DOpts.ReaderGroupHashMethod.gh_type,
+						Hash, &artBase, &iter);
+
+    return(ghtype != HASHGRP_NONE &&
+	(ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
+}
+
+/*
+ * topRegular() - the entry name at the top of the group home (the current
+ * directory, path) is a regular file and no symlink (lstat(), D-338).  Main
+ * never looked at the files there, so as for the trees #515 added nothing
+ * there is followed, opened or removed through a link (a dangling one
+ * too), and nothing but a regular file is opened: a FIFO named like an
+ * over file would block the open().  say: report a link with -v.
+ */
+static int
+topRegular(const char *path, const char *name, int say)
+{
+    struct stat lst;
+
+    if (lstat(name, &lst) != 0)
+	return(0);
+    if (S_ISLNK(lst.st_mode)) {
+	if (say && VerboseOpt > 0)
+	    printf("Skipping symlink %s/%s: not followed at the top of the group home\n", path, name);
+	return(0);
     }
+    return(S_ISREG(lst.st_mode));
+}
+
+/*
+ * topGzPair() - group X has its files at the top of the group home and its
+ * compressed data name there ("d.<n>.X.gz") is the plain data file of the
+ * group X.gz in either hierarchy layout, and X.gz exists; or group X.gz has
+ * its files at the top and its plain data name there is X's compressed data
+ * in either layout, and X exists (D-325, D-338).  With plain hierarchy that
+ * is a group X of one component of one character ("x" and "x.gz":
+ * FindGroupDir() skips the component "x" of x.gz, so both are at the top),
+ * and with hierarchy-full x after a switch from plain hierarchy, whose
+ * x.gz files of the old layout are still at the top (go-while's R2-F1).
+ * For the other layout the other group must have an over file in its
+ * directory of that layout (hierOtherOver(), D-336: a leftover of the
+ * switch or a dreaderd still on the old setting); in a spool never
+ * switched (hierarchy-full: x at the top, x.gz in x/) both are rewritten.
+ * RewriteData() of x removes both names "d.<n>.x" and "d.<n>.x.gz" in its
+ * directory, which emptied OVER of x.gz; RewriteData() of x.gz reads
+ * "d.<n>.x.gz" as its plain data although it may be x's compressed data.
+ * Main never touched the top, so with -R neither group is rewritten there
+ * (in a subdirectory, e2e.x and e2e.x.gz in e2e/, D-325 is unchanged).  The
+ * other group's name goes in pair.
+ */
+static int
+topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
+{
+    const char *g = group->gr_GroupName;
+    size_t len = strlen(g);
+    GroupHashType m[2];
+    char mine[PATH_MAX];
+    char other[PATH_MAX];
+    int i;
+    int n;
+
+    m[0] = DOpts.ReaderGroupHashMethod;
+    m[1] = DOpts.ReaderGroupHashMethod;
+    m[1].gh_hierfull = !m[1].gh_hierfull;
+
+    /* X: its compressed name in its directory, X.gz's plain data in m[i] */
+    n = snprintf(mine, sizeof(mine), "%s.gz",
+		GFName(g, GRPFTYPE_DATA, 0, 1, 0, &DOpts.ReaderGroupHashMethod));
+    if (n > 0 && (size_t)n < sizeof(mine) &&
+	(n = snprintf(other, sizeof(other), "%s.gz", g)) > 0 &&
+	(size_t)n < sizeof(other)) {
+	for (i = 0; i < 2; ++i) {
+	    if (strcmp(mine, GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i])) == 0 &&
+		(i == 0 || hierOtherOver(other)) &&
+		hierGroupKnown(other, dirPath)) {
+		snprintf(pair, size, "%s", other);
+		return(1);
+	    }
+	}
+    }
+    /* X.gz: its plain data in its directory, X's compressed name in m[i] */
+    if (len > 3 && strcmp(g + len - 3, ".gz") == 0) {
+	snprintf(mine, sizeof(mine), "%s",
+		GFName(g, GRPFTYPE_DATA, 0, 1, 0, &DOpts.ReaderGroupHashMethod));
+	snprintf(other, sizeof(other), "%.*s", (int)(len - 3), g);
+	for (i = 0; i < 2; ++i) {
+	    char z[PATH_MAX];
+
+	    n = snprintf(z, sizeof(z), "%s.gz",
+			GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i]));
+	    if (n > 0 && (size_t)n < sizeof(z) && strcmp(mine, z) == 0 &&
+		(i == 0 || hierOtherOver(other)) &&
+		hierGroupKnown(other, dirPath)) {
+		snprintf(pair, size, "%s", other);
+		return(1);
+	    }
+	}
+    }
+    return(0);
+}
+
+/*
+ * dataRegular() - every data file name of group in dirPath for the articles
+ * startNo..endNo, plain and ".gz", as RewriteData() opens and removes them,
+ * is a regular file or not there (D-338, go-while's R2-F2): a FIFO there
+ * blocked RewriteData()'s open() (on main too).  At the top (top) by
+ * lstat(): no link, as for the scan there; below it by stat(), so a link to
+ * a regular file is read and replaced by the rewrite, as on main.  Else 0,
+ * with the first other one in bad.
+ */
+static int
+dataRegular(const Group *group, const char *dirPath, artno_t startNo,
+		artno_t endNo, int dataEntries, int top, char *bad, size_t size)
+{
+    artno_t artNo;
+    struct stat lst;
+    char path[PATH_MAX];
+    int gz;
+
+    if (dataEntries <= 0)
+	dataEntries = OD_HARTS;
+    for (artNo = startNo & ~((artno_t)dataEntries - 1); artNo <= endNo;
+						artNo += dataEntries) {
+	for (gz = 0; gz < 2; ++gz) {
+	    snprintf(path, sizeof(path), "%s/%s%s", dirPath,
+		    GFName(group->gr_GroupName, GRPFTYPE_DATA, artNo, 0,
+				group->gr_Iter, &DOpts.ReaderGroupHashMethod),
+		    gz ? ".gz" : "");
+	    if ((top ? lstat(path, &lst) : stat(path, &lst)) == 0 &&
+		!S_ISREG(lst.st_mode)) {
+		snprintf(bad, size, "%s", path);
+		return(0);
+	    }
+	}
+    }
+    return(1);
+}
+
+/*
+ * dataOpen() - open the data file path for RewriteData(): O_NONBLOCK, and
+ * only a regular file (fstat(); D-338, R2-F2).  A FIFO or another file
+ * that dataRegular() did not see (it came after the check) gives -1 with
+ * errno EINVAL, which stops the group's rewrite before anything is changed
+ * ("Unable to open"), as for a file that cannot be read.
+ */
+static int
+dataOpen(const char *path)
+{
+    struct stat st;
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+
+    if (fd >= 0 && (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode))) {
+	printf("%s is not a regular file\n", path);
+	close(fd);
+	errno = EINVAL;
+	return(-1);
+    }
+    return(fd);
+}
+
+/*
+ * topOverIrregular() - group's over file, when its directory is the top of
+ * the group home, is there but no regular file (a link, a FIFO; lstat(),
+ * D-338), with its path in bad.  0 for a group in a subdirectory.
+ */
+static int
+topOverIrregular(const Group *group, char *bad, size_t size)
+{
+    const char *gf = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 1,
+				group->gr_Iter, &DOpts.ReaderGroupHashMethod);
+    struct stat lst;
+
+    if (strchr(gf, '/') != NULL)
+	return(0);
+    snprintf(bad, size, "%s/%s", PatExpand(GroupHomePat), gf);
+    return(lstat(bad, &lst) == 0 && !S_ISREG(lst.st_mode));
+}
+
+/*
+ * TopGone - the groups whose over file at the top of the group home this
+ * run removed as the file of no group (its header named the group, D-338):
+ * the evidence that such a group existed, by which its data files at the
+ * top are removed in the second pass.  A data file name alone is no
+ * evidence (an admin's d.0.junk~ is the data file name of a group junk~).
+ */
+static char **TopGone;
+static int TopGoneCount;
+
+static void
+topGoneAdd(const char *name)
+{
+    char **n;
+
+    if (topGone(name))
+	return;
+    if ((n = realloc(TopGone, (TopGoneCount + 1) * sizeof(*TopGone))) == NULL)
+	return;			/* the data files then stay: no harm */
+    TopGone = n;
+    if ((TopGone[TopGoneCount] = strdup(name)) != NULL)
+	++TopGoneCount;
+}
+
+static int
+topGone(const char *name)
+{
+    int i;
+
+    for (i = 0; i < TopGoneCount; ++i) {
+	if (strcmp(TopGone[i], name) == 0)
+	    return(1);
+    }
+    return(0);
 }
 
 /*
@@ -1226,7 +1523,9 @@ tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz,
  * hierarchy ".gz" name are tried (D-318).  A temporary file of a group that
  * is not in the table (removed from the active file, or not selected with
  * -w) is left.  No group file name starts with '.', so the group's own
- * files are never taken.
+ * files are never taken.  dirPath may be the group home itself (D-338):
+ * then only a hierarchy name of a group whose directory is the top (GFName()
+ * gives no directory) matches.
  */
 static int
 tempRewriteName(const char *dirPath, const char *name)
@@ -1254,9 +1553,17 @@ tempRewriteName(const char *dirPath, const char *name)
     if (n < 0 || (size_t)n >= sizeof(home))
 	return(0);
     homeLen = (size_t)n;
-    if (strncmp(dirPath, home, homeLen) != 0 || dirPath[homeLen] != '/')
+    if (strncmp(dirPath, home, homeLen) != 0)
 	return(0);
-    n = snprintf(want, sizeof(want), "%s/%s", dirPath + homeLen + 1, name + 1);
+    if (dirPath[homeLen] == 0) {
+	/* the top of the group home (D-338): only hierarchy groups have files there */
+	if ((ghtype & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) != HASHGRP_HIER)
+	    return(0);
+	n = snprintf(want, sizeof(want), "%s", name + 1);
+    } else if (dirPath[homeLen] == '/')
+	n = snprintf(want, sizeof(want), "%s/%s", dirPath + homeLen + 1, name + 1);
+    else
+	return(0);
     if (n < 0 || (size_t)n >= sizeof(want))
 	return(0);
 
@@ -1324,7 +1631,7 @@ DeleteJunkFile(const char *dirPath, const char *name)
  */
 
 void
-ProcessOverviewFile(const char *dirPath, const char *name, int type)
+ProcessOverviewFile(const char *dirPath, const char *name, int type, int top)
 {
     artno_t artBase = -1;
     Group *group = NULL;
@@ -1408,6 +1715,18 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 								other, path);
 	    return;
 	}
+	/*
+	 * At the top of the group home (D-338) a name of no group whose
+	 * directory is the top is no file of ours: an admin's file, or the
+	 * file of a group whose directory is a subdirectory (o.0.e2e.test),
+	 * or that of the other layout for a group that is gone.  Left as it
+	 * is, not removed as the file of no group.
+	 */
+	if (top && c != HIERDIR_IN && cZ != HIERDIR_IN) {
+	    if (VerboseOpt > 1)
+		printf("not a file of a group whose directory is the top of the group home, left as it is: %s\n", path);
+	    return;
+	}
 	if (c != HIERDIR_IN && cZ == HIERDIR_IN)
 	    snprintf(Hash, sizeof(Hash), "%s", HashZ);
 	if (c != HIERDIR_IN || cZ != HIERDIR_IN)
@@ -1441,11 +1760,39 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 	if (Wild == NULL && !hier && currentIter(Hash, iter)) {
 	    if (VerboseOpt)
 		printf("file of a group recreated or changing its iteration, left alone: %s\n", path);
+	} else if (Wild == NULL && top && type == 1 && !overNamesGroup(path, Hash)) {
+	    /*
+	     * The top of the group home is where an admin keeps files too: an
+	     * over file there is removed as the file of a group that is gone
+	     * only when its header names that group (D-338), so a copy such
+	     * as o.0.junk~ (the over file name of a group junk~, whose
+	     * directory is the top too) stays.
+	     */
+	    if (VerboseOpt)
+		printf("over file of no group at the top of the group home whose header does not name %s, left alone: %s\n", Hash, path);
+	} else if (Wild == NULL && top && type == 2 && !topGone(Hash) &&
+					!(HashZ[0] && topGone(HashZ))) {
+	    /*
+	     * A data file of no group at the top is removed only when this
+	     * run removed that group's over file at the top (first pass): its
+	     * header named the group, so the group existed.  Else the name is
+	     * all there is, and an admin's d.0.junk~ stays (D-338).
+	     */
+	    if (VerboseOpt)
+		printf("data file of no group at the top of the group home with no over file of that group, left alone: %s\n", path);
 	} else if (Wild == NULL) {
 	    ++BadGroups;
 	    printf("Group for over file not found, removing %s\n", path);
-	    if (ForReal)
-		remove(path);
+	    /*
+	     * At the top the group counts as removed (its data files go in the
+	     * second pass) only when its over file is gone: when the remove()
+	     * fails, the data files stay with it (D-338).  With -n as if it
+	     * had worked, so that -n reports what a run would do.
+	     */
+	    if (ForReal && remove(path) != 0) {
+		printf("Unable to remove %s: %s\n", path, strerror(errno));
+	    } else if (top && type == 1)
+		topGoneAdd(Hash);
 	}
 	return;
     }
@@ -1542,6 +1889,7 @@ again:
 		OverExpire save;
 		int recLen;
 		int gone = 0;
+		int rewrite;		/* -R for this group */
 		const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
                                                         KP_LOCK, &recLen);
 
@@ -1591,6 +1939,34 @@ again:
 #endif
 
 		/*
+		 * -R (D-338): a group at the top of the group home is not
+		 * rewritten when it shares the top with X or X.gz (topGzPair(),
+		 * D-325; main never touched the top), and no group is when one
+		 * of the data file names of its range is there but no regular
+		 * file (dataRegular(): a FIFO would block RewriteData()'s open(),
+		 * on main too; at the top also a link, which would be read and
+		 * replaced).  Nothing of -R is done for it then, also not the
+		 * forced resize; expiry is as without -R.
+		 */
+		rewrite = (RewriteDataOpt > 0);
+		if (rewrite) {
+		    char why[PATH_MAX];
+
+		    if (top && topGzPair(group, dirPath, why, sizeof(why))) {
+			if (VerboseOpt)
+			    printf("%s: not rewritten: the group %s has its files in the same directory, the top of the group home (D-325)\n",
+						group->gr_GroupName, why);
+			rewrite = 0;
+		    } else if (!dataRegular(group, dirPath, group->gr_StartNo,
+				group->gr_EndNo, OldDataEntries, top, why, sizeof(why))) {
+			if (VerboseOpt)
+			    printf("%s: not rewritten: %s is not a regular file\n",
+						group->gr_GroupName, why);
+			rewrite = 0;
+		    }
+		}
+
+		/*
 		 * Figure out expire values
 		 */
 		expireSecs = GetOverExpire(group->gr_GroupName, &save);
@@ -1609,7 +1985,7 @@ again:
 		 * power of 2 divided by 3.
 		 *
 		 */
-		if (ResizeOpt > 0 || RewriteDataOpt > 0) {
+		if (ResizeOpt > 0 || rewrite) {
 		    int numArts = group->gr_EndNo - group->gr_StartNo + 1;
 		    int maxArts = oh.oh_MaxArts;
 		    int artAge;
@@ -1666,7 +2042,7 @@ again:
 			numArts = save.oe_MinArts;
 
 		    {
-			int needResize = RewriteDataOpt;
+			int needResize = rewrite;
 			int d = abs(maxArts - numArts);
 			/*
 			 * We only rewrite if there has been a radical
@@ -1699,7 +2075,7 @@ again:
 		    /*
 		     * Rewrite data files associated with over. file if -R.
 		     */
-		    if (RewriteDataOpt > 0)
+		    if (rewrite)
 			(void)RewriteData(group, fd, &oh, dirPath, OldDataEntries, save.oe_DataSize, &fdLocked);
 		}
 	    } else {
@@ -1721,7 +2097,21 @@ again:
 	 */
 	int dataEntries;
 	int stale;
+	char why[PATH_MAX];
 
+	/*
+	 * At the top (D-338) the data file is judged by the header of its
+	 * group's over file, which dataFileStale() opens by its name: that
+	 * must be a regular file (a FIFO there would block the open(), a
+	 * link would be read); else the data file is left as it is.
+	 */
+	if (top && (topOverIrregular(group, why, sizeof(why)) ||
+		    (groupZ != NULL && topOverIrregular(groupZ, why, sizeof(why))))) {
+	    if (VerboseOpt)
+		printf("data file left alone: the over file %s of its group is not a regular file: %s\n",
+								why, path);
+	    return;
+	}
 	if ((stale = dataFileStale(group, artBase, path, &dataEntries)) < 0)
 	    return;
 	if (stale && groupZ != NULL &&
@@ -2253,6 +2643,31 @@ hierOtherOver(const char *name)
     if (stat(path, &st) == 0 && st.st_dev == ost.st_dev && st.st_ino == ost.st_ino)
 	return(0);			/* the configured one, by a link */
     return(1);
+}
+
+/*
+ * overNamesGroup() - the over file path has a header of version 2 or later
+ * that names the group name (D-338).  A header of version 1 names no group,
+ * so it does not tell: 0, as for a file that cannot be read.
+ */
+static int
+overNamesGroup(const char *path, const char *name)
+{
+    OverHead oh;
+    int fd;
+    int r = 0;
+
+    /* O_NONBLOCK: a FIFO must not block (the caller checks for a regular file) */
+    if ((fd = open(path, O_RDONLY | O_NONBLOCK)) >= 0) {
+	if (read(fd, &oh, sizeof(oh)) == sizeof(oh) &&
+	    oh.oh_Version >= 2 && oh.oh_Version <= OH_VERSION &&
+	    oh.oh_ByteOrder == OH_BYTEORDER &&
+	    strncmp(oh.oh_Gname, name, sizeof(oh.oh_Gname)) == 0 &&
+	    strlen(name) < sizeof(oh.oh_Gname))
+	    r = 1;
+	close(fd);
+    }
+    return(r);
 }
 
 /*
@@ -2846,7 +3261,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 		 * that does not exist (ENOENT, plain and .gz) is a range
 		 * without data.
 		 */
-		cfd = open(path, O_RDONLY);
+		cfd = dataOpen(path);
 		if (cfd < 0 && errno != ENOENT) {
 		    printf("Unable to open %s: %s\n", path, strerror(errno));
 		    ok = 0;
@@ -2871,7 +3286,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 					GRPFTYPE_DATA, cacheArtBase, 0,
 					group->gr_Iter,
 					&DOpts.ReaderGroupHashMethod));
-		    if ((cfd = open(path, O_RDONLY)) >= 0) {
+		    if ((cfd = dataOpen(path)) >= 0) {
 			/* Atomic creation prevents the tmpnam/open race. */
 			char tmpfile[] = "/tmp/diablo-over-XXXXXX";
 			tmpfd = mkstemp(tmpfile);
