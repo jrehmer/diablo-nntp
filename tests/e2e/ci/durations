@@ -282,6 +282,7 @@ TestDexpireoverHierarchyDataEntries 0.30
 TestDexpireoverHierarchyDataStale 0.05
 TestDexpireoverHierarchyFullCompress 0.31
 TestDexpireoverHierarchyFullExpire 0.62
+TestDexpireoverHierarchyFullGzPairCompressed 1.10
 TestDexpireoverHierarchyFullRemovedGroup 0.58
 TestDexpireoverHierarchyFullRewrite 1.00
 TestDexpireoverHierarchyGroupNameO 0.05
@@ -672,6 +673,10 @@ TestOverGzipTruncatedHeader 0.02
 TestOverToolsDirLoopSymlink 0.13
 TestOverToolsGroupRemovedWhileWaiting 0.07
 TestOverToolsHierMD5LikeNames 4.25
+TestOverToolsHierarchyFullSwitchLeftovers 1.50
+TestOverToolsHierarchyLinkedGroupDir 0.70
+TestOverToolsHierarchySameDirControl 0.60
+TestOverToolsHierarchySwitchLiveOldLayout 0.60
 TestOverToolsMd564PlusMinusDir 0.60
 TestOverToolsMd564SignDirChildSymlink 0.09
 TestOverToolsMd564SignDirFileSymlink 0.58
