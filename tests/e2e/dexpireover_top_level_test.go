@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -899,9 +900,20 @@ func TestOverToolsTopLevelFifo(t *testing.T) {
 //     for both groups) removed with "Deleting stale overview data for"; the bases 4, 8, 12 kept
 //     unchanged; after a restart GROUP "211 8 5 12" and OVER 5-12 as before. Passes on
 //     120a76c8 too (the D-318 rule judged the file by both groups there as well).
+//   - hierarchy/switch (go-while's R2-F1 on 3956bf30): fed with hierarchy, dreaderd stopped,
+//     readergrouphash changed to hierarchy-full (x stays at the top, x.gz moves to x/, its old
+//     files stay at the top), `dexpireover -a -R -v3`, readergrouphash set back to hierarchy,
+//     dreaderd started. Expected: the D-325 line for x (x.gz has its over file at the top, its
+//     directory in the other layout), x not rewritten, the data files of x and x.gz there
+//     byte-identical; nothing reported but the "left alone" lines of x.gz's old files; OVER
+//     1-12 of every group as before. Fails on 3956bf30: x is rewritten and removes x.gz's
+//     d.<n>.x.gz, OVER of x.gz is empty.
 func TestDexpireoverTopLevelGzPair(t *testing.T) {
 	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
-		for _, mode := range []string{"rewrite", "expire"} {
+		for _, mode := range []string{"rewrite", "expire", "switch"} {
+			if mode == "switch" && layout != "hierarchy" {
+				continue
+			}
 			t.Run(layout+"/"+mode, func(t *testing.T) {
 				want := map[string]string{"e2e.test": "e2e/o.0.e2e.test", "x": "o.0.x", "x.gz": "o.0.x.gz"}
 				if layout == "hierarchy-full" {
@@ -909,6 +921,43 @@ func TestDexpireoverTopLevelGzPair(t *testing.T) {
 				}
 				h := newHfxSiteOf(t, layout, "*:x30:e4\n", []string{"e2e.test", "x", "x.gz"}, want)
 				pair := layout == "hierarchy"
+				if mode == "switch" {
+					var data []string
+					for _, g := range []string{"x", "x.gz"} {
+						data = append(data, h.data(g)...)
+					}
+					snap := hfxSnapshot(t, data)
+					setHash := func(from, to string) {
+						conf := h.s.ReadFile(t, "diablo.config")
+						old := "readergrouphash\t" + from + "\n"
+						if !strings.Contains(conf, old) {
+							t.Fatalf("diablo.config has no %q", old)
+						}
+						h.s.WriteFile(t, "diablo.config", strings.Replace(conf, old, "readergrouphash\t"+to+"\n", 1))
+					}
+					setHash("hierarchy", "hierarchy-full")
+					if rel := hierListPath(t, h.s, "x.gz"); rel != "x/o.0.x.gz" {
+						t.Fatalf("listgrouphashfile x.gz with hierarchy-full = %q", rel)
+					}
+
+					out := h.run(t, "-a", "-R", "-v3")
+
+					setHash("hierarchy-full", "hierarchy")
+					d325 := "x: not rewritten: the group x.gz has its files in the same directory, the top of the group home (D-325)\n"
+					if !strings.Contains(out, d325) || strings.Contains(out, "End of rewrite: x\n") {
+						t.Errorf("after the switch: x rewritten, or no %q", strings.TrimSpace(d325))
+					}
+					h.checkKept(t, "after -R with hierarchy-full", snap)
+					h.checkReports(t, out, nil, swAloneLine)
+					if t.Failed() {
+						t.Logf("dexpireover -a -R -v3 with hierarchy-full:\n%s", out)
+					}
+					restartReader(t, h.s)
+					for _, g := range h.groups {
+						h.checkOver(t, "after the switch back", g, 1)
+					}
+					return
+				}
 				if mode == "rewrite" {
 					var data []string
 					for _, g := range []string{"x", "x.gz"} {
@@ -986,6 +1035,368 @@ func TestDexpireoverTopLevelGzPair(t *testing.T) {
 				restartReader(t, h.s)
 				for _, g := range h.groups {
 					h.checkOver(t, "after dexpireover -a", g, 5)
+				}
+			})
+		}
+	}
+}
+
+// tlMkfifo makes a FIFO at path (skips the test where mkfifo is missing).
+func tlMkfifo(t *testing.T, path string) {
+	t.Helper()
+	if err := exec.Command("mkfifo", path).Run(); err != nil {
+		t.Skipf("no fifo: %v", err)
+	}
+}
+
+// tlIsFifo reports a path that is gone or no longer a FIFO.
+func tlIsFifo(t *testing.T, h *hfxSite, what, path string) {
+	t.Helper()
+	if st, err := os.Lstat(path); err != nil || st.Mode()&os.ModeNamedPipe == 0 {
+		t.Errorf("%s: the FIFO %s is gone or changed: %v", what, h.rel(path), err)
+	}
+}
+
+// TestDexpireoverTopLevelRewriteFifo: chatgpt-1's M2 and go-while's R2-F2 on 3956bf30 (#524 r2):
+// `dexpireover -R` opens a group's data files by their computed names (RewriteData()), not by the
+// scan, so a FIFO at the name of a data file of a group, beside the group's valid over file,
+// blocked it, at the top and, as on main, in a subdirectory. A group is now not rewritten when a
+// data file name of its range is there but no regular file (at the top also a link), and nothing
+// of -R is done for it (also not the forced resize).
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped; e2etop's d.0.e2etop and e2e.test's e2e/d.4.e2e.test replaced by
+// FIFOs, with hierarchy also x.y's d.4.x.y; `dexpireover -a -R -v3` stopped after 30 seconds. Expected: it finishes; "<group>:
+// not rewritten: <path> is not a regular file" for e2etop (and x.y), no "End of rewrite" for them;
+// the FIFOs stay; their other data files byte-identical; every other group rewritten ("End of
+// rewrite: <group>"); after a restart OVER 1-12 of the other groups as before (OVER of e2etop and
+// x.y is not asked: dreaderd would open the FIFO). Fails on 3956bf30 and on main 2277c452 (for
+// e2e.test): dexpireover does not finish (killed after 30s).
+func TestDexpireoverTopLevelRewriteFifo(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		t.Run(layout, func(t *testing.T) {
+			h := newTopSite(t, layout, "*:x30:e4\n")
+			// at the top e2etop's (and x.y's), below it e2e.test's in e2e/ (R2-F2: on main too)
+			fifoOf := map[string]string{"e2etop": h.dataOf("e2etop", 0), "e2e.test": h.dataOf("e2e.test", 4)}
+			if layout == "hierarchy" {
+				fifoOf["x.y"] = h.dataOf("x.y", 4)
+			}
+			var keep []string
+			for g, f := range fifoOf {
+				for _, d := range h.data(g) {
+					if d != f {
+						keep = append(keep, d)
+					}
+				}
+			}
+			snap := hfxSnapshot(t, keep)
+			for _, f := range fifoOf {
+				if err := os.Remove(f); err != nil {
+					t.Fatal(err)
+				}
+				tlMkfifo(t, f)
+			}
+
+			out, hung, err := tlRunLimit(h.s, 30*time.Second, "dexpireover", "-a", "-R", "-v3")
+			if hung {
+				t.Fatalf("dexpireover -a -R -v3 did not finish in 30s (killed); output:\n%s", out)
+			}
+			if err != nil {
+				t.Errorf("dexpireover -a -R -v3: %v", err)
+			}
+
+			for g, f := range fifoOf {
+				tlIsFifo(t, h, "after -R", f)
+				l := g + ": not rewritten: " + f + " is not a regular file\n"
+				if !strings.Contains(out, l) || strings.Contains(out, "End of rewrite: "+g+"\n") {
+					t.Errorf("no %q, or %s rewritten", strings.TrimSpace(l), g)
+				}
+			}
+			h.checkKept(t, "after -R", snap)
+			for _, g := range h.groups {
+				if _, skip := fifoOf[g]; !skip && !strings.Contains(out, "End of rewrite: "+g+"\n") {
+					t.Errorf("dexpireover -R did not rewrite %s", g)
+				}
+			}
+			if t.Failed() {
+				t.Logf("dexpireover -a -R -v3:\n%s", out)
+			}
+			restartReader(t, h.s)
+			for _, g := range h.groups {
+				if _, skip := fifoOf[g]; !skip {
+					h.checkOver(t, "after dexpireover -a -R", g, 1)
+				}
+			}
+		})
+	}
+}
+
+// TestOverToolsTopLevelOverFifo: the data files of a group at the top are judged by the header of
+// the group's over file, which both tools open by its computed name (dataFileStale(),
+// DataFileStale() -> getDataEntries()), not by the scan; a FIFO there blocked that open() for
+// every data file of the group. At the top such data files are now left as they are.
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped, e2etop's over file o.0.e2etop replaced by a FIFO. Subtests
+// <layout>/dexpireover (`-a -v`) and <layout>/doverctl (`-v clean`), stopped after 30 seconds.
+// Expected: the tool finishes; the FIFO stays; the four data files of e2etop are there, unchanged,
+// each with "data file left alone: the over file <path> of its group is not a regular file:
+// <data path>". Fails on 3956bf30 with both tools: they do not finish (killed after 30s).
+func TestOverToolsTopLevelOverFifo(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				snap := hfxSnapshot(t, h.data("e2etop"))
+				over := h.over("e2etop")
+				if err := os.Remove(over); err != nil {
+					t.Fatal(err)
+				}
+				tlMkfifo(t, over)
+
+				out := tlTool(t, h, tool)
+
+				tlIsFifo(t, h, tool, over)
+				h.checkKept(t, "after "+tool, snap)
+				for _, d := range h.data("e2etop") {
+					l := "data file left alone: the over file " + over + " of its group is not a regular file: " + d + "\n"
+					if !strings.Contains(out, l) {
+						t.Errorf("%s: no %q", tool, strings.TrimSpace(l))
+					}
+				}
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
+				}
+			})
+		}
+	}
+}
+
+// tlRemoveFailSource makes remove() and unlink() of a path whose last component is
+// REMOVEFAIL_NAME fail with EPERM, as for a file an admin made immutable (chattr +i, chflags
+// schg), which the e2e user cannot set up itself: on Linux the right to unlink is the
+// directory's, not the file's.
+const tlRemoveFailSource = `#define _GNU_SOURCE
+#define __EXTENSIONS__
+#include <dlfcn.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+/*FDPATH*/
+static int
+fail(const char *path)
+{
+    const char *name = getenv("REMOVEFAIL_NAME");
+    const char *base = strrchr(path, '/');
+
+    base = base ? base + 1 : path;
+    if (name == NULL || strcmp(base, name) != 0)
+	return 0;
+    errno = EPERM;
+    return 1;
+}
+
+int
+remove(const char *path)
+{
+    static int (*real)(const char *);
+
+    if (real == NULL)
+	real = (int (*)(const char *))dlsym(RTLD_NEXT, "remove");
+    if (fail(path))
+	return -1;
+    return real(path);
+}
+
+int
+unlink(const char *path)
+{
+    static int (*real)(const char *);
+
+    if (real == NULL)
+	real = (int (*)(const char *))dlsym(RTLD_NEXT, "unlink");
+    if (fail(path))
+	return -1;
+    return real(path);
+}
+`
+
+// TestOverToolsTopLevelRemoveFails: chatgpt-1's M1 on 3956bf30 (#524 r2): the data files of a
+// removed group at the top go only when its over file there was removed in the same run; the
+// mark was set before the removal and its result not checked, so when the over file could not
+// be removed its data files went all the same. Now the mark is set only after a successful
+// removal (with -n as if it had worked, TestOverToolsTopLevelDryRun).
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped, `dgrpctl rmgroup` x.y and e2etop; a preloaded library makes
+// remove() and unlink() of o.0.e2etop fail with EPERM. Subtests <layout>/dexpireover (`-a -v`)
+// and <layout>/doverctl (`-v clean`, which exits 1 for the failed removal). Expected: o.0.e2etop
+// is there ("Unable to remove <path>"), its four data files are there unchanged, each with "data
+// file of no group at the top of the group home with no over file of that group, left alone";
+// the over and data files of x.y are removed ("Group for over file not found, removing"). Fails
+// on 3956bf30: e2etop's data files are removed. Skipped where LD_PRELOAD shims do not run.
+func TestOverToolsTopLevelRemoveFails(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				so := preloadShim(t, "removefail", tlRemoveFailSource)
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				for _, g := range []string{"x.y", "e2etop"} {
+					h.s.Run(t, "dgrpctl", "rmgroup", g)
+				}
+				snap := hfxSnapshot(t, h.data("e2etop"))
+				base := h.s.Env
+				h.s.Env = append(slices.Clone(base), lockFaultEnv(so), "REMOVEFAIL_NAME=o.0.e2etop")
+				args := []string{"-a", "-v"}
+				if tool == "doverctl" {
+					args = []string{"-v", "clean"}
+				}
+				out, hung, err := tlRunLimit(h.s, 30*time.Second, tool, args...)
+				h.s.Env = base
+				if hung {
+					t.Fatalf("%s did not finish in 30s; output:\n%s", tool, out)
+				}
+				if err != nil && tool == "dexpireover" {
+					t.Errorf("dexpireover: %v", err)
+				}
+
+				if !hfxExists(h.over("e2etop")) {
+					t.Fatalf("%s: o.0.e2etop is gone: the shim did not work", tool)
+				}
+				if !strings.Contains(out, "Unable to remove "+h.over("e2etop")) {
+					t.Errorf("%s: no \"Unable to remove %s\"", tool, h.over("e2etop"))
+				}
+				h.checkKept(t, "after "+tool, snap)
+				for _, d := range h.data("e2etop") {
+					if l := "data file of no group at the top of the group home with no over file of that group, left alone: " + d + "\n"; !strings.Contains(out, l) {
+						t.Errorf("%s: no %q", tool, strings.TrimSpace(l))
+					}
+				}
+				h.checkGone(t, out, "Group for over file not found, removing ", append([]string{h.over("x.y")}, h.data("x.y")...))
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
+				}
+			})
+		}
+	}
+}
+
+// TestOverToolsTopLevelDryRun: with -n the tools remove nothing but report what a run would do:
+// after `dgrpctl rmgroup e2etop` "Group for over file not found, removing <path>" for its over
+// file at the top and for each of its four data files (the removal of the over file counts as
+// done for the data files, M1 above). Input: the tlGroups (hierarchy, hierarchy-full), 12 articles,
+// dreaderd stopped, rmgroup e2etop; `dexpireover -a -n -v`, `doverctl -n -v clean`. Expected:
+// the five lines, all five files still there unchanged. Passes on 3956bf30 too (it marked the
+// group before the removal); a copy that marks only after a real removal fails it.
+func TestOverToolsTopLevelDryRun(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				h.s.Run(t, "dgrpctl", "rmgroup", "e2etop")
+				files := append([]string{h.over("e2etop")}, h.data("e2etop")...)
+				snap := hfxSnapshot(t, files)
+				args := []string{"-a", "-n", "-v"}
+				if tool == "doverctl" {
+					args = []string{"-n", "-v", "clean"}
+				}
+				out, hung, err := tlRunLimit(h.s, 30*time.Second, tool, args...)
+				if hung || err != nil {
+					t.Errorf("%s %s: hung %v, %v", tool, strings.Join(args, " "), hung, err)
+				}
+				h.checkKept(t, "after "+tool+" -n", snap)
+				for _, f := range files {
+					if !strings.Contains(out, "Group for over file not found, removing "+f+"\n") {
+						t.Errorf("%s -n: no \"Group for over file not found, removing %s\"", tool, h.rel(f))
+					}
+				}
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
+				}
+			})
+		}
+	}
+}
+
+// tlRunArgv runs argv (a full path first) with the environment and directory of the site s, as
+// tlRunLimit does.
+func tlRunArgv(s *Site, limit time.Duration, argv ...string) (out string, hung bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = s.Dir
+	cmd.Env = append(os.Environ(), s.Env...)
+	var b bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &b, &b
+	cmd.WaitDelay = 3 * time.Second
+	err = cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
+	return b.String(), ctx.Err() != nil, err
+}
+
+// TestOverToolsTopLevelRemoveBusy: go-while's reproduction of M1 without root (#524 r2): in an
+// unprivileged user and mount namespace (`unshare -rm`) a file bind-mounted onto the over file
+// of a removed group at the top makes its unlink() fail with EBUSY. Its data files must stay.
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped, `dgrpctl rmgroup` x.y and e2etop; the tool run as `unshare -rm sh
+// -c 'mount --bind <copy> <home>/o.0.e2etop && exec <tool> ...'`. Subtests <layout>/dexpireover
+// (`-a -v`), <layout>/doverctl (`-v clean`, exit 1). Expected: "Unable to remove <home>/o.0.e2etop:
+// Device or resource busy" (dexpireover said nothing before), o.0.e2etop and e2etop's four data
+// files there unchanged, each data file with the F3 "left alone" line; x.y's files removed. Fails
+// on 3956bf30: e2etop's data files are removed. Skipped where `unshare -rm` with a bind mount does
+// not work (no unshare, unprivileged user namespaces off).
+func TestOverToolsTopLevelRemoveBusy(t *testing.T) {
+	un, err := exec.LookPath("unshare")
+	if err != nil {
+		t.Skip("no unshare: the test needs `unshare -rm` (util-linux)")
+	}
+	probe := filepath.Join(t.TempDir(), "probe")
+	writeOver(t, probe, []byte("x"))
+	if out, err := exec.Command(un, "-rm", "sh", "-c", `mount --bind "$0" "$0"`, probe).CombinedOutput(); err != nil {
+		t.Skipf("`unshare -rm` with a bind mount does not work here (unprivileged user namespaces off?): %v %s", err, out)
+	}
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				for _, g := range []string{"x.y", "e2etop"} {
+					h.s.Run(t, "dgrpctl", "rmgroup", g)
+				}
+				over := h.over("e2etop")
+				files := append([]string{over}, h.data("e2etop")...)
+				snap := hfxSnapshot(t, files)
+				src := filepath.Join(h.s.Dir, "bind-source")
+				writeOver(t, src, snap[over])
+				args := []string{"-a", "-v"}
+				if tool == "doverctl" {
+					args = []string{"-v", "clean"}
+				}
+				argv := append([]string{un, "-rm", "sh", "-c", `mount --bind "$1" "$2" && shift 2 && exec "$@"`, "sh",
+					src, over, filepath.Join(h.s.Bin, tool)}, args...)
+				out, hung, err := tlRunArgv(h.s, 30*time.Second, argv...)
+				if hung {
+					t.Fatalf("%s did not finish in 30s; output:\n%s", tool, out)
+				}
+				if err != nil && tool == "dexpireover" {
+					t.Errorf("dexpireover: %v\n%s", err, out)
+				}
+				if l := "Unable to remove " + over + ": Device or resource busy"; !strings.Contains(out, l) {
+					t.Errorf("%s: no %q", tool, l)
+				}
+				h.checkKept(t, "after "+tool, snap)
+				for _, d := range h.data("e2etop") {
+					if l := "data file of no group at the top of the group home with no over file of that group, left alone: " + d + "\n"; !strings.Contains(out, l) {
+						t.Errorf("%s: no %q", tool, strings.TrimSpace(l))
+					}
+				}
+				h.checkGone(t, out, "Group for over file not found, removing ", append([]string{h.over("x.y")}, h.data("x.y")...))
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
 				}
 			})
 		}

@@ -189,6 +189,9 @@ static int topRegular(const char *path, const char *name, int say);
 static void topGoneAdd(const char *name);
 static int topGone(const char *name);
 static int topGzPair(const Group *group, const char *dirPath, char *pair, size_t size);
+static int dataRegular(const Group *group, const char *dirPath, artno_t startNo, artno_t endNo, int dataEntries, int top, char *bad, size_t size);
+static int dataOpen(const char *path);
+static int topOverIrregular(const Group *group, char *bad, size_t size);
 void DeleteJunkFile(const char *dirPath, const char *name);
 void ProcessOverviewFile(const char *dirPath, const char *name, int type, int top);
 int getFirstArtAge(Group *group, int fd, OverHead *oh);
@@ -1260,54 +1263,152 @@ topRegular(const char *path, const char *name, int say)
 }
 
 /*
- * topGzPair() - group X has its files at the top of the group home and the
- * group X.gz exists with its files in the same directory, or group X.gz
- * has and X exists (D-325, D-338).  With plain hierarchy that is a group X
- * of one component of one character ("x" and "x.gz": FindGroupDir() skips
- * the component "x" of x.gz, so both are at the top); then "d.<n>.x.gz" is
- * x's compressed name and x.gz's plain data, and RewriteData() of x removes
- * it (both names "d.<n>.<group>" and "d.<n>.<group>.gz"), which emptied
- * OVER of x.gz; RewriteData() of x.gz reads it as its plain data although it
- * may be x's compressed data.  Main never touched the top, so with -R
- * neither group is rewritten there (in a subdirectory, e2e.x and e2e.x.gz
- * in e2e/, D-325 is unchanged).  The other group's name goes in pair.
+ * topGzPair() - group X has its files at the top of the group home and its
+ * compressed data name there ("d.<n>.X.gz") is the plain data file of the
+ * group X.gz in either hierarchy layout, and X.gz exists; or group X.gz has
+ * its files at the top and its plain data name there is X's compressed data
+ * in either layout, and X exists (D-325, D-338).  With plain hierarchy that
+ * is a group X of one component of one character ("x" and "x.gz":
+ * FindGroupDir() skips the component "x" of x.gz, so both are at the top),
+ * and with hierarchy-full x after a switch from plain hierarchy, whose
+ * x.gz files of the old layout are still at the top (go-while's R2-F1).
+ * For the other layout the other group must have an over file in its
+ * directory of that layout (hierOtherOver(), D-336: a leftover of the
+ * switch or a dreaderd still on the old setting); in a spool never
+ * switched (hierarchy-full: x at the top, x.gz in x/) both are rewritten.
+ * RewriteData() of x removes both names "d.<n>.x" and "d.<n>.x.gz" in its
+ * directory, which emptied OVER of x.gz; RewriteData() of x.gz reads
+ * "d.<n>.x.gz" as its plain data although it may be x's compressed data.
+ * Main never touched the top, so with -R neither group is rewritten there
+ * (in a subdirectory, e2e.x and e2e.x.gz in e2e/, D-325 is unchanged).  The
+ * other group's name goes in pair.
  */
 static int
 topGzPair(const Group *group, const char *dirPath, char *pair, size_t size)
 {
     const char *g = group->gr_GroupName;
     size_t len = strlen(g);
-    char plain[PATH_MAX];
+    GroupHashType m[2];
+    char mine[PATH_MAX];
     char other[PATH_MAX];
+    int i;
     int n;
 
-    /* X, and X.gz beside it: X's compressed name is X.gz's plain data */
-    n = snprintf(other, sizeof(other), "%s.gz", g);
-    if (n > 0 && (size_t)n < sizeof(other)) {
-	n = snprintf(plain, sizeof(plain), "%s.gz",
+    m[0] = DOpts.ReaderGroupHashMethod;
+    m[1] = DOpts.ReaderGroupHashMethod;
+    m[1].gh_hierfull = !m[1].gh_hierfull;
+
+    /* X: its compressed name in its directory, X.gz's plain data in m[i] */
+    n = snprintf(mine, sizeof(mine), "%s.gz",
 		GFName(g, GRPFTYPE_DATA, 0, 1, 0, &DOpts.ReaderGroupHashMethod));
-	if (n > 0 && (size_t)n < sizeof(plain) &&
-	    strcmp(plain, GFName(other, GRPFTYPE_DATA, 0, 1, 0,
-				&DOpts.ReaderGroupHashMethod)) == 0 &&
-	    hierGroupKnown(other, dirPath)) {
-	    snprintf(pair, size, "%s", other);
-	    return(1);
+    if (n > 0 && (size_t)n < sizeof(mine) &&
+	(n = snprintf(other, sizeof(other), "%s.gz", g)) > 0 &&
+	(size_t)n < sizeof(other)) {
+	for (i = 0; i < 2; ++i) {
+	    if (strcmp(mine, GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i])) == 0 &&
+		(i == 0 || hierOtherOver(other)) &&
+		hierGroupKnown(other, dirPath)) {
+		snprintf(pair, size, "%s", other);
+		return(1);
+	    }
 	}
     }
-    /* X.gz, and X beside it */
+    /* X.gz: its plain data in its directory, X's compressed name in m[i] */
     if (len > 3 && strcmp(g + len - 3, ".gz") == 0) {
+	snprintf(mine, sizeof(mine), "%s",
+		GFName(g, GRPFTYPE_DATA, 0, 1, 0, &DOpts.ReaderGroupHashMethod));
 	snprintf(other, sizeof(other), "%.*s", (int)(len - 3), g);
-	n = snprintf(plain, sizeof(plain), "%s.gz",
-		GFName(other, GRPFTYPE_DATA, 0, 1, 0, &DOpts.ReaderGroupHashMethod));
-	if (n > 0 && (size_t)n < sizeof(plain) &&
-	    strcmp(plain, GFName(g, GRPFTYPE_DATA, 0, 1, 0,
-				&DOpts.ReaderGroupHashMethod)) == 0 &&
-	    hierGroupKnown(other, dirPath)) {
-	    snprintf(pair, size, "%s", other);
-	    return(1);
+	for (i = 0; i < 2; ++i) {
+	    char z[PATH_MAX];
+
+	    n = snprintf(z, sizeof(z), "%s.gz",
+			GFName(other, GRPFTYPE_DATA, 0, 1, 0, &m[i]));
+	    if (n > 0 && (size_t)n < sizeof(z) && strcmp(mine, z) == 0 &&
+		(i == 0 || hierOtherOver(other)) &&
+		hierGroupKnown(other, dirPath)) {
+		snprintf(pair, size, "%s", other);
+		return(1);
+	    }
 	}
     }
     return(0);
+}
+
+/*
+ * dataRegular() - every data file name of group in dirPath for the articles
+ * startNo..endNo, plain and ".gz", as RewriteData() opens and removes them,
+ * is a regular file or not there (D-338, go-while's R2-F2): a FIFO there
+ * blocked RewriteData()'s open() (on main too).  At the top (top) by
+ * lstat(): no link, as for the scan there; below it by stat(), so a link to
+ * a regular file is read and replaced by the rewrite, as on main.  Else 0,
+ * with the first other one in bad.
+ */
+static int
+dataRegular(const Group *group, const char *dirPath, artno_t startNo,
+		artno_t endNo, int dataEntries, int top, char *bad, size_t size)
+{
+    artno_t artNo;
+    struct stat lst;
+    char path[PATH_MAX];
+    int gz;
+
+    if (dataEntries <= 0)
+	dataEntries = OD_HARTS;
+    for (artNo = startNo & ~((artno_t)dataEntries - 1); artNo <= endNo;
+						artNo += dataEntries) {
+	for (gz = 0; gz < 2; ++gz) {
+	    snprintf(path, sizeof(path), "%s/%s%s", dirPath,
+		    GFName(group->gr_GroupName, GRPFTYPE_DATA, artNo, 0,
+				group->gr_Iter, &DOpts.ReaderGroupHashMethod),
+		    gz ? ".gz" : "");
+	    if ((top ? lstat(path, &lst) : stat(path, &lst)) == 0 &&
+		!S_ISREG(lst.st_mode)) {
+		snprintf(bad, size, "%s", path);
+		return(0);
+	    }
+	}
+    }
+    return(1);
+}
+
+/*
+ * dataOpen() - open the data file path for RewriteData(): O_NONBLOCK, and
+ * only a regular file (fstat(); D-338, R2-F2).  A FIFO or another file
+ * that dataRegular() did not see (it came after the check) gives -1 with
+ * errno EINVAL, which stops the group's rewrite before anything is changed
+ * ("Unable to open"), as for a file that cannot be read.
+ */
+static int
+dataOpen(const char *path)
+{
+    struct stat st;
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+
+    if (fd >= 0 && (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode))) {
+	printf("%s is not a regular file\n", path);
+	close(fd);
+	errno = EINVAL;
+	return(-1);
+    }
+    return(fd);
+}
+
+/*
+ * topOverIrregular() - group's over file, when its directory is the top of
+ * the group home, is there but no regular file (a link, a FIFO; lstat(),
+ * D-338), with its path in bad.  0 for a group in a subdirectory.
+ */
+static int
+topOverIrregular(const Group *group, char *bad, size_t size)
+{
+    const char *gf = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 1,
+				group->gr_Iter, &DOpts.ReaderGroupHashMethod);
+    struct stat lst;
+
+    if (strchr(gf, '/') != NULL)
+	return(0);
+    snprintf(bad, size, "%s/%s", PatExpand(GroupHomePat), gf);
+    return(lstat(bad, &lst) == 0 && !S_ISREG(lst.st_mode));
 }
 
 /*
@@ -1682,10 +1783,16 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type, int top)
 	} else if (Wild == NULL) {
 	    ++BadGroups;
 	    printf("Group for over file not found, removing %s\n", path);
-	    if (top && type == 1)
+	    /*
+	     * At the top the group counts as removed (its data files go in the
+	     * second pass) only when its over file is gone: when the remove()
+	     * fails, the data files stay with it (D-338).  With -n as if it
+	     * had worked, so that -n reports what a run would do.
+	     */
+	    if (ForReal && remove(path) != 0) {
+		printf("Unable to remove %s: %s\n", path, strerror(errno));
+	    } else if (top && type == 1)
 		topGoneAdd(Hash);
-	    if (ForReal)
-		remove(path);
 	}
 	return;
     }
@@ -1782,6 +1889,7 @@ again:
 		OverExpire save;
 		int recLen;
 		int gone = 0;
+		int rewrite;		/* -R for this group */
 		const char *rec = KPDBReadRecord(KDBActive, group->gr_GroupName,
                                                         KP_LOCK, &recLen);
 
@@ -1831,6 +1939,34 @@ again:
 #endif
 
 		/*
+		 * -R (D-338): a group at the top of the group home is not
+		 * rewritten when it shares the top with X or X.gz (topGzPair(),
+		 * D-325; main never touched the top), and no group is when one
+		 * of the data file names of its range is there but no regular
+		 * file (dataRegular(): a FIFO would block RewriteData()'s open(),
+		 * on main too; at the top also a link, which would be read and
+		 * replaced).  Nothing of -R is done for it then, also not the
+		 * forced resize; expiry is as without -R.
+		 */
+		rewrite = (RewriteDataOpt > 0);
+		if (rewrite) {
+		    char why[PATH_MAX];
+
+		    if (top && topGzPair(group, dirPath, why, sizeof(why))) {
+			if (VerboseOpt)
+			    printf("%s: not rewritten: the group %s has its files in the same directory, the top of the group home (D-325)\n",
+						group->gr_GroupName, why);
+			rewrite = 0;
+		    } else if (!dataRegular(group, dirPath, group->gr_StartNo,
+				group->gr_EndNo, OldDataEntries, top, why, sizeof(why))) {
+			if (VerboseOpt)
+			    printf("%s: not rewritten: %s is not a regular file\n",
+						group->gr_GroupName, why);
+			rewrite = 0;
+		    }
+		}
+
+		/*
 		 * Figure out expire values
 		 */
 		expireSecs = GetOverExpire(group->gr_GroupName, &save);
@@ -1849,7 +1985,7 @@ again:
 		 * power of 2 divided by 3.
 		 *
 		 */
-		if (ResizeOpt > 0 || RewriteDataOpt > 0) {
+		if (ResizeOpt > 0 || rewrite) {
 		    int numArts = group->gr_EndNo - group->gr_StartNo + 1;
 		    int maxArts = oh.oh_MaxArts;
 		    int artAge;
@@ -1906,7 +2042,7 @@ again:
 			numArts = save.oe_MinArts;
 
 		    {
-			int needResize = RewriteDataOpt;
+			int needResize = rewrite;
 			int d = abs(maxArts - numArts);
 			/*
 			 * We only rewrite if there has been a radical
@@ -1939,16 +2075,8 @@ again:
 		    /*
 		     * Rewrite data files associated with over. file if -R.
 		     */
-		    if (RewriteDataOpt > 0) {
-			char pair[PATH_MAX];
-
-			if (top && topGzPair(group, dirPath, pair, sizeof(pair))) {
-			    if (VerboseOpt)
-				printf("%s: not rewritten: the group %s has its files in the same directory, the top of the group home (D-325)\n",
-						group->gr_GroupName, pair);
-			} else
-			    (void)RewriteData(group, fd, &oh, dirPath, OldDataEntries, save.oe_DataSize, &fdLocked);
-		    }
+		    if (rewrite)
+			(void)RewriteData(group, fd, &oh, dirPath, OldDataEntries, save.oe_DataSize, &fdLocked);
 		}
 	    } else {
 		printf("group %s, file \"%s\" bad file header\n",
@@ -1969,7 +2097,21 @@ again:
 	 */
 	int dataEntries;
 	int stale;
+	char why[PATH_MAX];
 
+	/*
+	 * At the top (D-338) the data file is judged by the header of its
+	 * group's over file, which dataFileStale() opens by its name: that
+	 * must be a regular file (a FIFO there would block the open(), a
+	 * link would be read); else the data file is left as it is.
+	 */
+	if (top && (topOverIrregular(group, why, sizeof(why)) ||
+		    (groupZ != NULL && topOverIrregular(groupZ, why, sizeof(why))))) {
+	    if (VerboseOpt)
+		printf("data file left alone: the over file %s of its group is not a regular file: %s\n",
+								why, path);
+	    return;
+	}
 	if ((stale = dataFileStale(group, artBase, path, &dataEntries)) < 0)
 	    return;
 	if (stale && groupZ != NULL &&
@@ -3119,7 +3261,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 		 * that does not exist (ENOENT, plain and .gz) is a range
 		 * without data.
 		 */
-		cfd = open(path, O_RDONLY);
+		cfd = dataOpen(path);
 		if (cfd < 0 && errno != ENOENT) {
 		    printf("Unable to open %s: %s\n", path, strerror(errno));
 		    ok = 0;
@@ -3144,7 +3286,7 @@ RewriteData(Group *group, int fd, OverHead *oh, const char *dirPath, int oldData
 					GRPFTYPE_DATA, cacheArtBase, 0,
 					group->gr_Iter,
 					&DOpts.ReaderGroupHashMethod));
-		    if ((cfd = open(path, O_RDONLY)) >= 0) {
+		    if ((cfd = dataOpen(path)) >= 0) {
 			/* Atomic creation prevents the tmpnam/open race. */
 			char tmpfile[] = "/tmp/diablo-over-XXXXXX";
 			tmpfd = mkstemp(tmpfile);

@@ -69,6 +69,7 @@ static int TopTempName(const char *name);
 static int OverNamesGroup(const char *path, const char *name);
 static void TopGoneAdd(const char *name);
 static int TopGone(const char *name);
+static int TopOverIrregular(const Group *group, int iter, char *bad, size_t size);
 int getDataEntries(const char *path);
 
 #define	ACT_CONVERT	0x01
@@ -1084,6 +1085,25 @@ HierName(const char *name)
 }
 
 /*
+ * TopOverIrregular() - group's over file (iteration iter, as
+ * DataFileStale() opens it), when its directory is the top of the group
+ * home, is there but no regular file (a link, a FIFO; lstat(), D-338),
+ * with its path in bad.  0 for a group in a subdirectory.
+ */
+static int
+TopOverIrregular(const Group *group, int iter, char *bad, size_t size)
+{
+    const char *gf = GFName(group->gr_GroupName, GRPFTYPE_OVER, 0, 1, iter,
+						&DOpts.ReaderGroupHashMethod);
+    struct stat lst;
+
+    if (strchr(gf, '/') != NULL)
+	return(0);
+    snprintf(bad, size, "%s/%s", PatExpand(GroupHomePat), gf);
+    return(lstat(bad, &lst) == 0 && !S_ISREG(lst.st_mode));
+}
+
+/*
  * TopGone - the groups whose over file at the top of the group home this
  * run removed as the file of no group (its header named the group, D-338):
  * the evidence that such a group existed, by which its data files at the
@@ -1530,9 +1550,14 @@ ProcessFile(const char *dirPath, const char *name, int top)
 
 	++BadGroups;
 	printf("Group for over file not found, removing %s\n", path);
-	if (top && (type & HASHGRPTYPE_OVER))
+	/*
+	 * At the top the group counts as removed (its data files go in the
+	 * second pass of CleanTop()) only when its over file is gone: when the
+	 * removal fails, the data files stay with it (D-338).  DeleteFile()
+	 * gives 0 with -n, so -n reports what a run would do.
+	 */
+	if (DeleteFile(dirPath, name) == 0 && top && (type & HASHGRPTYPE_OVER))
 	    TopGoneAdd(Hash);
-	DeleteFile(dirPath, name);
 	return;
     }
     if (group == NULL) {
@@ -1572,6 +1597,21 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    close(fd);
 	}
     } else if (type & HASHGRPTYPE_DATA) {
+	char why[PATH_MAX];
+
+	/*
+	 * At the top (D-338) the data file is judged by the header of its
+	 * group's over file, which DataFileStale() opens by its name: that
+	 * must be a regular file (a FIFO there would block the open(), a
+	 * link would be read); else the data file is left as it is.
+	 */
+	if (top && (TopOverIrregular(group, iter, why, sizeof(why)) ||
+		    (groupZ != NULL && TopOverIrregular(groupZ, iter, why, sizeof(why))))) {
+	    if (VerboseOpt)
+		printf("data file left alone: the over file %s of its group is not a regular file: %s\n",
+								why, path);
+	    return;
+	}
 	/*
 	 * data. file, modulo OD_HARTS.
 	 */
