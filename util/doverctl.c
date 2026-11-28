@@ -70,6 +70,7 @@ static int OverNamesGroup(const char *path, const char *name);
 static void TopGoneAdd(const char *name);
 static int TopGone(const char *name);
 static int TopOverIrregular(const Group *group, int iter, char *bad, size_t size);
+static int ReaderRunning(char *why, size_t size);
 int getDataEntries(const char *path);
 
 #define	ACT_CONVERT	0x01
@@ -104,6 +105,7 @@ int RemovedFiles = 0;
 int Failures = 0;		/* moves and removals that failed: exit status 1 */
 int FileCopy = 0;
 int ActiveSeq = -1;		/* append count of dactive.kp when it was last scanned */
+int CleanOther = 0;		/* clean -o: remove the other hierarchy layout's files (D-337) */
 
 void
 sigInt(int sigNo)
@@ -116,13 +118,17 @@ sigInt(int sigNo)
 void
 Usage(char *progname)
 {
-    printf("Usage: %s [-f activefile][-m][-n][-w wild][-v] action params ...\n", progname);
+    printf("Usage: %s [-f activefile][-m][-n][-o][-w wild][-v] action params ...\n", progname);
     printf("    where:\n");
     printf("            -f file    set the active file to use\n");
     printf("            -w wild    limit the set of groups to work on\n");
     printf("            -n         don't actually make any changes (dummy run)\n");
     printf("            -m         move files with a file copy, instead of renaming them\n");
     printf("                          (needed when converting across filesystems)\n");
+    printf("            -o         clean: also remove the files of the groups in the\n");
+    printf("                          directory of the other hierarchy layout, left\n");
+    printf("                          by a switch between hierarchy and hierarchy-full\n");
+    printf("                          (refused while dreaderd runs)\n");
     printf("\n");
     printf("           action is one of\n");
     printf("\tclean				delete unused files\n");
@@ -177,9 +183,9 @@ main(int ac, char **av)
 		}
 		Action |= ACT_CONVERT;
 	    } else if (strcmp(ptr, "clean") == 0) {
-		i++;
-		if (i < ac)
-		    CleanDir = av[i];
+		/* an option after clean is no directory: "clean -o" (D-337) */
+		if (i + 1 < ac && av[i + 1][0] != '-')
+		    CleanDir = av[++i];
 		Action |= ACT_CLEAN;
 	    }
 	    continue;
@@ -202,6 +208,9 @@ main(int ac, char **av)
 	case 'n':
 	    ForReal = 0;
 	    break;
+	case 'o':
+	    CleanOther = 1;
+	    break;
 	case 'V':
 	    PrintVersion();
 	    break;
@@ -219,6 +228,33 @@ main(int ac, char **av)
 
     if (Action == 0)
 	Usage(av[0]);
+
+    /*
+     * clean -o (D-337): the files of a group in its directory of the other
+     * hierarchy layout are left alone by clean and dexpireover, as a
+     * dreaderd started before readergrouphash was changed may still write
+     * them (D-336).  They are removed only with dreaderd stopped, and
+     * before anything is touched.
+     */
+    if (CleanOther) {
+	char why[PATH_MAX + 128];
+
+	if ((Action & ACT_CLEAN) == 0 || (Action & ACT_CONVERT)) {
+	    fprintf(stderr, "-o is an option of clean only\n");
+	    exit(1);
+	}
+	if (DOpts.ReaderGroupHashMethod.gh_type != HASHGRP_HIER) {
+	    char hashStr[256];
+
+	    fprintf(stderr, "clean -o: readergrouphash is %s, not hierarchy or hierarchy-full: there is no other hierarchy layout, nothing done\n",
+				GetHash(&DOpts.ReaderGroupHashMethod, hashStr));
+	    exit(1);
+	}
+	if (ReaderRunning(why, sizeof(why))) {
+	    fprintf(stderr, "clean -o: dreaderd may be running (%s): stop it first, nothing done\n", why);
+	    exit(1);
+	}
+    }
 
     /*
      * If we are converting, make sure that we set the default hash method
@@ -1462,13 +1498,36 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    other = Hash;
 	else if (cZ == HIERDIR_OTHER && HierGroupKnown(HashZ, dirPath))
 	    other = HashZ;
+	/*
+	 * With clean -o dreaderd is stopped (main()), so no writer of the
+	 * other layout is left: the over file there is a leftover that this
+	 * run removes (-n: would remove), and the file is judged as without
+	 * it, by both readings (D-337).
+	 */
 	if (other != NULL && HashZ[0] &&
-	    (other == Hash ? cZ : c) == HIERDIR_IN && !HierOtherOver(other)) {
+	    (other == Hash ? cZ : c) == HIERDIR_IN &&
+	    (CleanOther || !HierOtherOver(other))) {
 	    /* no writer of the other layout: both readings, D-318 */
 	    c = cZ = HIERDIR_IN;
 	    other = NULL;
 	}
 	if (other != NULL) {
+	    Group *og = CleanOther ? FindGroupByHash((char *)other, 0, 1) : NULL;
+
+	    /*
+	     * clean -o (D-337): the file of a group in the active file in its
+	     * directory of the other hierarchy layout, whose other reading
+	     * (D-318) is not of the configured layout (that case is above),
+	     * is a leftover of a switch made by editing readergrouphash.
+	     * -w: only the files of the groups it matches.
+	     */
+	    if (og != NULL &&
+		(GroupMatch == NULL || WildCmp(GroupMatch, og->gr_GroupName) == 0)) {
+		printf("Removing file of %s in the directory of the other hierarchy layout: %s\n",
+							og->gr_GroupName, path);
+		DeleteFile(dirPath, name);
+		return;
+	    }
 	    if (VerboseOpt)
 		printf("file of %s in the directory of the other hierarchy layout, left alone: %s\n",
 								other, path);
@@ -1626,6 +1685,79 @@ ProcessFile(const char *dirPath, const char *name, int top)
     } else {
 	printf("Bad Error: Unknown HASHGRPTYPE\n");
     }
+}
+
+/*
+ * ReaderRunning() - a dreaderd of this site may be running (clean -o,
+ * D-337), with the reason in why.  Two signs, both of dreaderd's own:
+ *  - its pid file <path_log>/dreaderd.pid, which it writes when it starts
+ *    and leaves behind when it exits, names a live process (kill(pid, 0);
+ *    EPERM: a process of another user).  A pid that a new process got
+ *    after dreaderd died counts too: the admin removes the stale file;
+ *  - its control socket (dreader_socket, path_run; drcmd uses it) accepts
+ *    a connection.  dreaderd binds it after writing the pid file and
+ *    before it forks the processes that write the overview; a socket left
+ *    behind refuses the connection (ECONNREFUSED).
+ * When it cannot be told (the pid file cannot be read or holds no pid,
+ * connect() fails otherwise), 1: a pid file of a crashed dreaderd that
+ * holds no pid must be removed by hand.  A socket path too long is no
+ * sign: dreaderd refuses to start with it.
+ */
+static int
+ReaderRunning(char *why, size_t size)
+{
+    char pidPath[PATH_MAX];
+    struct sockaddr_un soun;
+    const char *sockpath;
+    FILE *fi;
+    int fd;
+    int n;
+
+    n = snprintf(pidPath, sizeof(pidPath), "%s/dreaderd.pid", PatExpand(LogHomePat));
+    if (n < 0 || (size_t)n >= sizeof(pidPath)) {
+	snprintf(why, size, "the path of dreaderd.pid is too long");
+	return(1);
+    }
+    if ((fi = fopen(pidPath, "r")) != NULL) {
+	long pid = 0;
+	int ok = (fscanf(fi, "%ld", &pid) == 1 && pid > 0 && pid <= 0x7fffffffL);
+
+	fclose(fi);
+	if (!ok) {
+	    snprintf(why, size, "%s holds no pid; remove it if no dreaderd runs", pidPath);
+	    return(1);
+	}
+	if (kill((pid_t)pid, 0) == 0 || errno == EPERM) {
+	    snprintf(why, size, "%s names the live process %ld; remove the file if that is no dreaderd", pidPath, pid);
+	    return(1);
+	}
+    } else if (errno != ENOENT) {
+	snprintf(why, size, "cannot read %s: %s", pidPath, strerror(errno));
+	return(1);
+    }
+
+    sockpath = PatRunExpand(DReaderSocketPat);
+    memset(&soun, 0, sizeof(soun));
+    if (strlen(sockpath) >= sizeof(soun.sun_path))
+	return(0);
+    soun.sun_family = AF_UNIX;
+    snprintf(soun.sun_path, sizeof(soun.sun_path), "%s", sockpath);
+    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+	snprintf(why, size, "socket: %s", strerror(errno));
+	return(1);
+    }
+    if (connect(fd, (struct sockaddr *)&soun,
+		offsetof(struct sockaddr_un, sun_path[strlen(soun.sun_path) + 1])) == 0) {
+	close(fd);
+	snprintf(why, size, "its control socket %s accepts connections", sockpath);
+	return(1);
+    }
+    n = errno;
+    close(fd);
+    if (n == ECONNREFUSED || n == ENOENT)
+	return(0);
+    snprintf(why, size, "cannot tell by its control socket %s: %s", sockpath, strerror(n));
+    return(1);
 }
 
 int
