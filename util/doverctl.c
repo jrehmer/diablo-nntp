@@ -33,7 +33,13 @@ void ConvertHash(const char *group, GroupHashType *srcHash, GroupHashType *dstHa
 int SetField(char **pptr, const char *str);
 Group *EnterGroup(const char *groupName, artno_t begNo, artno_t endNo, int lmts, int cts, int iter, const char *flags);
 Group *FindGroupByHash(char *Hash, int iter, int hier);
-static int HierFileInDir(const char *name, const char *dirPath);
+/* HierDirClass(): where a hierarchy file is for a group (D-336) */
+#define HIERDIR_OFF	0
+#define HIERDIR_IN	1
+#define HIERDIR_OTHER	2
+static int HierDirOf(const char *name, GroupHashType *method, char *dir, size_t size);
+static int HierDirClass(const char *name, const char *dirPath);
+static int HierGroupKnown(const char *name, const char *dirPath);
 int OverFileIsGroups(const Group *group, int iter);
 Group *FindGroupByName(const char *groupName);
 int IterInProgress(char *Hash, int iter);
@@ -585,91 +591,110 @@ OverFileIsGroups(const Group *group, int iter)
 }
 
 /*
- * HierFileInDir() - a hierarchy file in dirPath can be a file of the group
- * name (D-336).  A hierarchy name holds the whole group name, but hierarchy
- * and hierarchy-full put the files of many groups in different directories
- * (e2e.x.gz: e2e/ or e2e/x/, a.b.c: a.b/ or a/b/), and the two readings of a
- * data name "d.<n>.X.gz" (the plain data of X.gz, the compressed data of X,
- * D-318) are in different directories unless X has a last component of one
- * character and plain hierarchy is used (e2e.x and e2e.x.gz share e2e/,
- * D-325; e2e.foo and e2e.foo.gz have e2e/ and e2e/foo/).  dreaderd opens a
- * group's files only in the directory GFName() (wantdir 1) gives the group,
- * so a file in another one is not the group's: a copy left by a switch
- * between the two layouts made by editing readergrouphash, or the plain
- * data of X.gz read as the compressed data of X.  The directory depends on
- * the name and the layout only (with convert the destination layout, see
- * main()), not on the file type, base or iteration.  The directory below the
- * group home is compared as dexpireover's tempRewriteName() does: dirPath
- * as scanDirectory() built it from the names it read, links not resolved (a
- * linked top-level directory "e2e" -> elsewhere is "e2e").  0 only when that
- * is certain; 1 (as before) when
- *   - dirPath is the group's directory, or the same directory by stat() (a
- *     link below the group home, a file system that ignores case);
- *   - dirPath is not below the group home, or a path is too long;
- *   - there is no over file of the group in its own directory: dreaderd
- *     reads readergrouphash only when it starts, so one started before the
- *     config was changed still writes the files in the directory of the
- *     old layout, and this file may be its live one.  Such files are
- *     treated as before until the group's own over file exists.
- * The same as hierFileInDir() in dexpireover.
+ * HierDirOf() - the directory below the group home of the files of the group
+ * name in the hierarchy layout method, as GFName() (wantdir 1) puts them,
+ * without the trailing '/' ("" for a group of one component).  0 when the
+ * path does not fit.
  */
 static int
-HierFileInDir(const char *name, const char *dirPath)
+HierDirOf(const char *name, GroupHashType *method, char *dir, size_t size)
 {
+    const char *gf = GFName(name, GRPFTYPE_OVER, 0, 1, 0, method);
+    const char *slash = strrchr(gf, '/');
+    size_t len = slash ? (size_t)(slash - gf) : 0;
+
+    if (len >= size)
+	return(0);
+    memcpy(dir, gf, len);
+    dir[len] = 0;
+    return(1);
+}
+
+/*
+ * HierDirClass() - where a hierarchy file in dirPath is for the group name
+ * (D-336).  A hierarchy name holds the whole group name, but hierarchy and
+ * hierarchy-full put the files of many groups in different directories
+ * (e2e.x.gz: e2e/ or e2e/x/, a.b.c: a.b/ or a/b/), and the two readings of a
+ * data name "d.<n>.X.gz" (the plain data of X.gz, the compressed data of X,
+ * D-318) can be in different directories.  dirPath is compared below the
+ * group home as scanDirectory() built it from the names it read, links not
+ * resolved (a linked top-level directory "e2e" -> elsewhere is "e2e"), with
+ * the directory of the group in the configured layout and in the other
+ * hierarchy layout (gh_hierfull flipped); the directory follows from the
+ * name and the layout only, so the group need not be loaded.  Also the same
+ * directory by stat() counts (a link below the group home, a file system
+ * that ignores case).
+ *	HIERDIR_IN	the group's directory in the configured layout, or
+ *			not known (dirPath not below the group home, a path
+ *			too long): the file can be the group's, as before
+ *	HIERDIR_OTHER	the group's directory in the other hierarchy layout
+ *			only: a copy left by a switch made by editing
+ *			readergrouphash, or the live file of a dreaderd
+ *			started before the change (it reads readergrouphash
+ *			only when it starts)
+ *	HIERDIR_OFF	neither layout puts the group's files there
+ * The same as that of dexpireover.
+ */
+static int
+HierDirClass(const char *name, const char *dirPath)
+{
+    GroupHashType other = DOpts.ReaderGroupHashMethod;
     char home[PATH_MAX];
-    char gf[PATH_MAX];
+    char dir[PATH_MAX];
     char path[PATH_MAX];
     const char *rel;
-    const char *slash;
-    struct stat st1;
-    struct stat st2;
+    struct stat st;
+    struct stat gst;
     size_t homeLen;
-    size_t dirLen;
+    int haveSt;
+    int pass;
     int n;
 
+    if (DOpts.ReaderGroupHashMethod.gh_type != HASHGRP_HIER)
+	return(HIERDIR_IN);	/* a hierarchy name in a crc or md5 spool */
     n = snprintf(home, sizeof(home), "%s", PatExpand(GroupHomePat));
     if (n < 0 || (size_t)n >= sizeof(home))
-	return(1);
+	return(HIERDIR_IN);
     homeLen = (size_t)n;
     if (strncmp(dirPath, home, homeLen) != 0)
-	return(1);
+	return(HIERDIR_IN);
     if (dirPath[homeLen] == 0)
 	rel = "";
     else if (dirPath[homeLen] == '/')
 	rel = dirPath + homeLen + 1;
     else
-	return(1);
-    n = snprintf(gf, sizeof(gf), "%s", GFName(name, GRPFTYPE_OVER, 0, 1, 0,
-					&DOpts.ReaderGroupHashMethod));
-    if (n < 0 || (size_t)n >= sizeof(gf))
-	return(1);
-    slash = strrchr(gf, '/');
-    dirLen = slash ? (size_t)(slash - gf) : 0;
-    if (strlen(rel) == dirLen && strncmp(rel, gf, dirLen) == 0)
-	return(1);
-
-    /* the group's directory by another path */
-    n = snprintf(path, sizeof(path), "%s/%.*s", home, (int)dirLen, gf);
-    if (n < 0 || (size_t)n >= sizeof(path))
-	return(1);
-    if (stat(dirPath, &st1) == 0 && stat(path, &st2) == 0 &&
-	st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino)
-	return(1);
-
-    /* the group's over file is in its own directory, so that one is used */
-    n = snprintf(path, sizeof(path), "%s/%s", home, gf);
-    if (n < 0 || (size_t)n >= sizeof(path))
-	return(1);
-    if (stat(path, &st2) != 0 || !S_ISREG(st2.st_mode)) {
-	if (VerboseOpt && FindGroupByName(name) != NULL)
-	    printf("file of %s in %s taken as the group's: it has no over file in its own directory yet (%s)\n",
-							name, dirPath, path);
-	return(1);
+	return(HIERDIR_IN);
+    haveSt = (stat(dirPath, &st) == 0);
+    other.gh_hierfull = !other.gh_hierfull;
+    for (pass = 0; pass < 2; ++pass) {
+	if (!HierDirOf(name, pass ? &other : &DOpts.ReaderGroupHashMethod,
+							dir, sizeof(dir)))
+	    return(HIERDIR_IN);
+	n = snprintf(path, sizeof(path), "%s/%s", home, dir);
+	if (n < 0 || (size_t)n >= sizeof(path))
+	    return(HIERDIR_IN);
+	if (strcmp(rel, dir) == 0 ||
+	    (haveSt && stat(path, &gst) == 0 &&
+	     st.st_dev == gst.st_dev && st.st_ino == gst.st_ino))
+	    return(pass ? HIERDIR_OTHER : HIERDIR_IN);
     }
     if (VerboseOpt > 1)
-	printf("files named for %s in %s are not that group's: its directory is %.*s\n",
-						name, dirPath, (int)dirLen, gf);
-    return(0);
+	printf("files named for %s in %s are not that group's: not its directory in either hierarchy layout\n",
+							name, dirPath);
+    return(HIERDIR_OFF);
+}
+
+/*
+ * HierGroupKnown() - the group name exists: it is in the table, or was
+ * created since it was read (RescanActive()).
+ */
+static int
+HierGroupKnown(const char *name, const char *dirPath)
+{
+    (void)dirPath;
+    if (FindGroupByHash((char *)name, 0, 1) != NULL)
+	return(1);
+    return(RescanActive() && FindGroupByHash((char *)name, 0, 1) != NULL);
 }
 
 /*
@@ -1141,21 +1166,39 @@ ProcessFile(const char *dirPath, const char *name)
      */
     /*
      * A hierarchy name is the file of a group only in the group's directory
-     * (D-336): a reading whose group has its files in another directory is
-     * dropped, so "d.<n>.X.gz" in the directory of X alone is X's compressed
-     * data, and in that of X.gz alone X.gz's plain data.  When both readings
-     * are of the directory (plain hierarchy: e2e.x and e2e.x.gz in e2e/),
-     * both stay (D-318).  A file of neither is the file of no group.
+     * (D-336), and the directory depends on the layout (HierDirClass()):
+     *  - a reading whose group (in the table, or not known with -w) has the
+     *    file's directory in the other hierarchy layout only leaves the file
+     *    alone, whatever the other reading says: it may be the live file of
+     *    a dreaderd started before readergrouphash was changed, or a copy
+     *    left by the switch (D-337).  It is neither expired nor removed;
+     *  - a reading whose group has its files elsewhere in both layouts, or
+     *    in the other layout only but is no group, is dropped: "d.<n>.X.gz"
+     *    in the directory of X alone is X's compressed data, in that of X.gz
+     *    alone X.gz's plain data.  When both readings are of the directory
+     *    (plain hierarchy: e2e.x and e2e.x.gz in e2e/), both stay (D-318).
+     *    A file of no reading is the file of no group.
      */
     if (hier) {
-	int inDir = HierFileInDir(Hash, dirPath);
-	int inDirZ = HashZ[0] && HierFileInDir(HashZ, dirPath);
+	int c = HierDirClass(Hash, dirPath);
+	int cZ = HashZ[0] ? HierDirClass(HashZ, dirPath) : HIERDIR_OFF;
+	const char *other = NULL;
 
-	if (!inDir && inDirZ)
+	if (c == HIERDIR_OTHER && HierGroupKnown(Hash, dirPath))
+	    other = Hash;
+	else if (cZ == HIERDIR_OTHER && HierGroupKnown(HashZ, dirPath))
+	    other = HashZ;
+	if (other != NULL) {
+	    if (VerboseOpt)
+		printf("file of %s in the directory of the other hierarchy layout, left alone: %s\n",
+								other, path);
+	    return;
+	}
+	if (c != HIERDIR_IN && cZ == HIERDIR_IN)
 	    snprintf(Hash, sizeof(Hash), "%s", HashZ);
-	if (!inDir || !inDirZ)
+	if (c != HIERDIR_IN || cZ != HIERDIR_IN)
 	    HashZ[0] = 0;
-	otherDir = !inDir && !inDirZ;
+	otherDir = (c != HIERDIR_IN && cZ != HIERDIR_IN);
     }
     if (!otherDir) {
 	group = FindGroupByHash(Hash, iter, hier);
