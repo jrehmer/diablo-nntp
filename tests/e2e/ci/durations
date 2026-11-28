@@ -282,6 +282,7 @@ TestDexpireoverHierarchyDataEntries 0.30
 TestDexpireoverHierarchyDataStale 0.05
 TestDexpireoverHierarchyFullCompress 0.31
 TestDexpireoverHierarchyFullExpire 0.62
+TestDexpireoverHierarchyFullGzPairCompressed 1.10
 TestDexpireoverHierarchyFullRemovedGroup 0.58
 TestDexpireoverHierarchyFullRewrite 1.00
 TestDexpireoverHierarchyGroupNameO 0.05

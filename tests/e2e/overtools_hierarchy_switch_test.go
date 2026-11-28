@@ -39,9 +39,17 @@ const (
 	swArts  = 6 // articles before the switch, and as many after it
 )
 
-// swDir is the directory of group g below the group home in layout.
+// swTopGroups have their files at the top of the group home in plain hierarchy (a component
+// of one character is joined to the next, and the last is no directory), which neither tool
+// scans (R2-F3 of the #523 r2 reviews).
+var swTopGroups = []struct{ name, hier, full string }{
+	{"x.y", "", "x"},
+	{"a.b", "", "a"},
+}
+
+// swDir is the directory of group g below the group home in layout ("" for the top).
 func swDir(g, layout string) string {
-	for _, x := range swGroups {
+	for _, x := range append(append([]struct{ name, hier, full string }{}, swGroups...), swTopGroups...) {
 		if x.name == g {
 			if layout == "hierarchy-full" {
 				return x.full
@@ -84,6 +92,15 @@ func swFiles(t *testing.T, home string) map[string][]byte {
 		t.Fatalf("walk %s: %v", home, err)
 	}
 	return m
+}
+
+// swRel is the path of the over file of g below the group home in layout, as dgrpctl
+// listgrouphashfile gives it.
+func swRel(g, layout string) string {
+	if d := swDir(g, layout); d != "" {
+		return d + "/o.0." + g
+	}
+	return "o.0." + g
 }
 
 // swOldFiles are the over file and the data files of the bases 0 and 4 of group g in its
@@ -129,7 +146,7 @@ func swSwitch(t *testing.T, s *Site, from, to string, groups []string) {
 	}
 	s.WriteFile(t, "diablo.config", strings.Replace(conf, old, "readergrouphash\t"+to+"\n", 1))
 	for _, g := range groups {
-		if rel, want := hierListPath(t, s, g), swDir(g, to)+"/o.0."+g; rel != want {
+		if rel, want := hierListPath(t, s, g), swRel(g, to); rel != want {
 			t.Fatalf("listgrouphashfile %s with %s = %q, want %q", g, to, rel, want)
 		}
 	}
@@ -222,7 +239,7 @@ func TestOverToolsHierarchyFullSwitchLeftovers(t *testing.T) {
 				// the files of the moved groups in the old layout
 				var alone []string
 				for _, g := range all {
-					if rel, want := hierListPath(t, s, g), swDir(g, sw.from)+"/o.0."+g; rel != want {
+					if rel, want := hierListPath(t, s, g), swRel(g, sw.from); rel != want {
 						t.Fatalf("listgrouphashfile %s with %s = %q, want %q", g, sw.from, rel, want)
 					}
 					if swDir(g, sw.from) == swDir(g, sw.to) {
@@ -317,20 +334,26 @@ func TestOverToolsHierarchyFullSwitchLeftovers(t *testing.T) {
 // its directory of the configured layout. Such an over file appears without the new layout being
 // in use: a remnant (here an empty file), `dcancel -r group:N` run after the change (dcancel
 // opens the over file of the configured layout with O_CREAT), or the copy left by an earlier
-// switch the other way. The tools must lose nothing of the files the old dreaderd uses.
+// switch the other way. The tools must lose nothing of the files the old dreaderd uses, and
+// dexpireover must not move the first article number (NB) of such a group by what its over file
+// of the configured layout lacks. x.y and a.b have their files at the top of the group home in
+// plain hierarchy, which the scan does not enter (R2-F3 of the #523 r2 reviews): their NB is
+// kept by the over file found there, not by the scan.
 //
-// Input: groups e2e.test, e2e.x.gz, a.b.c and o.1.2; readergrouphash hierarchy, dexpire.ctl
-// "*:x30:e4", 6 articles crossposted to all, OVER 1-6 of each read, dreaderd stopped (its files
-// are as a running one would leave them); readergrouphash changed to hierarchy-full; then
-// e2e/x/o.0.e2e.x.gz written empty, `dcancel -r` with "a.b.c:1", and o/1/o.0.o.1.2 a copy of
+// Input: groups e2e.test, e2e.x.gz, a.b.c, o.1.2, x.y and a.b; readergrouphash hierarchy,
+// dexpire.ctl "*:x30:e4", 6 articles crossposted to all, OVER 1-6 of each read, dreaderd stopped
+// (its files are as a running one would leave them); readergrouphash changed to hierarchy-full;
+// then e2e/x/o.0.e2e.x.gz written empty, `dcancel -r` with "a.b.c:1", "x.y:1" and "a.b:1" (it
+// makes the over files a/b/o.0.a.b.c, x/o.0.x.y and a/o.0.a.b), and o/1/o.0.o.1.2 a copy of
 // o.1/o.0.o.1.2. Subtests dexpireover (`-a -v`) and doverctl (`-v clean`). Expected: the
-// hierarchy files of e2e.x.gz, a.b.c and o.1.2 (over file, d.0, d.4) are there with the same
+// hierarchy files of every group but e2e.test (over file, d.0, d.4) are there with the same
 // bytes; readergrouphash set back to hierarchy and dreaderd started, OVER 1-6 of every group is
 // as before. Fails on b14b5805 (r1) for both tools: the old files are removed as "Group for
-// over file not found". On main c27f812d doverctl passes; dexpireover changes the old over
-// files (taken as the groups' and resized).
+// over file not found". On ce927151 (r2) dexpireover fails for x.y and a.b (NB moved to 7, OVER
+// empty). On main c27f812d doverctl passes; dexpireover changes the old over files (taken as the
+// groups' and resized).
 func TestOverToolsHierarchySwitchLiveOldLayout(t *testing.T) {
-	groups := []string{"e2e.test", "e2e.x.gz", "a.b.c", "o.1.2"}
+	groups := []string{"e2e.test", "e2e.x.gz", "a.b.c", "o.1.2", "x.y", "a.b"}
 	for _, tool := range []string{"dexpireover", "doverctl"} {
 		t.Run(tool, func(t *testing.T) {
 			st := fakeserver.NewStore()
@@ -361,10 +384,12 @@ func TestOverToolsHierarchySwitchLiveOldLayout(t *testing.T) {
 			}
 			writeOver(t, filepath.Join(home, "e2e", "x", "o.0.e2e.x.gz"), nil)
 			// dcancel after the change
-			out, err := runWith(t, s, "a.b.c:1\n", nil, "dcancel", "-r")
-			t.Logf("dcancel -r a.b.c:1: %v\n%s", err, out)
-			if !hfxExists(filepath.Join(home, "a", "b", "o.0.a.b.c")) {
-				t.Errorf("dcancel -r did not make a/b/o.0.a.b.c")
+			out, err := runWith(t, s, "a.b.c:1\nx.y:1\na.b:1\n", nil, "dcancel", "-r")
+			t.Logf("dcancel -r a.b.c:1 x.y:1 a.b:1: %v\n%s", err, out)
+			for _, g := range []string{"a.b.c", "x.y", "a.b"} {
+				if f := filepath.Join(home, swRel(g, "hierarchy-full")); !hfxExists(f) {
+					t.Errorf("dcancel -r did not make %s", swRel(g, "hierarchy-full"))
+				}
 			}
 			// the copy of an earlier switch
 			if err := os.MkdirAll(filepath.Join(home, "o", "1"), 0o755); err != nil {

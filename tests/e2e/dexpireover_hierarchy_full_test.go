@@ -617,6 +617,87 @@ func TestDexpireoverHierarchyFullCompress(t *testing.T) {
 	}
 }
 
+// TestDexpireoverHierarchyFullGzPairCompressed: go-while's R2-F1 on ce927151 (#523 r2): with
+// hierarchy-full, never switched, the compressed data of e2e.x is "e2e/d.<n>.e2e.x.gz", which
+// is also the path of the plain data of e2e.x.gz in plain hierarchy (e2e/ is its directory
+// there). With no over file of e2e.x.gz in e2e/ no dreaderd writes that file for e2e.x.gz (one
+// makes the over file first), so it is judged by both readings (D-318) and not left alone; NB
+// of e2e.x.gz is moved as usual (it is held only for a group with an over file in its directory
+// of the other layout). The file is scanned in the run after the one that made it, so the order
+// readdir() gives does not matter (illumos visited it in the same run, Linux does not).
+//
+// Input: the hfxGroups (hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4:F1:Z1", dreaderd stopped, the data files two hours old; `dexpireover -a -z -v`
+// ("Compressed 16 files": d.0 and d.4 of every group but e2e.x.gz, e2e.x's in e2e/), then
+// `dexpireover -a -v` (it now scans e2e/d.0.e2e.x.gz and e2e/d.4.e2e.x.gz): nothing reported in
+// either; then articles 1-8 made 40 days old in every over file and `dexpireover -a -v`.
+// Expected: the base 0 and 4 data files of every group removed with "Deleting stale overview
+// data for" (for e2e.x the gzip files in e2e/, for e2e.x.gz the plain ones in e2e/x/), the base
+// 8 and 12 ones kept; after a restart GROUP of every group "211 4 9 12" and OVER 9-12 as before.
+// Fails on ce927151 (r2): "left alone" for the e2e.x gzip files, which stay, and GROUP e2e.x.gz
+// "211 12 1 12". On main c27f812d it fails on tmpfs: e2e/x/d.0.e2e.x.gz stays, judged also as
+// e2e.x's before e2e.x is expired (the readdir order, as in TestDexpireoverHierarchyFullExpire).
+// Skipped without zlib.
+func TestDexpireoverHierarchyFullGzPairCompressed(t *testing.T) {
+	skipWithoutZlib(t)
+	h := newHfxSite(t, "hierarchy-full", "*:x30:e4:F1:Z1\n")
+	two := time.Now().Add(-2 * time.Hour)
+	for _, g := range h.groups {
+		for _, f := range h.data(g) {
+			if err := os.Chtimes(f, two, two); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	out := h.run(t, "-a", "-z", "-v")
+	if !strings.Contains(out, "Compressed 16 files\n") {
+		t.Errorf("dexpireover -a -z: no \"Compressed 16 files\"")
+	}
+	h.checkReports(t, out, nil)
+	for _, b := range []int{0, 4} {
+		if f := h.dataOf("e2e.x", b) + ".gz"; !hfxExists(f) {
+			t.Fatalf("%s was not made", h.rel(f))
+		}
+	}
+	again := h.run(t, "-a", "-v")
+	h.checkReports(t, again, nil)
+	if t.Failed() {
+		t.Logf("dexpireover -a -z -v:\n%s\ndexpireover -a -v:\n%s", out, again)
+	}
+
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	var gone, keep []string
+	allowed := map[string]string{}
+	for _, g := range h.groups {
+		hfxAge(t, h.over(g), []int{1, 2, 3, 4, 5, 6, 7, 8}, old)
+		for _, b := range hfxBases {
+			f := h.dataOf(g, b)
+			if b < 8 && g != "e2e.x.gz" {
+				f += ".gz"
+			}
+			if b < 8 {
+				gone = append(gone, f)
+				allowed[f] = "Deleting stale overview data for "
+			} else {
+				keep = append(keep, f)
+			}
+		}
+	}
+	snap := hfxSnapshot(t, keep)
+	exp := h.run(t, "-a", "-v")
+	h.checkGone(t, exp, "Deleting stale overview data for ", gone)
+	h.checkKept(t, "after the expiry", snap)
+	h.checkReports(t, exp, allowed)
+	if t.Failed() {
+		t.Logf("dexpireover -a -v after the expiry:\n%s", exp)
+	}
+
+	restartReader(t, h.s)
+	for _, g := range h.groups {
+		h.checkOver(t, "after the expiry", g, 9)
+	}
+}
+
 // TestDexpireoverHierarchyFullRemovedGroup: `dexpireover -a` removes the files of a group that
 // is no longer in the active file from the nested directories of hierarchy-full, and leaves
 // those of the other groups, also in the same, the parent and the child directories.

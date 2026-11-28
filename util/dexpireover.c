@@ -137,7 +137,6 @@ typedef struct Group {
 #define GRF_EDITEDBEG   0x00010000
 #define GRF_GONE        0x00020000	/* left dactive.kp during the run */
 #define GRF_NEEDZLIB    0x00040000	/* -R left it alone: .gz data, no zlib */
-#define GRF_OTHERLAYOUT 0x00080000	/* has files in the other hierarchy layout's directory: NB kept (D-336) */
 
 #define GHSIZE		1024
 #define GHMASK		(GHSIZE-1)
@@ -217,6 +216,7 @@ static int currentIter(char *Hash, int iter);
 static int hierDirOf(const char *name, GroupHashType *method, char *dir, size_t size);
 static int hierDirClass(const char *name, const char *dirPath);
 static int hierGroupKnown(const char *name, const char *dirPath);
+static int hierOtherOver(const char *name);
 static int overFileType(const char *name);
 static int tempNameIs(const char *group, int gftype, artno_t artBase, int iter, int gz, const char *want);
 static int tempOfGroup(const char *Hash, int gftype, artno_t artBase, int iter, int gz, const char *want);
@@ -645,16 +645,19 @@ main(int ac, char **av)
 		}
 
 		/*
-		 * A group with files in its directory of the other hierarchy
-		 * layout (left alone, D-336) may have its articles there, for
-		 * a dreaderd started before readergrouphash was changed: its
+		 * A group with an over file in its directory of the other
+		 * hierarchy layout (D-336) may have its articles there, for a
+		 * dreaderd started before readergrouphash was changed: its
 		 * first article number is not moved by what the files of the
-		 * configured layout lack (D-337).
+		 * configured layout lack (D-337).  Asked of the file, not of
+		 * the scan, which does not see the files at the top of the
+		 * group home (x.y in plain hierarchy).
 		 */
-		if ((group->gr_State & (GRF_MODIFIED | GRF_EDITEDBEG | GRF_OTHERLAYOUT)) ==
-				(GRF_MODIFIED | GRF_EDITEDBEG | GRF_OTHERLAYOUT)) {
+		if ((group->gr_State & (GRF_MODIFIED | GRF_EDITEDBEG)) ==
+				(GRF_MODIFIED | GRF_EDITEDBEG) &&
+		    hierOtherOver(group->gr_GroupName)) {
 		    if (VerboseOpt)
-			printf("%s: first article number not moved to %lld: the group has files in the directory of the other hierarchy layout\n",
+			printf("%s: first article number not moved to %lld: the group has an over file in the directory of the other hierarchy layout\n",
 				group->gr_GroupName, group->gr_StartNo);
 		    group->gr_State &= ~GRF_EDITEDBEG;
 		}
@@ -1368,10 +1371,15 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
      * (D-336), and the directory depends on the layout (hierDirClass()):
      *  - a reading whose group (in the table, or not known with -w) has the
      *    file's directory in the other hierarchy layout only leaves the file
-     *    alone, whatever the other reading says: it may be the live file of
-     *    a dreaderd started before readergrouphash was changed, or a copy
-     *    left by the switch (D-337).  It is neither expired nor removed,
-     *    and the group's NB is not moved (GRF_OTHERLAYOUT);
+     *    alone: it may be the live file of a dreaderd started before
+     *    readergrouphash was changed, or a copy left by the switch (D-337).
+     *    It is neither expired nor removed.  Except when the other reading
+     *    is of the configured layout and the group of the first has no over
+     *    file in its directory of the other layout (hierOtherOver()): then no
+     *    dreaderd writes the file for it (one makes the over file first),
+     *    and both readings stay (D-318).  With hierarchy-full that is X's
+     *    compressed data "e2e/d.<n>.e2e.x.gz" beside a group e2e.x.gz, whose
+     *    plain data has this path in plain hierarchy;
      *  - a reading whose group has its files elsewhere in both layouts, or
      *    in the other layout only but is no group, is dropped: "d.<n>.X.gz"
      *    in the directory of X alone is X's compressed data, in that of X.gz
@@ -1388,11 +1396,13 @@ ProcessOverviewFile(const char *dirPath, const char *name, int type)
 	    other = Hash;
 	else if (cZ == HIERDIR_OTHER && hierGroupKnown(HashZ, dirPath))
 	    other = HashZ;
+	if (other != NULL && HashZ[0] &&
+	    (other == Hash ? cZ : c) == HIERDIR_IN && !hierOtherOver(other)) {
+	    /* no writer of the other layout: both readings, D-318 */
+	    c = cZ = HIERDIR_IN;
+	    other = NULL;
+	}
 	if (other != NULL) {
-	    Group *og = FindGroupByHash((char *)other, 0, 1, dirPath);
-
-	    if (og != NULL)
-		og->gr_State |= GRF_OTHERLAYOUT;
 	    if (VerboseOpt)
 		printf("file of %s in the directory of the other hierarchy layout, left alone: %s\n",
 								other, path);
@@ -2199,6 +2209,50 @@ hierGroupKnown(const char *name, const char *dirPath)
     if (Wild != NULL || FindGroupByHash((char *)name, 0, 1, dirPath) != NULL)
 	return(1);
     return(rescanActive() > 0 && FindGroupByHash((char *)name, 0, 1, dirPath) != NULL);
+}
+
+/*
+ * hierOtherOver() - the group name has an over file in its directory of the other
+ * hierarchy layout (gh_hierfull flipped), a regular file that is not its
+ * over file of the configured layout (another directory, by name and by
+ * stat()).  Over file names are those of one group, and dreaderd makes a
+ * group's over file before any of its data files, so in a spool that was
+ * never switched this is never so: only a leftover of a switch made by
+ * editing readergrouphash, a copy, or a dreaderd started before the change,
+ * which still writes there, makes it (D-336, D-337).  When it cannot be
+ * told (a path too long, stat() fails other than with ENOENT), 1.
+ */
+static int
+hierOtherOver(const char *name)
+{
+    GroupHashType other = DOpts.ReaderGroupHashMethod;
+    char opath[PATH_MAX];
+    char path[PATH_MAX];
+    struct stat st;
+    struct stat ost;
+    int n;
+
+    if (DOpts.ReaderGroupHashMethod.gh_type != HASHGRP_HIER)
+	return(0);
+    other.gh_hierfull = !other.gh_hierfull;
+    n = snprintf(opath, sizeof(opath), "%s/%s", PatExpand(GroupHomePat),
+			GFName(name, GRPFTYPE_OVER, 0, 1, 0, &other));
+    if (n < 0 || (size_t)n >= sizeof(opath))
+	return(1);
+    n = snprintf(path, sizeof(path), "%s/%s", PatExpand(GroupHomePat),
+			GFName(name, GRPFTYPE_OVER, 0, 1, 0,
+					&DOpts.ReaderGroupHashMethod));
+    if (n < 0 || (size_t)n >= sizeof(path))
+	return(1);
+    if (strcmp(opath, path) == 0)
+	return(0);			/* the same directory in both layouts */
+    if (stat(opath, &ost) != 0)
+	return(errno != ENOENT);
+    if (!S_ISREG(ost.st_mode))
+	return(0);
+    if (stat(path, &st) == 0 && st.st_dev == ost.st_dev && st.st_ino == ost.st_ino)
+	return(0);			/* the configured one, by a link */
+    return(1);
 }
 
 /*
