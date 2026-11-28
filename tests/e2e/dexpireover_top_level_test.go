@@ -3,9 +3,12 @@ package e2e
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -73,7 +76,11 @@ func newTopSite(t *testing.T, layout, ctl string) *hfxSite {
 // file name of a group x.y.bak (directory x.y/ or x/y/), "o.0.e2e.test" and "d.0.e2e.test" are
 // names of e2e.test, whose directory is e2e/; "over.0.0123abcd.89abcdef" has the form of a crc
 // name; ".o.0.x.y.bak" and ".d.0.e2e.test" have the form of temporary files of no group at the
-// top. With dir also an empty directory "d.16.x.y" (a data file name of x.y).
+// top; the tlOrphans are data file names of groups whose directory is the top, with no over file
+// (chatgpt-1's F3 on 120a76c8: a data file name alone is no evidence that the group existed;
+// go-while's list in his #524 r1 review), and "d.0.junk.bak" is that of a group junk.bak whose
+// directory is junk/ (a control). With dir also an empty directory "d.16.x.y" (a data file name
+// of x.y).
 type tlLook struct {
 	files map[string][]byte
 	dir   string
@@ -97,7 +104,12 @@ func tlLookalikes(t *testing.T, h *hfxSite, dir bool) *tlLook {
 		"over.0.0123abcd.89abcdef": read(h.over("e2e.test")),
 		".o.0.x.y.bak":             read(h.over("x.y")),
 		".d.0.e2e.test":            read(h.dataOf("e2e.test", 0)),
+		"d.0.junk.bak":             read(h.dataOf("e2etop", 0)),
 	}}
+	for _, n := range tlOrphans("hierarchy") { // also the plain-hierarchy ones with hierarchy-full
+		l.files[n] = read(h.dataOf("e2etop", 0))
+	}
+	l.files["d.0.zero"] = []byte{} // a file of 0 bytes
 	for n, b := range l.files {
 		writeOver(t, filepath.Join(h.home, n), b)
 	}
@@ -132,13 +144,45 @@ func tlBakLine(h *hfxSite) string {
 		filepath.Join(h.home, "o.0.e2etop~")
 }
 
-// tlSkip are the lines checkReports() lets pass for the lookalikes; the tlBakLine must be there.
+// tlOrphanLine is what -v prints for a data file at the top of no group whose over file the run
+// did not remove (F3).
+func tlOrphanLine(h *hfxSite, name string) string {
+	return "data file of no group at the top of the group home with no over file of that group, left alone: " +
+		filepath.Join(h.home, name)
+}
+
+// tlPlainOrphans are data file names of groups whose directory is the top with plain hierarchy
+// only (x.y-old, x.y~, a.bak); with hierarchy-full they are in x/ and a/, so the name is in no
+// group's directory there.
+var tlPlainOrphans = []string{"d.0.x.y-old", "d.4.x.y~", "d.0.a.bak"}
+
+// tlOrphans are the lookalike data file names whose group's directory is the top in layout, with
+// no over file of that group: they must stay with the tlOrphanLine. "d.0.junk~.gz" and
+// "d.0.nogroup.gz" are read as junk~'s and nogroup's compressed data (junk~.gz and nogroup.gz
+// would be in junk~/ and nogroup/); "d.0.zero" is empty.
+func tlOrphans(layout string) []string {
+	out := []string{"d.0.e2etop~", "d.4.gonegrp", "d.0.junk~.gz", "d.0.junk-old", "d.2024.notes",
+		"d.0.nogroup", "d.0.nogroup.gz", "d.0.zero"}
+	if layout == "hierarchy" {
+		out = append(out, tlPlainOrphans...)
+	}
+	return out
+}
+
+// tlSkip are the lines checkReports() lets pass for the lookalikes; each must be there: the
+// tlBakLine and the tlOrphanLine of each of the tlOrphans.
 func tlSkip(t *testing.T, h *hfxSite, out string) []string {
 	t.Helper()
-	if !strings.Contains(out, tlBakLine(h)+"\n") {
-		t.Errorf("no %q", tlBakLine(h))
+	want := []string{tlBakLine(h)}
+	for _, n := range tlOrphans(h.layout) {
+		want = append(want, tlOrphanLine(h, n))
 	}
-	return []string{tlBakLine(h)}
+	for _, l := range want {
+		if !strings.Contains(out, l+"\n") {
+			t.Errorf("no %q", l)
+		}
+	}
+	return want
 }
 
 // TestDexpireoverTopLevelExpire: `dexpireover -a -v` expires the over files at the top of the
@@ -323,9 +367,10 @@ func TestDexpireoverTopLevelRewrite(t *testing.T) {
 // "*:x30:e4:F1:Z1", dreaderd stopped, every data file two hours old, the tlLookalikes (without
 // the directory). Expected: "Compressed 10 files": d.0 and d.4 of every group become
 // d.0.<group>.gz and d.4.<group>.gz in its directory with the same bytes inside, d.8 and d.12
-// stay plain and unchanged ("proximity to end of data", F1). A group at the top never shares
-// its directory with the group of its compressed name (x.y.gz is in x.y/, e2etop.gz in
-// e2etop/), so gzNameTaken() (D-325) does not hold any back. No '.' file left but the
+// stay plain and unchanged ("proximity to end of data", F1). None of these groups shares its
+// directory with the group of its compressed name (x.y.gz is in x.y/, e2etop.gz in e2etop/;
+// a one-character group x would share the top with x.gz, TestDexpireoverTopLevelGzPair), so
+// gzNameTaken() (D-325) does not hold any back. No '.' file left but the
 // lookalikes; nothing else reported (but the tlBakLine); after a restart OVER 1-12 of every group
 // as before. Fails on main 2277c452: "Compressed 2 files" with hierarchy (only e2e.test's) and
 // "Compressed 8 files" with hierarchy-full (not e2etop's); the data at the top stay plain.
@@ -670,6 +715,277 @@ func TestOverToolsTopLevelSwitch(t *testing.T) {
 						strings.Join(over, "\n") != strings.Join(before[g], "\n") {
 						t.Errorf("after %s: GROUP %s %q, OVER 1-12 %q; before %q", tool, g, line, over, before[g])
 					}
+				}
+			})
+		}
+	}
+}
+
+// tlRunLimit runs the program name of the site s with args as Site.TryRun does, but stops it
+// after limit: hung reports that it did not finish (it was killed), so that a tool that blocks
+// fails the test instead of the suite.
+func tlRunLimit(s *Site, limit time.Duration, name string, args ...string) (out string, hung bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(s.Bin, name), args...)
+	cmd.Dir = s.Dir
+	cmd.Env = append(os.Environ(), s.Env...)
+	var b bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &b, &b
+	cmd.WaitDelay = 3 * time.Second
+	err = cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
+	return b.String(), ctx.Err() != nil, err
+}
+
+// tlTool runs dexpireover -a -v or doverctl -v clean on h with a limit of 30 seconds.
+func tlTool(t *testing.T, h *hfxSite, tool string) string {
+	t.Helper()
+	args := []string{"-a", "-v"}
+	if tool == "doverctl" {
+		args = []string{"-v", "clean"}
+	}
+	out, hung, err := tlRunLimit(h.s, 30*time.Second, tool, args...)
+	switch {
+	case hung:
+		t.Errorf("%s %s did not finish in 30s (killed); output:\n%s", tool, strings.Join(args, " "), out)
+	case err != nil:
+		t.Errorf("%s %s: %v", tool, strings.Join(args, " "), err)
+	}
+	return out
+}
+
+// TestOverToolsTopLevelSymlinks: chatgpt-1's F1 on 120a76c8 (#524 r1). Main never looked at the
+// files at the top of the group home, so as for the trees #515 added, a symlink there is not
+// followed, opened or removed by either tool, also when its name is that of a file of a group at
+// the top.
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped, the articles 1-4 made 40 days old in every over file; then e2etop's
+// over file o.0.e2etop and data file d.0.e2etop moved out of the group home (to <site>/outside/)
+// and replaced by symlinks to them, a symlink .o.0.e2etop (a temporary file name of e2etop) to a
+// file outside, and a dangling symlink d.0.gonelink. Subtests <layout>/dexpireover (`-a -v`) and
+// <layout>/doverctl (`-v clean`). Expected: the four links are there, links to the same targets,
+// the targets byte-identical; -v says "Skipping symlink <path>: not followed at the top of the
+// group home" once for each link. Fails on 120a76c8: dexpireover expires and resizes e2etop's over
+// file through the link (the target changed), removes the link d.0.e2etop as stale and
+// .o.0.e2etop as a temporary file; doverctl removes .o.0.e2etop; no "Skipping symlink" line.
+func TestOverToolsTopLevelSymlinks(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				old := time.Now().Add(-40 * 24 * time.Hour)
+				for _, g := range h.groups {
+					hfxAge(t, h.over(g), []int{1, 2, 3, 4}, old)
+				}
+				outside := filepath.Join(h.s.Dir, "outside")
+				if err := os.MkdirAll(outside, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				links := map[string]string{} // link below the group home -> target
+				for _, f := range []string{h.over("e2etop"), h.dataOf("e2etop", 0)} {
+					to := filepath.Join(outside, filepath.Base(f))
+					if err := os.Rename(f, to); err != nil {
+						t.Fatal(err)
+					}
+					links[f] = to
+				}
+				tmp := filepath.Join(outside, "tempfile")
+				writeOver(t, tmp, []byte("a file outside the group home\n"))
+				links[filepath.Join(h.home, ".o.0.e2etop")] = tmp
+				links[filepath.Join(h.home, "d.0.gonelink")] = filepath.Join(outside, "missing")
+				var targets []string
+				for l, to := range links {
+					if err := os.Symlink(to, l); err != nil {
+						t.Fatal(err)
+					}
+					if hfxExists(to) {
+						targets = append(targets, to)
+					}
+				}
+				snap := hfxSnapshot(t, targets)
+
+				out := tlTool(t, h, tool)
+
+				for l, to := range links {
+					if got, err := os.Readlink(l); err != nil || got != to {
+						t.Errorf("%s: the link %s is gone or changed: %q, %v", tool, h.rel(l), got, err)
+					}
+					line := "Skipping symlink " + l + ": not followed at the top of the group home"
+					if n := strings.Count(out, line+"\n"); n != 1 {
+						t.Errorf("%s: %d lines %q, want 1", tool, n, line)
+					}
+				}
+				for f, b := range snap {
+					if got, err := os.ReadFile(f); err != nil || !bytes.Equal(got, b) {
+						t.Errorf("%s: the link target %s was changed (%v)", tool, filepath.Base(f), err)
+					}
+				}
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
+				}
+			})
+		}
+	}
+}
+
+// TestOverToolsTopLevelFifo: chatgpt-1's F2 on 120a76c8 (#524 r1): at the top of the group home
+// only regular files are opened. A FIFO named like the over file of a group that does not exist
+// made dexpireover open() it for the header check (overNamesGroup()), which blocks for ever with
+// no writer.
+//
+// Input: the tlGroups (hierarchy, hierarchy-full), 12 articles crossposted to all, dexpire.ctl
+// "*:x30:e4", dreaderd stopped, the FIFOs o.0.gone and d.0.gone (the over and data file names of a
+// group gone, whose directory is the top) and .d.4.e2etop (a temporary file name of e2etop, which
+// a run removes when it is a file) at the top. Subtests <layout>/dexpireover (`-a -v`) and
+// <layout>/doverctl (`-v clean`), each stopped after 30 seconds. Expected: the tool finishes, both
+// FIFOs are there. Fails on 120a76c8 with dexpireover: it does not finish (killed after 30s,
+// blocked in the open() of o.0.gone in the first pass), and a copy that only drops the
+// regular-file check of r2 removes .d.4.e2etop (the O_NONBLOCK open of the header check keeps
+// it from blocking on o.0.gone); doverctl checked for a regular file there already (stat(),
+// S_ISREG) and passes there too.
+func TestOverToolsTopLevelFifo(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, tool := range []string{"dexpireover", "doverctl"} {
+			t.Run(layout+"/"+tool, func(t *testing.T) {
+				h := newTopSite(t, layout, "*:x30:e4\n")
+				var fifos []string
+				for _, n := range []string{"o.0.gone", "d.0.gone", ".d.4.e2etop"} {
+					f := filepath.Join(h.home, n)
+					if err := exec.Command("mkfifo", f).Run(); err != nil {
+						t.Skipf("no fifo: %v", err)
+					}
+					fifos = append(fifos, f)
+				}
+
+				out := tlTool(t, h, tool)
+
+				for _, f := range fifos {
+					if st, err := os.Lstat(f); err != nil || st.Mode()&os.ModeNamedPipe == 0 {
+						t.Errorf("%s: the FIFO %s is gone or changed: %v", tool, h.rel(f), err)
+					}
+				}
+				if t.Failed() {
+					t.Logf("%s output:\n%s", tool, out)
+				}
+			})
+		}
+	}
+}
+
+// TestDexpireoverTopLevelGzPair: go-while's #524 r1 review: with plain hierarchy a group of one
+// character x and the group x.gz both have their files at the top of the group home
+// (FindGroupDir() skips the component "x" of x.gz), so "d.<n>.x.gz" is x's compressed name and
+// x.gz's plain data file (D-325). `dexpireover -R` of x removes both names in its directory, so
+// on 120a76c8, which scanned the top, it emptied OVER of x.gz; main never touched the top. Now
+// -R rewrites neither group there and says why; -a judges "d.<n>.x.gz" by both groups (D-318),
+// as in a subdirectory. With hierarchy-full x.gz is in x/ and both are rewritten as usual.
+//
+// Input: the groups e2e.test (control), x and x.gz; readergrouphash hierarchy or hierarchy-full;
+// 12 articles crossposted to all three, dexpire.ctl "*:x30:e4", dreaderd stopped. Subtests:
+//   - <layout>/rewrite: `dexpireover -a -R -v3`. Expected with hierarchy: "x: not rewritten: the
+//     group x.gz has its files in the same directory, the top of the group home (D-325)" and the
+//     same for x.gz (naming x), no "End of rewrite" for either, their over and data files there,
+//     the data files byte-identical; e2e.test rewritten. With hierarchy-full: "End of rewrite" for
+//     all three, no D-325 line. Nothing else reported; after a restart GROUP "211 12 1 12" and
+//     OVER 1-12 as before for every group. Fails on 120a76c8 with hierarchy: OVER of x.gz empty
+//     after the restart, its data files gone.
+//   - <layout>/expire: the articles 1-4 made 40 days old in every over file, `dexpireover -a -v`.
+//     Expected: one "expired 4 NB += 4 ... left 8" line per group; the base-0 data files of e2e.test
+//     and x and "d.0.x.gz" (x.gz's plain data, and with hierarchy also x's compressed name: stale
+//     for both groups) removed with "Deleting stale overview data for"; the bases 4, 8, 12 kept
+//     unchanged; after a restart GROUP "211 8 5 12" and OVER 5-12 as before. Passes on
+//     120a76c8 too (the D-318 rule judged the file by both groups there as well).
+func TestDexpireoverTopLevelGzPair(t *testing.T) {
+	for _, layout := range []string{"hierarchy", "hierarchy-full"} {
+		for _, mode := range []string{"rewrite", "expire"} {
+			t.Run(layout+"/"+mode, func(t *testing.T) {
+				want := map[string]string{"e2e.test": "e2e/o.0.e2e.test", "x": "o.0.x", "x.gz": "o.0.x.gz"}
+				if layout == "hierarchy-full" {
+					want["x.gz"] = "x/o.0.x.gz"
+				}
+				h := newHfxSiteOf(t, layout, "*:x30:e4\n", []string{"e2e.test", "x", "x.gz"}, want)
+				pair := layout == "hierarchy"
+				if mode == "rewrite" {
+					var data []string
+					for _, g := range []string{"x", "x.gz"} {
+						data = append(data, h.data(g)...)
+					}
+					snap := hfxSnapshot(t, data)
+
+					out := h.run(t, "-a", "-R", "-v3")
+
+					for _, g := range h.groups {
+						line := map[string]string{"x": "x.gz", "x.gz": "x"}[g]
+						d325 := g + ": not rewritten: the group " + line + " has its files in the same directory, the top of the group home (D-325)\n"
+						rewritten := strings.Contains(out, "End of rewrite: "+g+"\n")
+						switch {
+						case pair && g != "e2e.test":
+							if rewritten || !strings.Contains(out, d325) {
+								t.Errorf("hierarchy: %s rewritten %v, want not, with %q", g, rewritten, strings.TrimSpace(d325))
+							}
+						case !rewritten:
+							t.Errorf("dexpireover -R did not rewrite %s (no \"End of rewrite: %s\")", g, g)
+						}
+						if line != "" && !pair && strings.Contains(out, d325) {
+							t.Errorf("hierarchy-full: %q", strings.TrimSpace(d325))
+						}
+						for _, f := range append([]string{h.over(g)}, h.data(g)...) {
+							if !hfxExists(f) {
+								t.Errorf("after -R: %s is gone", h.rel(f))
+							}
+						}
+					}
+					if pair {
+						h.checkKept(t, "after -R", snap)
+					}
+					for _, l := range strings.Split(out, "\n") {
+						if strings.HasPrefix(l, "Rewrite ") || strings.HasPrefix(l, "copy failed") || strings.HasPrefix(l, "New data file") {
+							t.Errorf("dexpireover -R reports: %s", l)
+						}
+					}
+					h.checkReports(t, out, nil)
+					if t.Failed() {
+						t.Logf("dexpireover -a -R -v3:\n%s", out)
+					}
+					restartReader(t, h.s)
+					for _, g := range h.groups {
+						h.checkOver(t, "after dexpireover -a -R", g, 1)
+					}
+					return
+				}
+
+				old := time.Now().Add(-40 * 24 * time.Hour)
+				var gone, keep []string
+				allowed := map[string]string{}
+				for _, g := range h.groups {
+					hfxAge(t, h.over(g), []int{1, 2, 3, 4}, old)
+					gone = append(gone, h.dataOf(g, 0))
+					allowed[h.dataOf(g, 0)] = "Deleting stale overview data for "
+					keep = append(keep, h.data(g)[1:]...)
+				}
+				snap := hfxSnapshot(t, keep)
+
+				out := h.run(t, "-a", "-v")
+
+				h.checkGone(t, out, "Deleting stale overview data for ", gone)
+				h.checkKept(t, "after dexpireover -a", snap)
+				h.checkReports(t, out, allowed)
+				for _, g := range h.groups {
+					re := regexp.MustCompile(`(?m)^expired 4 +NB \+= 4 +\( *0 can, +0 stale, +4 exprd\) left 8 .* grp=` + regexp.QuoteMeta(g) + `$`)
+					if n := len(re.FindAllString(out, -1)); n != 1 {
+						t.Errorf("%d \"expired 4 NB += 4 ... left 8\" lines for %s, want 1", n, g)
+					}
+				}
+				if t.Failed() {
+					t.Logf("dexpireover -a -v:\n%s", out)
+				}
+				restartReader(t, h.s)
+				for _, g := range h.groups {
+					h.checkOver(t, "after dexpireover -a", g, 5)
 				}
 			})
 		}

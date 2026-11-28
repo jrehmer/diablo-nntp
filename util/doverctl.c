@@ -67,6 +67,8 @@ static void CleanTop(void);
 static int HierName(const char *name);
 static int TopTempName(const char *name);
 static int OverNamesGroup(const char *path, const char *name);
+static void TopGoneAdd(const char *name);
+static int TopGone(const char *name);
 int getDataEntries(const char *path);
 
 #define	ACT_CONVERT	0x01
@@ -994,7 +996,9 @@ CleanSpool(char *cleanDir)
      * The files at the top of the group home (D-338): hierarchy and
      * hierarchy-full put there the files of the groups whose directory is
      * the top (plain hierarchy: two components, the first of one
-     * character, x.y, a.b, x.yz; both: one component, junk).  crc and md5 put
+     * character, x.y, a.b, x.yz; both: one component, junk).  With plain
+     * hierarchy a group x of one character shares the top with x.gz, so
+     * "d.<n>.x.gz" is judged by both groups (D-318), as in a directory.  crc and md5 put
      * no file there.
      */
     if (DOpts.ReaderGroupHashMethod.gh_type == HASHGRP_HIER)
@@ -1008,8 +1012,13 @@ CleanSpool(char *cleanDir)
  * (HierName()) of regular files are looked at, by ProcessFile() with top
  * set, which acts only on the files of groups whose directory is the top;
  * and the temporary names of dexpireover -R and -z that TopTempName()
- * accepts are removed.  No directory is entered or removed, and nothing
- * else is reported or removed.
+ * accepts are removed.  Two passes: the over files first, so that a data
+ * file of a removed group is judged after its over file (TopGone()).  Main
+ * never looked at the files there, so as for the trees #515 added no
+ * symlink is followed, opened or removed (lstat(), a dangling one too),
+ * and nothing but a regular file is opened (a FIFO would block the
+ * open()).  No directory is entered or removed, and nothing else is
+ * reported or removed.
  */
 static void
 CleanTop(void)
@@ -1018,34 +1027,46 @@ CleanTop(void)
     DIR *dir;
     den_t *den;
     struct stat st;
+    int pass;
 
     if ((dir = opendir(".")) == NULL) {
 	printf("Unable to open %s: %s\n", home, strerror(errno));
 	++Failures;
 	return;
     }
-    while ((den = readdir(dir)) != NULL) {
-	int temp = TopTempName(den->d_name);
+    for (pass = 1; pass <= 2; ++pass) {
+	rewinddir(dir);
+	while ((den = readdir(dir)) != NULL) {
+	    int temp = (pass == 2 && TopTempName(den->d_name));
+	    int ht = temp ? 0 : HierName(den->d_name);
 
-	if (!temp && !HierName(den->d_name))
-	    continue;
-	/* a link is followed, as in the trees main entered */
-	if (stat(den->d_name, &st) != 0 || !S_ISREG(st.st_mode))
-	    continue;
-	if (temp) {
-	    printf("Deleting old temp file: %s/%s\n", home, den->d_name);
-	    DeleteFile(home, den->d_name);
-	} else
-	    ProcessFile(home, den->d_name, 1);
-	if (MustExit)
-	    exit(1);
+	    /* pass 1: over files; pass 2: temporary and data files */
+	    if (!temp && (ht == 0 || (ht == 1) != (pass == 1)))
+		continue;
+	    if (lstat(den->d_name, &st) != 0)
+		continue;
+	    if (S_ISLNK(st.st_mode)) {
+		if (VerboseOpt)
+		    printf("Skipping symlink %s/%s: not followed at the top of the group home\n", home, den->d_name);
+		continue;
+	    }
+	    if (!S_ISREG(st.st_mode))
+		continue;
+	    if (temp) {
+		printf("Deleting old temp file: %s/%s\n", home, den->d_name);
+		DeleteFile(home, den->d_name);
+	    } else
+		ProcessFile(home, den->d_name, 1);
+	    if (MustExit)
+		exit(1);
+	}
     }
     closedir(dir);
 }
 
 /*
- * HierName() - name parses as a hierarchy over or data file name (in the
- * configured layout's order, D-335), not as a crc or md5 one.
+ * HierName() - name parses as a hierarchy over (1) or data (2) file name
+ * (in the configured layout's order, D-335), not as a crc or md5 one (0).
  */
 static int
 HierName(const char *name)
@@ -1056,8 +1077,47 @@ HierName(const char *name)
     int type = ExtractGroupHashInfo(name, DOpts.ReaderGroupHashMethod.gh_type,
 						Hash, &artBase, &iter);
 
-    return(type != HASHGRP_NONE &&
-	(type & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) == HASHGRP_HIER);
+    if (type == HASHGRP_NONE ||
+	(type & ~(HASHGRPTYPE_OVER | HASHGRPTYPE_DATA)) != HASHGRP_HIER)
+	return(0);
+    return((type & HASHGRPTYPE_OVER) ? 1 : 2);
+}
+
+/*
+ * TopGone - the groups whose over file at the top of the group home this
+ * run removed as the file of no group (its header named the group, D-338):
+ * the evidence that such a group existed, by which its data files at the
+ * top are removed in the second pass of CleanTop().  A data file name alone
+ * is no evidence (an admin's d.0.junk~ is the data file name of a group
+ * junk~).  As in dexpireover.
+ */
+static char **TopGoneList;
+static int TopGoneCount;
+
+static void
+TopGoneAdd(const char *name)
+{
+    char **n;
+
+    if (TopGone(name))
+	return;
+    if ((n = realloc(TopGoneList, (TopGoneCount + 1) * sizeof(*TopGoneList))) == NULL)
+	return;			/* the data files then stay: no harm */
+    TopGoneList = n;
+    if ((TopGoneList[TopGoneCount] = strdup(name)) != NULL)
+	++TopGoneCount;
+}
+
+static int
+TopGone(const char *name)
+{
+    int i;
+
+    for (i = 0; i < TopGoneCount; ++i) {
+	if (strcmp(TopGoneList[i], name) == 0)
+	    return(1);
+    }
+    return(0);
 }
 
 /*
@@ -1118,7 +1178,8 @@ OverNamesGroup(const char *path, const char *name)
     int fd;
     int r = 0;
 
-    if ((fd = open(path, O_RDONLY)) >= 0) {
+    /* O_NONBLOCK: a FIFO must not block (CleanTop() checks for a regular file) */
+    if ((fd = open(path, O_RDONLY | O_NONBLOCK)) >= 0) {
 	if (read(fd, &oh, sizeof(oh)) == sizeof(oh) &&
 	    oh.oh_Version >= 2 && oh.oh_Version <= OH_VERSION &&
 	    oh.oh_ByteOrder == OH_BYTEORDER &&
@@ -1447,6 +1508,20 @@ ProcessFile(const char *dirPath, const char *name, int top)
 	    printf("over file of no group at the top of the group home whose header does not name %s, left alone: %s\n", Hash, path);
 	return;
     }
+    if (group == NULL && groupZ == NULL && top &&
+	(type & HASHGRPTYPE_DATA) && !TopGone(Hash) &&
+	!(HashZ[0] && TopGone(HashZ))) {
+	/*
+	 * A data file of no group at the top is removed only when this run
+	 * removed that group's over file at the top (the first pass of
+	 * CleanTop()): its header named the group, so the group existed.
+	 * Else the name is all there is, and an admin's d.0.junk~ stays
+	 * (D-338).
+	 */
+	if (VerboseOpt)
+	    printf("data file of no group at the top of the group home with no over file of that group, left alone: %s\n", path);
+	return;
+    }
     if (group == NULL && groupZ == NULL) {
 	/*
 	 * If we gave a wildcard, we can't remove stale groups because
@@ -1455,6 +1530,8 @@ ProcessFile(const char *dirPath, const char *name, int top)
 
 	++BadGroups;
 	printf("Group for over file not found, removing %s\n", path);
+	if (top && (type & HASHGRPTYPE_OVER))
+	    TopGoneAdd(Hash);
 	DeleteFile(dirPath, name);
 	return;
     }
