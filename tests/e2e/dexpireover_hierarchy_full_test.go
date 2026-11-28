@@ -60,10 +60,22 @@ type hfxSite struct {
 // the one of hfxGroups).
 func newHfxSite(t *testing.T, layout, ctl string) *hfxSite {
 	t.Helper()
-	h := &hfxSite{layout: layout, dirs: map[string]string{}, before: map[string][]string{}}
+	var groups []string
+	want := map[string]string{}
 	for _, g := range hfxGroups {
-		h.groups = append(h.groups, g.name)
+		groups = append(groups, g.name)
+		if layout == "hierarchy-full" {
+			want[g.name] = g.dir + "/o.0." + g.name
+		}
 	}
+	return newHfxSiteOf(t, layout, ctl, groups, want)
+}
+
+// newHfxSiteOf is newHfxSite for the given groups; want is the over file path below the group
+// home that dgrpctl listgrouphashfile must give a group (no check for a group not in want).
+func newHfxSiteOf(t *testing.T, layout, ctl string, groups []string, want map[string]string) *hfxSite {
+	t.Helper()
+	h := &hfxSite{layout: layout, groups: groups, dirs: map[string]string{}, before: map[string][]string{}}
 	st := fakeserver.NewStore()
 	for _, g := range h.groups {
 		st.AddGroup(g, "hierarchy-full dexpireover test group")
@@ -86,13 +98,13 @@ func newHfxSite(t *testing.T, layout, ctl string) *hfxSite {
 	h.s.Proc.Stop()
 
 	h.home = strings.TrimSpace(h.s.Run(t, "dpath", "group"))
-	for _, g := range hfxGroups {
-		rel := hierListPath(t, h.s, g.name)
-		if layout == "hierarchy-full" && rel != g.dir+"/o.0."+g.name {
-			t.Fatalf("listgrouphashfile %s = %q, want %q", g.name, rel, g.dir+"/o.0."+g.name)
+	for _, g := range h.groups {
+		rel := hierListPath(t, h.s, g)
+		if w, ok := want[g]; ok && rel != w {
+			t.Fatalf("listgrouphashfile %s = %q, want %q", g, rel, w)
 		}
-		h.dirs[g.name] = filepath.Join(h.home, filepath.Dir(rel))
-		for _, f := range append([]string{h.over(g.name)}, h.data(g.name)...) {
+		h.dirs[g] = filepath.Join(h.home, filepath.Dir(rel))
+		for _, f := range append([]string{h.over(g)}, h.data(g)...) {
 			if _, err := os.Stat(f); err != nil {
 				t.Fatalf("after the feed: %v", err)
 			}

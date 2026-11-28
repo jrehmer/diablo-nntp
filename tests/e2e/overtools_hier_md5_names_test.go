@@ -36,9 +36,9 @@ import (
 // found, removing", "stale overview data", "bad file header" or "Deleting unknown" for them;
 // dexpireover removes the temporary files ("Removing old temp file: <path>") and o.0.o.1.9
 // ("Group for over file not found, removing"); -R rewrites every group ("End of rewrite:
-// <group>"; with the hierarchy layouts not o and d, whose files are in the group home itself,
-// which neither tool scans, on main too), reports no failed rewrite and leaves no '.' file in
-// the groups' directories; after the restart OVER 1-2 of each group gives the same lines as
+// <group>"; with the hierarchy layouts also o and d, whose files are at the top of the group
+// home, which neither tool scanned before D-338), reports no failed rewrite and leaves no '.'
+// file in the groups' directories; after the restart OVER 1-2 of each group gives the same lines as
 // before. **Fails** on e19924fb (main) with hierarchy and hierarchy-full, every tool and
 // variant: the files of the D-335 groups are removed as "Group for over file not found" or,
 // with the groups o and d, taken as their files, -R rewrites none of the D-335 groups, and
@@ -156,9 +156,7 @@ func hierMD5LikeCase(t *testing.T, hash, tool string, withOD bool) {
 	case "dexpireover_R":
 		out = s.Run(t, "dexpireover", "-a", "-R", "-v3")
 		for _, g := range groups {
-			if dirs[g] == home {
-				continue // hierarchy o and d: files in the group home itself, which is not scanned
-			}
+			// also o and d, whose files are at the top of the group home (D-338)
 			if !strings.Contains(out, "End of rewrite: "+g+"\n") {
 				t.Errorf("dexpireover -R did not rewrite %s", g)
 			}

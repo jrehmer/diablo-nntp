@@ -303,6 +303,9 @@ TestDexpireoverRewriteTrackonly 0.24
 TestDexpireoverRewriteTrackonlyGzip 0.17
 TestDexpireoverStaleGroupDryRun 0.03
 TestDexpireoverStaleGroupNewArticle 0.11
+TestDexpireoverTopLevelCompress 0.41
+TestDexpireoverTopLevelExpire 0.92
+TestDexpireoverTopLevelRewrite 0.52
 TestDexpireoverWildEmptyGroup 0.2
 TestDexpireoverWildOverFileUnusable 0.22
 TestDexpireoverWildTwoEmptyColliders 0.21
@@ -682,6 +685,8 @@ TestOverToolsMd564SignDirChildSymlink 0.09
 TestOverToolsMd564SignDirFileSymlink 0.58
 TestOverToolsOldNameDirChildSymlink 0.09
 TestOverToolsOldNameDirFileSymlink 0.14
+TestOverToolsTopLevelRemovedGroup 1.14
+TestOverToolsTopLevelSwitch 1.40
 TestOverviewMsgIdCollisionCancel 0.07
 TestOverviewMsgIdCollisionXhdr 0.06
 TestOverviewMsgIdTwoHeaders 0.06
